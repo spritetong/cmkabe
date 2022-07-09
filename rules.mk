@@ -10,10 +10,10 @@
 
 ifndef __RULES_MK__
 __RULES_MK__ = $(abspath $(lastword $(MAKEFILE_LIST)))
-ifeq ($(CMKHLP_HOME),)
+ifeq ($(CMKABE_HOME),)
     include $(dir $(__RULES_MK__))env.mk
 endif
-include $(CMKHLP_HOME)/targets.mk
+include $(CMKABE_HOME)/targets.mk
 
 ifndef WORKSPACE_DIR
     #! Insert to the head of Makefile in the workspace directory:
@@ -27,11 +27,14 @@ endif
 override DEBUG := $(call bool,$(DEBUG),ON)
 override VERBOSE := $(call bool,$(VERBOSE),OFF)
 
-CMAKE_BUILD_TYPE = $(if $(filter ON,$(DEBUG)),Debug,Release)
-CMAKE_BUILD_ROOT = $(WORKSPACE_DIR)/target/cmake
-CMAKE_BUILD_DIR = $(CMAKE_BUILD_ROOT)/$(TARGET_TRIPLE)/$(CMAKE_BUILD_TYPE)
+#! The current configuration of CMake build.
+CMAKE_BUILD_TYPE ?= $(if $(filter ON,$(DEBUG)),Debug,Release)
+#! The root of CMake build directories.
+CMAKE_BUILD_ROOT ?= $(WORKSPACE_DIR)/target/cmake
+#! The CMake build directory for the current configuration.
+CMAKE_BUILD_DIR ?= $(CMAKE_BUILD_ROOT)/$(TARGET_TRIPLE)/$(CMAKE_BUILD_TYPE)
 #! CMake extra output directories.
-CMAKE_EXTRA_OUTPUT_DIRS =
+CMAKE_EXTRA_OUTPUT_DIRS +=
 
 CMAKE_INIT = cmake -B "$(CMAKE_BUILD_DIR)"
 CMAKE_INIT += $(if $(MSVC_ARCH),-A $(MSVC_ARCH),)
@@ -49,14 +52,14 @@ cmake_clean = $(call cmake_build) --target clean
 # = Cargo
 
 #! Cargo toolchain
-CARGO_TOOLCHAIN =
+CARGO_TOOLCHAIN +=
 #! Extra options passed to "cargo build" or "cargo run"
-CARGO_OPTS = --target $(TARGET_TRIPLE)
+CARGO_OPTS += --target $(TARGET_TRIPLE)
 CARGO_OPTS += $(if $(filter ON,$(DEBUG)),,--release)
 #! Cargo binary crates
-CARGO_EXECUTABLES =
+CARGO_EXECUTABLES +=
 #! Cargo dependencie crates without upgrading
-CARGO_UPGRADE_EXCLUDES =
+CARGO_UPGRADE_EXCLUDES +=
 
 # cargo_run(<crate:str>,<options:str>)
 cargo_run = cargo $(CARGO_TOOLCHAIN) run --bin $(1) $(CARGO_OPTS) $(2)
@@ -85,6 +88,7 @@ endef
 ifeq ($(shell $(TARGET)-gcc -dumpversion >$(NULL) 2>&1 || echo 1),)
     $(call cargo_set_gcc_env_vars)
 endif
+export CARGO_WORKSPACE_DIR = $(CMKABE_HOME)
 
 # ==============================================================================
 # = Rules
@@ -136,7 +140,7 @@ cargo-lib:
 
 # Clean all Cargo targets.
 cargo-clean:
-	@cargo clean
+	-@cargo clean
 
 # Upgrade dependencies
 cargo-upgrade:
@@ -144,6 +148,10 @@ cargo-upgrade:
      $(call cargo_upgrade,$(CARGO_UPGRADE_EXCLUDES)) || \
      $(call cargo_upgrade_workspace,$(CARGO_UPGRADE_EXCLUDES))
 	@cargo update
+
+# Do not change the default goal.
+.DEFAULT_GOAL := $(_saved_default_goal)
+undefine _saved_default_goal
 
 # Generate common rules for Cargo and CMake.
 rules_for_cargo_cmake = $(eval $(_rules_for_cargo_cmake_tmpl_))
@@ -164,7 +172,7 @@ define _rules_for_cargo_cmake_tmpl_
 
     .PHONY: run
     run:
-		@$$(call cargo_run,$$(BIN)) || echo ***Please specify the binary name by "BIN=<name>"
+		@$$(call cargo_run,$$(BIN))
 
     .PHONY: lib
     lib: cargo-lib
@@ -172,21 +180,19 @@ define _rules_for_cargo_cmake_tmpl_
     .PHONY: upgrade
     upgrade: cargo-upgrade
 
-    .PHONY: master slave app
-    master slave app:
-		@$$(call cargo_build,$$@)
-
-    .PHONY: $$(foreach I,$$(CARGO_EXECUTABLES),run-$$I)
-    $$(foreach I,$$(CARGO_EXECUTABLES),run-$$I):
-		@$$(call cargo_run,$$(subst run-,,$$@))
-    
     .PHONY: help
     help:
-		@$(call less,"$(CMKHLP_HOME)/usage.txt")
-endef
+		@$(call less,"$(CMKABE_HOME)/usage.txt")
 
-# Do not change the default goal.
-.DEFAULT_GOAL := $(_saved_default_goal)
-undefine _saved_default_goal
+    ifneq ($$(CARGO_EXECUTABLES),)
+        .PHONY: $$(CARGO_EXECUTABLES)
+        $$(CARGO_EXECUTABLES):
+			@$$(call cargo_build,$$@)
+
+        .PHONY: $$(foreach I,$$(CARGO_EXECUTABLES),run-$$I)
+        $$(foreach I,$$(CARGO_EXECUTABLES),run-$$I):
+			@$$(call cargo_run,$$(subst run-,,$$@))
+    endif
+endef
 
 endif # __RULES_MK__

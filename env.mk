@@ -10,7 +10,7 @@
 
 ifndef __ENV_MK__
 __ENV_MK__ = $(abspath $(lastword $(MAKEFILE_LIST)))
-CMKHLP_HOME := $(abspath $(dir $(__ENV_MK__)))
+CMKABE_HOME := $(abspath $(dir $(__ENV_MK__)))
 
 # ==============================================================================
 # = Environment Variables
@@ -31,7 +31,7 @@ _bool_norm_ = $(if $(filter 1 TRUE ON,$(1)),ON,$(if $(filter 0 FALSE OFF,$(1)),O
 # either(<value1:str>,<value2:str>)
 either = $(if $(1),$(1),$(2))
 
-# sel(<name>, <name=value list>, <default>)
+# sel(<name>,<name=value list>,<default>)
 sel = $(if $(filter $(1)=%,$(2)),$(patsubst $(1)=%,%,$(filter $(1)=%,$(2))),$(3))
 
 # bsel(<:bool>,<value for ON>,<value for OFF>)
@@ -63,7 +63,7 @@ git_remove_ignored = $(call xargs_do,$(call git_ls_ignored,$(1)),$(RM) -f {})
 exists = test -e $(1)
 
 # Run command with arguments read from input.
-# xargs_do(<input:str>, <command:str>)
+# xargs_do(<input:str>,<command:str>)
 xargs_do = $(1) | xargs -I {} $(2)
 
 COMMA   = ,
@@ -78,15 +78,15 @@ ERR     = test 0 == 1
 PY      = python
 PY3     = python3
 
-CMPVER  = $(PY) "$(CMKHLP_HOME)/shellutil.py" cmpver
+CMPVER  = $(PY) "$(CMKABE_HOME)/shellutil.py" cmpver
 CP      = cp
-CWD     = $(PY) "$(CMKHLP_HOME)/shellutil.py" cwd
-less    = less
-MKDIR   = $(PY) "$(CMKHLP_HOME)/shellutil.py" mkdir
+CWD     = $(PY) "$(CMKABE_HOME)/shellutil.py" cwd
+less    = less $(1)
+MKDIR   = $(PY) "$(CMKABE_HOME)/shellutil.py" mkdir
 MV      = mv
-RELPATH = $(PY) "$(CMKHLP_HOME)/shellutil.py" relpath
+RELPATH = $(PY) "$(CMKABE_HOME)/shellutil.py" relpath
 RM      = rm
-RMDIR   = $(PY) "$(CMKHLP_HOME)/shellutil.py" rmdir -f
+RMDIR   = $(PY) "$(CMKABE_HOME)/shellutil.py" rmdir -f
 TOUCH   = touch
 WHICH   = which
 
@@ -97,16 +97,16 @@ ifeq ($(HOST),Windows)
     ERR      = cmd.exe /C EXIT 1
     PY       = python.exe
     PY3      = py.exe -3
-    CP       = $(PY) "$(CMKHLP_HOME)/shellutil.py" cp
+    CP       = $(PY) "$(CMKABE_HOME)/shellutil.py" cp
     less     = more $(subst /,\\,$(1))
-    MV       = $(PY) "$(CMKHLP_HOME)/shellutil.py" mv
-    RM       = $(PY) "$(CMKHLP_HOME)/shellutil.py" rm
-    TOUCH    = $(PY) "$(CMKHLP_HOME)/shellutil.py" touch
+    MV       = $(PY) "$(CMKABE_HOME)/shellutil.py" mv
+    RM       = $(PY) "$(CMKABE_HOME)/shellutil.py" rm
+    TOUCH    = $(PY) "$(CMKABE_HOME)/shellutil.py" touch
     WHICH    = where
 
     exists   = (IF NOT EXIST $(subst /,\\,$(1)) $(ERR))
     xargs_do = (FOR /F "tokens=*" %%x IN ('$(1)') DO $(subst {},%%x,$(2)))
-    WINREG   = $(PY) "$(CMKHLP_HOME)/shellutil.py" winreg
+    WINREG   = $(PY) "$(CMKABE_HOME)/shellutil.py" winreg
 endif
 
 endif # __ENV_MK__
