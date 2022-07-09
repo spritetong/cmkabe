@@ -1,0 +1,4 @@
+*.sh        eol=lf
+*.mk        eol=lf
+*.py        eol=lf
+Makefile    eol=lf
