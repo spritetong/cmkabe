@@ -21,5 +21,5 @@ else()
     message(FATAL_ERROR "Can not build for: ${CMAKE_SYSTEM_NAME}")
 endif()
 
-set(TARGET ${TARGET} CACHE STRING "Target triple with a specified vendor." FORCE)
-set(TARGET_TRIPLE ${TARGET_TRIPLE} CACHE STRING "Target triple maybe with an unknown vendor." FORCE)
+set(TARGET "${TARGET}" CACHE STRING "Target triple with a specified vendor." FORCE)
+set(TARGET_TRIPLE "${TARGET_TRIPLE}" CACHE STRING "Target triple maybe with an unknown vendor." FORCE)

@@ -82,3 +82,20 @@ include_directories(BEFORE
     SYSTEM "${TARGET_COMMON_INCLUDE_DIR}"
 )
 link_directories(BEFORE "${TARGET_LIB_DIR}")
+
+# ==============================================================================
+
+# * Search in a directory and add all projects in its child directories.
+function(cmkabe_add_subdirs parent_dir)
+    file(GLOB node_list "${parent_dir}/*")
+
+    foreach(node ${node_list})
+        if(IS_DIRECTORY "${node}")
+            foreach(path "${node}" "${node}/mak")
+                if(EXISTS "${path}/CMakeLists.txt")
+                    add_subdirectory("${path}")
+                endif()
+            endforeach()
+        endif()
+    endforeach()
+endfunction()
