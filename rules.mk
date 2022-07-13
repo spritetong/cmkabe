@@ -1,12 +1,12 @@
-#** @file       rules.mk
-#*  @brief      This file contains common rules to build cmake targets.
-#*  @details    Copyright (C) 2022 spritetong@gmail.com.\n
-#*              All rights reserved.\n
-#*  @author     spritetong@gmail.com
-#*  @date       2014
-#*  @version    1.0, 7/9/2022, Tong
-#*              - Initial revision.
-#**
+# * @file       rules.mk
+# * @brief      This file contains common rules to build cmake targets.
+# * @details    Copyright (C) 2022 spritetong@gmail.com.\n
+# *             All rights reserved.\n
+# * @author     spritetong@gmail.com
+# * @date       2014
+# * @version    1.0, 7/9/2022, Tong
+# *             - Initial revision.
+# *
 
 ifndef __RULES_MK__
 __RULES_MK__ = $(abspath $(lastword $(MAKEFILE_LIST)))

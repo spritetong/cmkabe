@@ -1,16 +1,16 @@
-#** @file       targets.cmake
-#*  @brief      This file contains target triple definitions to build cmake targets.
-#*  @details    Copyright (C) 2022 spritetong@gmail.com.\n
-#*              All rights reserved.\n
-#*  @author     spritetong@gmail.com
-#*  @date       2014
-#*  @version    1.0, 7/9/2022, Tong
-#*              - Initial revision.
-#**
+# * @file       targets.cmake
+# * @brief      This file contains target triple definitions to build cmake targets.
+# * @details    Copyright (C) 2022 spritetong@gmail.com.\n
+# *             All rights reserved.\n
+# * @author     spritetong@gmail.com
+# * @date       2014
+# * @version    1.0, 7/9/2022, Tong
+# *             - Initial revision.
+# *
 
 # TARGET, TARGET_TRIPLE
-if(NOT ("${TARGET}" MATCHES "^(|native)$"))
-    # pass
+if(NOT("${TARGET}" MATCHES "^(|native)$"))
+	# pass
 elseif(WIN32 AND (CMAKE_SYSTEM_PROCESSOR STREQUAL "AMD64"))
     set(TARGET "x86_64-pc-windows-msvc")
     set(TARGET_TRIPLE "${TARGET}")

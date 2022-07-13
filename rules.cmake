@@ -1,25 +1,36 @@
-#** @file       rules.cmake
-#*  @brief      This file contains common rules to build cmake targets.
-#*  @details    Copyright (C) 2022 spritetong@gmail.com.\n
-#*              All rights reserved.\n
-#*  @author     spritetong@gmail.com
-#*  @date       2014
-#*  @version    1.0, 7/9/2022, Tong
-#*              - Initial revision.
-#**
+# * @file       rules.cmake
+# * @brief      This file contains common rules to build cmake targets.
+# * @details    Copyright (C) 2022 spritetong@gmail.com.\n
+# *             All rights reserved.\n
+# * @author     spritetong@gmail.com
+# * @date       2014
+# * @version    1.0, 7/9/2022, Tong
+# *             - Initial revision.
+# *
 
 # Cross compiler
 if(TARGET_C_COMPILER)
-    execute_process(COMMAND "which" "${TARGET_C_COMPILER}" OUTPUT_VARIABLE PREFIX_ OUTPUT_STRIP_TRAILING_WHITESPACE)
-    string(REGEX REPLACE "-[^-]+$" "-" PREFIX_ "${PREFIX_}")
+    if(TARGET_TRIPLE MATCHES "^([^-]+)-([^-]+)-([^-]+)")
+        set(CMAKE_SYSTEM_PROCESSOR "${CMAKE_MATCH_1}" CACHE STRING "")
+        # Convert the system name to camel case.
+        set(_system "${CMAKE_MATCH_3}")
+        string(SUBSTRING "${_system}" 0 1 _first)
+        string(TOUPPER "${_first}" _first)
+        string(REGEX REPLACE "^.(.*)$" "${_first}\\1" _system "${_system}")
+        set(CMAKE_SYSTEM_NAME "${_system}" CACHE STRING "")
+    else()
+        message(FATAL_ERROR "Invalid target triple ${TARGET_TRIPLE}")
+    endif()
 
-    set(CMAKE_SYSTEM_NAME "Linux" CACHE INTERNAL "")
-    set(CMAKE_SYSTEM_PROCESSOR "mipsel" CACHE INTERNAL "")
-
-    set(CMAKE_C_COMPILER "${PREFIX_}gcc" CACHE STRING "" FORCE)
-    set(CMAKE_CXX_COMPILER "${PREFIX_}g++" CACHE STRING "" FORCE)
-    set(CMAKE_ASM_COMPILER "${PREFIX_}gcc" CACHE STRING "" FORCE)
-    set(CMAKE_ASM-ATT_COMPILER "${PREFIX_}as" CACHE STRING "" FORCE)
+    execute_process(COMMAND "which" "${TARGET_C_COMPILER}" OUTPUT_VARIABLE _prefix OUTPUT_STRIP_TRAILING_WHITESPACE)
+    string(REGEX REPLACE "-[^-]+$" "-" _prefix "${_prefix}")
+    if(NOT _prefix)
+        message(FATAL_ERROR "*** Can not find the C compiler: ${TARGET_C_COMPILER}, please add its path to the PATH enviornment variable.")
+    endif()
+    set(CMAKE_C_COMPILER "${_prefix}gcc" CACHE STRING "" FORCE)
+    set(CMAKE_CXX_COMPILER "${_prefix}g++" CACHE STRING "" FORCE)
+    set(CMAKE_ASM_COMPILER "${_prefix}gcc" CACHE STRING "" FORCE)
+    set(CMAKE_ASM-ATT_COMPILER "${_prefix}as" CACHE STRING "" FORCE)
 endif()
 
 if(NOT CMAKE_BUILD_TYPE)
@@ -55,6 +66,28 @@ if(NOT DEFINED TARGET_STRIP_ON_RELEASE)
     set(TARGET_STRIP_ON_RELEASE ON)
 endif()
 
+if(NOT DEFINED TARGET_CC_PIC)
+    set(TARGET_CC_PIC ON)
+endif()
+
+if(NOT DEFINED TARGET_CC_NO_DELETE_NULL_POINTER_CHECKS)
+    set(TARGET_CC_NO_DELETE_NULL_POINTER_CHECKS ON)
+endif()
+
+if(NOT DEFINED TARGET_MSVC_AFXDLL)
+    set(TARGET_MSVC_AFXDLL ON)
+endif()
+
+if(NOT DEFINED TARGET_MSVC_UNICODE)
+    set(TARGET_MSVC_UNICODE ON)
+endif()
+
+# ==============================================================================
+
+include(CheckCCompilerFlag)
+check_c_compiler_flag("-fPIC" CC_SUPPORT_PIC)
+check_c_compiler_flag("-fno-delete-null-pointer-checks" CC_SUPPORT_NO_DELETE_NULL_POINTER_CHECKS)
+
 # Redirect the output directorires to the target directories.
 if(TARGET_OUTPUT_REDIRECT)
     set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${TARGET_LIB_DIR}$<LOWER_CASE:>" CACHE INTERNAL "")
@@ -75,6 +108,22 @@ endif()
 if(NOT(CMAKE_C_FLAGS_DEBUG MATCHES " -D_DEBUG( |$)"))
     SET(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -D_DEBUG" CACHE STRING "" FORCE)
     SET(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -D_DEBUG" CACHE STRING "" FORCE)
+endif()
+
+if(TARGET_CC_PIC AND CC_SUPPORT_PIC)
+    add_compile_options("-fPIC")
+endif()
+
+if(TARGET_CC_NO_DELETE_NULL_POINTER_CHECKS AND CC_SUPPORT_NO_DELETE_NULL_POINTER_CHECKS)
+    add_compile_options("-fno-delete-null-pointer-checks")
+endif()
+
+if(TARGET_MSVC_AFXDLL AND WIN32)
+    add_compile_definitions("_AFXDLL")
+endif()
+
+if(TARGET_MSVC_UNICODE AND WIN32)
+    add_compile_definitions("_UNICODE")
 endif()
 
 include_directories(BEFORE

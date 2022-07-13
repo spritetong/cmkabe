@@ -1,12 +1,12 @@
-#** @file       targets.mk
-#*  @brief      This file contains target triple definitions to build cmake targets.
-#*  @details    Copyright (C) 2022 spritetong@gmail.com.\n
-#*              All rights reserved.\n
-#*  @author     spritetong@gmail.com
-#*  @date       2014
-#*  @version    1.0, 7/9/2022, Tong
-#*              - Initial revision.
-#**
+# * @file       targets.mk
+# * @brief      This file contains target triple definitions to build cmake targets.
+# * @details    Copyright (C) 2022 spritetong@gmail.com.\n
+# *             All rights reserved.\n
+# * @author     spritetong@gmail.com
+# * @date       2014
+# * @version    1.0, 7/9/2022, Tong
+# *             - Initial revision.
+# *
 
 ifndef __TARGETS_MK__
 __TARGETS_MK__ = $(abspath $(lastword $(MAKEFILE_LIST)))

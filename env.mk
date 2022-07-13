@@ -1,12 +1,12 @@
-#** @file       env.mk
-#*  @brief      This file contains environment and common utilities for CMake.
-#*  @details    Copyright (C) 2022 spritetong@gmail.com.\n
-#*              All rights reserved.\n
-#*  @author     spritetong@gmail.com
-#*  @date       2014
-#*  @version    1.0, 7/9/2022, Tong
-#*              - Initial revision.
-#**
+# * @file       env.mk
+# * @brief      This file contains environment and common utilities for CMake.
+# * @details    Copyright (C) 2022 spritetong@gmail.com.\n
+# *             All rights reserved.\n
+# * @author     spritetong@gmail.com
+# * @date       2014
+# * @version    1.0, 7/9/2022, Tong
+# *             - Initial revision.
+# *
 
 ifndef __ENV_MK__
 __ENV_MK__ = $(abspath $(lastword $(MAKEFILE_LIST)))
