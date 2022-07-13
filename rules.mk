@@ -88,7 +88,7 @@ endef
 ifeq ($(shell $(TARGET)-gcc -dumpversion >$(NULL) 2>&1 || echo 1),)
     $(call cargo_set_gcc_env_vars)
 endif
-export CARGO_WORKSPACE_DIR = $(CMKABE_HOME)
+export CARGO_WORKSPACE_DIR = $(WORKSPACE_DIR)
 
 # ==============================================================================
 # = Rules
