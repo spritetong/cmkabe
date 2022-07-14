@@ -49,17 +49,17 @@ kv_key = $(firstword $(subst =, ,$(1)))
 # kv_value(<key>=<value>)
 kv_value = $(lastword $(subst =, ,$(1)))
 
-# git_ls_untracked(<directory:str>)
-git_ls_untracked = git ls-files --others --exclude-standard $(1)
+# git_ls_untracked(<directory:str>,<patterns:List<str>>)
+git_ls_untracked = git ls-files --others $(if $(2),$(addprefix -x ,$(2)),--exclude-standard) $(1)
 
-# git_ls_ignored(<directory:str>)
-git_ls_ignored = git ls-files --others --exclude-standard -i $(1)
+# git_ls_ignored(<directory:str>,<patterns:List<str>>)
+git_ls_ignored = git ls-files --others -i $(if $(2),$(addprefix -x ,$(2)),--exclude-standard) $(1)
 
-# git_remove_ignored(<directories:str>)
-git_remove_ignored = $(call xargs_do,$(call git_ls_ignored,$(1)),$(RM) -f {})
+# git_remove_ignored(<directories:str>,<patterns:List<str>>)
+git_remove_ignored = $(call xargs_do,$(call git_ls_ignored,$(1),$(2)),$(RM) -f {})
 
 # Check existence of a file or a directory 
-# exists(<file or directory:str>)
+# exists(<file or directory:str>,<patterns:List<str>>)
 exists = test -e $(1)
 
 # Run command with arguments read from input.

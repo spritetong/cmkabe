@@ -33,8 +33,10 @@ CMAKE_BUILD_TYPE ?= $(if $(filter ON,$(DEBUG)),Debug,Release)
 CMAKE_BUILD_ROOT ?= $(WORKSPACE_DIR)/target/cmake
 #! The CMake build directory for the current configuration.
 CMAKE_BUILD_DIR ?= $(CMAKE_BUILD_ROOT)/$(TARGET_TRIPLE)/$(CMAKE_BUILD_TYPE)
-#! CMake extra output directories.
-CMAKE_EXTRA_OUTPUT_DIRS +=
+#! CMake output directories to clean.
+CMAKE_OUTPUT_DIRS +=
+#! CMake output file patterns to clean.
+CMAKE_OUTPUT_FILE_PATTERNS += *.o *.obj *.a *.so *.so.* *.out *.lib *.dll *.exe *.pdb *.bin *.hex
 
 CMAKE_INIT = cmake -B "$(CMAKE_BUILD_DIR)"
 CMAKE_INIT += $(if $(MSVC_ARCH),-A $(MSVC_ARCH),)
@@ -131,7 +133,7 @@ cmake-clean-root: cmake-clean-outputs
 
 # Clean extra output files.
 cmake-clean-outputs:
-	@$(call git_remove_ignored,$(CMAKE_EXTRA_OUTPUT_DIRS)) || $(OK)
+	@$(call git_remove_ignored,$(CMAKE_OUTPUT_DIRS),$(CMAKE_OUTPUT_FILE_PATTERNS)) || $(OK)
 	@$(TOUCH) "$(WORKSPACE_DIR)/CMakeLists.txt"
 
 # Build all Rust libraries
