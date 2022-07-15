@@ -8,6 +8,8 @@
 # *             - Initial revision.
 # *
 
+include("${CMAKE_CURRENT_LIST_DIR}/env.cmake")
+
 # TARGET, TARGET_TRIPLE
 if(NOT("${TARGET}" MATCHES "^(|native)$"))
 	# pass

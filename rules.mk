@@ -124,7 +124,6 @@ cmake-clean: cmake-clean-outputs
 
 # Clean the target and erase the build directory.
 cmake-distclean: cmake-clean-outputs
-	@$(call exists,"$(CMAKE_BUILD_DIR)") && $(call cmake_clean) || $(OK)
 	@$(RM) -r -f "$(CMAKE_BUILD_DIR)" || $(OK)
 
 # Clean the root directory of all targets.
