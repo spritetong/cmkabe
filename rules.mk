@@ -60,8 +60,6 @@ CARGO_OPTS += --target $(TARGET_TRIPLE)
 CARGO_OPTS += $(if $(filter ON,$(DEBUG)),,--release)
 #! Cargo binary crates
 CARGO_EXECUTABLES +=
-#! Cargo dependencie crates without upgrading
-CARGO_UPGRADE_EXCLUDES +=
 
 # cargo_run(<crate:str>,<options:str>)
 cargo_run = cargo $(CARGO_TOOLCHAIN) run --bin $(1) $(CARGO_OPTS) $(2)
@@ -72,11 +70,8 @@ cargo_build = cargo $(CARGO_TOOLCHAIN) build --bin $(1) $(CARGO_OPTS) $(2)
 # cargo_build_lib(<options:str>)
 cargo_build_lib = cargo $(CARGO_TOOLCHAIN) build --lib $(CARGO_OPTS) $(1)
 
-# cargo_upgrade(<excludes:str>)
-cargo_upgrade = cargo upgrade $(addprefix --exclude ,$(1)) && cargo update
-
-# cargo_upgrade_workspace(<excludes:str>)
-cargo_upgrade_workspace = cargo upgrade --workspace $(addprefix --exclude ,$(1)) && cargo update
+# cargo_upgrade(<excludes:str>,<options:str>)
+cargo_upgrade = cargo upgrade --workspace --to-lockfile $(1)
 
 # Set crosss compile tools for Rust
 # cargo_set_gcc_env_vars()
@@ -145,10 +140,8 @@ cargo-clean:
 
 # Upgrade dependencies
 cargo-upgrade:
-	@cargo pkgid >$(NULL) 2>&1 && \
-     $(call cargo_upgrade,$(CARGO_UPGRADE_EXCLUDES)) || \
-     $(call cargo_upgrade_workspace,$(CARGO_UPGRADE_EXCLUDES))
 	@cargo update
+	@$(call cargo_upgrade)
 
 # Do not change the default goal.
 .DEFAULT_GOAL := $(_saved_default_goal)
