@@ -36,7 +36,7 @@ CMAKE_BUILD_DIR ?= $(CMAKE_BUILD_ROOT)/$(TARGET_TRIPLE)/$(CMAKE_BUILD_TYPE)
 #! CMake output directories to clean.
 CMAKE_OUTPUT_DIRS +=
 #! CMake output file patterns to clean.
-CMAKE_OUTPUT_FILE_PATTERNS += *.o *.obj *.a *.so *.so.* *.out *.lib *.dll *.exe *.pdb *.bin *.hex
+CMAKE_OUTPUT_FILE_PATTERNS += *.o *.obj *.a *.so *.so.* *.out *.lib *.dll *.exp *.exe *.pdb *.bin *.hex
 
 CMAKE_INIT = cmake -B "$(CMAKE_BUILD_DIR)"
 CMAKE_INIT += $(if $(MSVC_ARCH),-A $(MSVC_ARCH),)
