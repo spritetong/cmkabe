@@ -75,10 +75,11 @@ cargo_upgrade = cargo upgrade --workspace --to-lockfile $(1)
 
 # Set crosss compile tools for Rust
 # cargo_set_gcc_env_vars()
-define cargo_set_gcc_env_vars
-    $(eval export CARGO_TARGET_$$(call upper,$$(subst -,_,$$(TARGET_TRIPLE)))_LINKER=$$(TARGET)-gcc)
-    $(foreach I,AR=ar CC=gcc CXX=g++ LD=ld RANLIB=ranlib STRIP=strip,\
-        $(eval export $$(call kv_key,$I)_$$(subst -,_,$$(TARGET_TRIPLE))=$$(TARGET)-$$(call kv_value,$I)))
+cargo_set_gcc_env_vars = $(eval $(_cargo_set_gcc_env_vars_tmpl_))
+define _cargo_set_gcc_env_vars_tmpl_
+    export CARGO_TARGET_$$(call upper,$$(subst -,_,$$(TARGET_TRIPLE)))_LINKER=$$(TARGET)-gcc
+    $$(foreach I,AR=ar CC=gcc CXX=g++ LD=ld RANLIB=ranlib STRIP=strip,\
+        $$(eval export $$(call kv_key,$$I)_$$(subst -,_,$$(TARGET_TRIPLE))=$$(TARGET)-$$(call kv_value,$$I)))
 endef
 
 # If a cross compile GCC exists, set the appropriate environment variables for Rust.
