@@ -73,6 +73,10 @@ if(NOT DEFINED TARGET_CC_PIC)
     set(TARGET_CC_PIC ON)
 endif()
 
+if(NOT DEFINED TARGET_CC_VISIBILITY_HIDDEN)
+    set(TARGET_CC_VISIBILITY_HIDDEN ON)
+endif()
+
 if(NOT DEFINED TARGET_CC_NO_DELETE_NULL_POINTER_CHECKS)
     set(TARGET_CC_NO_DELETE_NULL_POINTER_CHECKS ON)
 endif()
@@ -88,7 +92,9 @@ endif()
 # ==============================================================================
 
 include(CheckCCompilerFlag)
+check_c_compiler_flag("-s" CC_SUPPORT_STRIP)
 check_c_compiler_flag("-fPIC" CC_SUPPORT_PIC)
+check_c_compiler_flag("-fvisibility=hidden" CC_SUPPORT_VISIBILITY)
 check_c_compiler_flag("-fno-delete-null-pointer-checks" CC_SUPPORT_NO_DELETE_NULL_POINTER_CHECKS)
 
 # Redirect the output directorires to the target directories.
@@ -98,8 +104,8 @@ if(TARGET_OUTPUT_REDIRECT)
     set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${TARGET_BIN_DIR}$<LOWER_CASE:>" CACHE INTERNAL "")
 endif()
 
-if(TARGET_STRIP_ON_RELEASE)
-    if(UNIX AND NOT(CMAKE_C_FLAGS_RELEASE MATCHES " -s( |$)"))
+if(TARGET_STRIP_ON_RELEASE AND CC_SUPPORT_STRIP)
+    if(NOT(CMAKE_C_FLAGS_RELEASE MATCHES " -s( |$)"))
         # Strip debug info for Release
         SET(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -s" CACHE STRING "" FORCE)
         SET(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -s" CACHE STRING "" FORCE)
@@ -115,6 +121,10 @@ endif()
 
 if(TARGET_CC_PIC AND CC_SUPPORT_PIC)
     add_compile_options("-fPIC")
+endif()
+
+if(TARGET_CC_VISIBILITY_HIDDEN AND CC_SUPPORT_VISIBILITY)
+    add_compile_options("-fvisibility=hidden")
 endif()
 
 if(TARGET_CC_NO_DELETE_NULL_POINTER_CHECKS AND CC_SUPPORT_NO_DELETE_NULL_POINTER_CHECKS)

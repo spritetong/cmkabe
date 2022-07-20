@@ -83,4 +83,29 @@ function(cmkabe_add_subdirs parent_dir)
     endforeach()
 endfunction()
 
+# Set the output directory of a target.
+# If the specified directory is "RESTORE",
+# restore the target's output directory to ${CMAKE_CURRENT_BINARY_DIR}.
+function(cmkabe_set_target_output_directory target output_dir)
+    if((output_dir STREQUAL "DEFAULT") OR (output_dir STREQUAL ""))
+        set_target_properties(${target} PROPERTIES
+            ARCHIVE_OUTPUT_DIRECTORY "${TARGET_LIB_DIR}"
+            LIBRARY_OUTPUT_DIRECTORY "${TARGET_LIB_DIR}"
+            RUNTIME_OUTPUT_DIRECTORY "${TARGET_BIN_DIR}"
+        )
+    elseif(output_dir STREQUAL "RESTORE")
+        set_target_properties(${target} PROPERTIES
+            ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+            LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+        )
+    else()
+        set_target_properties(${target} PROPERTIES
+            ARCHIVE_OUTPUT_DIRECTORY "${output_dir}"
+            LIBRARY_OUTPUT_DIRECTORY "${output_dir}"
+            RUNTIME_OUTPUT_DIRECTORY "${output_dir}"
+        )
+    endif()
+endfunction()
+
 endif()
