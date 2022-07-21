@@ -14,16 +14,30 @@ __TARGETS_MK__ = $(abspath $(lastword $(MAKEFILE_LIST)))
 # ==============================================================================
 # = TARGET(triple), TARGET_TRIPLE(triple), WINDOWS(bool), UNIX(bool)
 
+_win_arch_table = arm64=aarch64 amd64=x86_64 x64=x86_64 x86=i686 win32=i686
+ifeq ($(HOST),Windows)
+	HOST_ARCH := $(call sel,$(call lower,$(PROCESSOR_ARCHITECTURE)),$(_win_arch_table))
+	HOST_TRIPLE := $(HOST_ARCH)-pc-windows-msvc
+else
+	HOST_ARCH := $(shell uname -p)
+	ifeq ($(HOST),Darwin)
+		HOST_TRIPLE := $(HOST_ARCH)-apple-darwin
+	endif
+	ifeq ($(HOST),Linux)
+		HOST_TRIPLE := $(HOST_ARCH)-unknown-linux-gnu
+	endif
+endif
+
 override TARGET := $(filter-out native,$(TARGET))
 ifeq ($(TARGET),)
     ifeq ($(HOST),Windows)
         override ARCH := $(call sel,$(call lower,$(if $(ARCH),$(ARCH),$(PROCESSOR_ARCHITECTURE))),\
-            arm64=aarch64 amd64=x86_64 x64=x86_64 x86=i686 win32=i686,$(ARCH))
+            $(_win_arch_table),$(ARCH))
         override TARGET := $(ARCH)-pc-windows-msvc
         override TARGET_TRIPLE := $(TARGET)
     else
         ifeq ($(ARCH),)
-            override ARCH := $(shell uname -p)
+            override ARCH := $(HOST_ARCH)
         endif
         ifeq ($(HOST),Darwin)
             override TARGET := $(ARCH)-apple-darwin

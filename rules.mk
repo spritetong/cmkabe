@@ -56,7 +56,7 @@ cmake_clean = $(call cmake_build) --target clean
 #! Cargo toolchain
 CARGO_TOOLCHAIN +=
 #! Extra options passed to "cargo build" or "cargo run"
-CARGO_OPTS += --target $(TARGET_TRIPLE)
+CARGO_OPTS += $(if $(filter $(TARGET_TRIPLE),$(HOST_TRIPLE)),,--target $(TARGET_TRIPLE))
 CARGO_OPTS += $(if $(filter ON,$(DEBUG)),,--release)
 #! Cargo binary crates
 CARGO_EXECUTABLES +=
