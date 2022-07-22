@@ -12,6 +12,8 @@ ifndef __ENV_MK__
 __ENV_MK__ = $(abspath $(lastword $(MAKEFILE_LIST)))
 CMKABE_HOME := $(abspath $(dir $(__ENV_MK__)))
 
+CMAKEABE_VERSION = 0.2.0
+
 # ==============================================================================
 # = Environment Variables
 
@@ -21,49 +23,84 @@ override HOST := $(if $(filter Windows_NT,$(OS)),Windows,$(shell uname -s))
 # ==============================================================================
 # = Utilities
 
-# not(<value:bool>)
+# cmakeabe_version_required(version:str)
+cmakeabe_version_required = $(eval $(call _cmakeabe_version_check_,$(1)))
+define _cmakeabe_version_check_
+    ifeq ($$(call version_compare,$(1),$$(CMAKEABE_VERSION)),+)
+        $$(error Please upgrade cmake-abe to >=$(1))
+    endif
+endef
+
+# not(value:bool)
 not = $(if $(filter $(ON_VALUES),$(1)),OFF,ON)
 
-# bool(<value:bool>,<default:bool>)
+# bool(value:bool,default:bool)
 bool = $(call either,$(call _bool_norm_,$(call upper,$(1)),),$(call _bool_norm_,$(call upper,$(2)),OFF))
 _bool_norm_ = $(if $(filter 1 TRUE ON,$(1)),ON,$(if $(filter 0 FALSE OFF,$(1)),OFF,$(2)))
 
-# either(<value1:str>,<value2:str>)
+# either(value1:str,value2:str)
 either = $(if $(1),$(1),$(2))
 
-# sel(<name>,<name=value list>,<default>)
+# sel(name:str,<name:str=value:str list>,default)
+# e.g. $(call sel,A,A=1 B=2,0) == 1
 sel = $(if $(filter $(1)=%,$(2)),$(patsubst $(1)=%,%,$(filter $(1)=%,$(2))),$(3))
 
-# bsel(<:bool>,<value for ON>,<value for OFF>)
+# bsel(ON_or_OFF:bool,for_ON:str,for_OFF:str)
+#    e.g. $(call bsel,ON,A,B) == A
 bsel = $(if $(filter ON,$(1)),$(2),$(3))
 
-# lower(<value:str>)
+# lower(value:str)
 lower = $(subst A,a,$(subst B,b,$(subst C,c,$(subst D,d,$(subst E,e,$(subst F,f,$(subst G,g,$(subst H,h,$(subst I,i,$(subst J,j,$(subst K,k,$(subst L,l,$(subst M,m,$(subst N,n,$(subst O,o,$(subst P,p,$(subst Q,q,$(subst R,r,$(subst S,s,$(subst T,t,$(subst U,u,$(subst V,v,$(subst W,w,$(subst X,x,$(subst Y,y,$(subst Z,z,$(1)))))))))))))))))))))))))))
 
-# upper(<value:str>)
+# upper(value:str)
 upper = $(subst a,A,$(subst b,B,$(subst c,C,$(subst d,D,$(subst e,E,$(subst f,F,$(subst g,G,$(subst h,H,$(subst i,I,$(subst j,J,$(subst k,K,$(subst l,L,$(subst m,M,$(subst n,N,$(subst o,O,$(subst p,P,$(subst q,Q,$(subst r,R,$(subst s,S,$(subst t,T,$(subst u,U,$(subst v,V,$(subst w,W,$(subst x,X,$(subst y,Y,$(subst z,Z,$(1)))))))))))))))))))))))))))
 
-# kv_key(<key>=<value>)
+# greater_than(x:int[1,100],y:int[1,100])
+#     if x > y, return ON, OFF otherwise
+# greater_or_equal(x:int[1,100],y:int[1,100])
+#     if x >= y, return ON, OFF otherwise
+# number_compare(x:int[1,100],y:int[1,100])
+#     (x > y) -> +
+#     (x == y) -> =
+#     (x < y) -> -
+greater_than = $(if $(filter $(2),$(call _less_than_subset_,$(1))),ON,OFF)
+greater_or_equal = $(if $(filter $(2),$(call _less_than_subset_,$(1)) $(1)),ON,OFF)
+number_compare = $(if $(filter $(2),$(call _less_than_subset_,$(1))),+,$(if $(filter $(1),$(2)),=,-))
+_less_than_subset_ = $(wordlist 1,$(1),0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 \
+31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 \
+61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 \
+92 93 94 95 96 97 98 99 100)
+
+# version_compare(x:str,y:str)
+#     (x > y) -> +
+#     (x == y) -> =
+#     (x < y) -> -
+version_compare = $(if $(call _ver_greater_,$(1),$(2)),+,$(if $(call _ver_greater_,$(2),$(1)),-,=))
+_ver_num_at_ = $(word $(1),$(subst ., ,$(2)) 0 0 0 0)
+_ver_greater_results_ = $(subst $(SPACE),,$(foreach I,1 2 3 4,$(call number_compare,$(call _ver_num_at_,$I,$(1)),$(call _ver_num_at_,$I,$(2)))))
+_ver_greater_ = $(filter 1,$(foreach I,:+ :=+ :==+ :===+,$(if $(findstring $I,:$(call _ver_greater_results_,$(1),$(2))),1,)))
+
+# kv_key(key=value)
 kv_key = $(firstword $(subst =, ,$(1)))
 
-# kv_value(<key>=<value>)
+# kv_value(key=value)
 kv_value = $(lastword $(subst =, ,$(1)))
 
-# git_ls_untracked(<directory:str>,<patterns:List<str>>)
+# git_ls_untracked(directory:str,patterns:List<str>)
 git_ls_untracked = git ls-files --others $(if $(2),$(addprefix -x ,$(2)),--exclude-standard) $(1)
 
-# git_ls_ignored(<directory:str>,<patterns:List<str>>)
+# git_ls_ignored(directory:str,patterns:List<str>)
 git_ls_ignored = git ls-files --others -i $(if $(2),$(addprefix -x ,$(2)),--exclude-standard) $(1)
 
-# git_remove_ignored(<directories:str>,<patterns:List<str>>)
+# git_remove_ignored(directories:str,patterns:List<str>)
 git_remove_ignored = $(call xargs_do,$(call git_ls_ignored,$(1),$(2)),$(RM) -f {})
 
 # Check existence of a file or a directory 
-# exists(<file or directory:str>,<patterns:List<str>>)
+# exists(file_or_directory:str,patterns:List<str>)
 exists = test -e $(1)
 
 # Run command with arguments read from input.
-# xargs_do(<input:str>,<command:str>)
+# xargs_do(input:str,command:str)
 xargs_do = $(1) | xargs -I {} $(2)
 
 COMMA   = ,
