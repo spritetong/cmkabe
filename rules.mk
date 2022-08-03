@@ -70,6 +70,9 @@ cargo_build = cargo $(CARGO_TOOLCHAIN) build --bin $(1) $(CARGO_OPTS) $(2)
 # cargo_build_lib(<options:str>)
 cargo_build_lib = cargo $(CARGO_TOOLCHAIN) build --lib $(CARGO_OPTS) $(1)
 
+# cargo_test(<options:str>)
+cargo_test = cargo $(CARGO_TOOLCHAIN) test $(CARGO_OPTS) $(1)
+
 # cargo_upgrade(<excludes:str>,<options:str>)
 cargo_upgrade = cargo upgrade --workspace --to-lockfile $(1)
 
@@ -134,6 +137,10 @@ cmake-clean-outputs:
 # Build all Rust libraries
 cargo-lib:
 	@$(call cargo_build_lib)
+
+# Cargo test.
+cargo-test:
+	@$(call cargo_test)
 
 # Clean all Cargo targets.
 cargo-clean:
