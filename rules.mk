@@ -74,7 +74,7 @@ cargo_build_lib = cargo $(CARGO_TOOLCHAIN) build --lib $(CARGO_OPTS) $(1)
 cargo_test = cargo $(CARGO_TOOLCHAIN) test $(CARGO_OPTS) $(1)
 
 # cargo_upgrade(<excludes:str>,<options:str>)
-cargo_upgrade = cargo upgrade --workspace --to-lockfile $(1)
+cargo_upgrade = cargo upgrade --incompatible $(1)
 
 # Set crosss compile tools for Rust
 # cargo_set_gcc_env_vars()
