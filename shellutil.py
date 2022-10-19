@@ -38,7 +38,8 @@ def run_shell_command(cmd, options, args):
                         status = EFAIL
                         if options.force:
                             continue
-                        printf("Can't remove file {0}\n", file, file=sys.stderr)
+                        printf("Can't remove file {0}\n",
+                               file, file=sys.stderr)
                         return status
         else:
             import shutil
@@ -58,7 +59,8 @@ def run_shell_command(cmd, options, args):
                         status = EFAIL
                         if options.force:
                             continue
-                        printf("Can't remove tree {0}\n", file, file=sys.stderr)
+                        printf("Can't remove tree {0}\n",
+                               file, file=sys.stderr)
                         return status
 
     elif cmd == "mkdir":
@@ -101,27 +103,29 @@ def run_shell_command(cmd, options, args):
     elif cmd == "mv":
         import shutil
         if len(args) != 2:
-            print("Invalid parameter {0} for mv", file=sys.stderr)
+            printf("Invalid parameter {0} for mv\n", args, file=sys.stderr)
             return EFAIL
         try:
             shutil.move(args[0], args[1])
         except OSError:
             status = EFAIL
             if not options.force:
-                printf("Can't move {0} to {1}\n", args[0], args[1], file=sys.stderr)
+                printf("Can't move {0} to {1}\n",
+                       args[0], args[1], file=sys.stderr)
             return status
 
     elif cmd == "cp":
         import shutil
         if len(args) != 2:
-            print("Invalid parameter {0} for cp", file=sys.stderr)
+            printf("Invalid parameter {0} for cp\n", args, file=sys.stderr)
             return EFAIL
         try:
             shutil.copy2(args[0], args[1])
         except OSError:
             status = EFAIL
             if not options.force:
-                printf("Can't copy {0} to {1}\n", args[0], args[1], file=sys.stderr)
+                printf("Can't copy {0} to {1}\n",
+                       args[0], args[1], file=sys.stderr)
             return status
 
     elif cmd == "cwd":
@@ -166,6 +170,10 @@ def run_shell_command(cmd, options, args):
                         continue
                     printf("Can't touch file {0}\n", file, file=sys.stderr)
                     return status
+
+    elif cmd == "timestamp":
+        import time
+        printf("{0}", time.time())
 
     elif cmd == "cmpver":
         try:
@@ -219,6 +227,37 @@ def run_shell_command(cmd, options, args):
             status = EFAIL
             return status
 
+    elif cmd == "cargo-exec":
+        import time
+        import subprocess
+        if len(args) < 1:
+            printf("Invalid parameter {0} for cargo-exec\n",
+                   args, file=sys.stderr)
+            return EFAIL
+        ws_dir = os.environ.get("CARGO_WORKSPACE_DIR", ".")
+        cfg_file = args[0] if args[0].endswith(".toml") else os.path.join(args[0], "Cargo.toml")
+        cargo_toml = os.path.join(ws_dir, cfg_file) if os.path.isfile(
+            os.path.join(ws_dir, cfg_file)) else cfg_file
+        try:
+            import toml
+            cargo = toml.load(cargo_toml)
+        except ImportError:
+            try:
+                tomllib = __import__("tomllib")
+                with open(cargo_toml, mode="rb") as fp:
+                    cargo = tomllib.load(fp)
+            except ImportError:
+                print("toml is not installed. Please execute: pip install toml\n",
+                      cmd, file=sys.stderr)
+                status = EFAIL
+                return status
+        package = cargo["package"]
+        os.environ["CARGO_CRATE_NAME"] = package["name"]
+        os.environ["CARGO_PKG_NAME"] = package["name"]
+        os.environ["CARGO_PKG_VERSION"] = package["version"]
+        os.environ["CARGO_MAKE_TIMESTAMP"] = "{}".format(time.time())
+        status = subprocess.call(" ".join(args[1:]), shell=True)
+
     else:
         printf("Unknown command {0}\n", cmd, file=sys.stderr)
         status = EINVAL
@@ -228,7 +267,8 @@ def run_shell_command(cmd, options, args):
 def main():
     try:
         from optparse import OptionParser
-        parser = OptionParser(usage=("Usage: %prog [options] command <arguments>\n\n"))
+        parser = OptionParser(
+            usage=("Usage: %prog [options] command <arguments>\n\n"))
         parser.get_option("-h").help = "Show this help message and exit."
         parser.add_option("-f", "--force",
                           action="store_true", default=False, dest="force",

@@ -67,7 +67,7 @@ override WINDOWS := $(if $(findstring -windows-,$(TARGET_TRIPLE)),ON,OFF)
 override UNIX := $(call not,$(WINDOWS))
 
 override ARCH := $(firstword $(subst -, ,$(TARGET_TRIPLE)))
-override MSVC_ARCH := $(if $(filter ON,$(WINDOWS)),$(call sel,$(ARCH),\
+override MSVC_ARCH := $(call bsel,$(WINDOWS),$(call sel,$(ARCH),\
     aarch64=ARM64 x86_64=x64 i686=Win32),)
 
 ifeq ($(WINDOWS)-$(MSVC_ARCH),ON-)

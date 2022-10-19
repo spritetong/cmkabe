@@ -12,7 +12,7 @@ ifndef __ENV_MK__
 __ENV_MK__ = $(abspath $(lastword $(MAKEFILE_LIST)))
 CMKABE_HOME := $(abspath $(dir $(__ENV_MK__)))
 
-CMAKEABE_VERSION = 0.2.3
+CMAKEABE_VERSION = 0.2.4
 
 # ==============================================================================
 # = Environment Variables
@@ -115,10 +115,12 @@ ERR     = test 0 == 1
 PY      = python
 PY3     = python3
 
+CARGO_EXEC = $(PY) "$(CMKABE_HOME)/shellutil.py" cargo-exec
 CD      = cd
 CMPVER  = $(PY) "$(CMKABE_HOME)/shellutil.py" cmpver
 CP      = cp
 CWD     = $(PY) "$(CMKABE_HOME)/shellutil.py" cwd
+set_env = export $(1)=$(2)
 less    = less $(1)
 MKDIR   = $(PY) "$(CMKABE_HOME)/shellutil.py" mkdir
 MV      = mv
@@ -137,6 +139,7 @@ ifeq ($(HOST),Windows)
     PY3      = py.exe -3
     CD       = cd /d
     CP       = $(PY) "$(CMKABE_HOME)/shellutil.py" cp
+    set_env  = set $(1)=$(2)
     less     = more $(subst /,\\,$(1))
     MV       = $(PY) "$(CMKABE_HOME)/shellutil.py" mv
     RM       = $(PY) "$(CMKABE_HOME)/shellutil.py" rm

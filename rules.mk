@@ -28,7 +28,7 @@ override DEBUG := $(call bool,$(DEBUG),ON)
 override VERBOSE := $(call bool,$(VERBOSE),OFF)
 
 #! The current configuration of CMake build.
-CMAKE_BUILD_TYPE ?= $(if $(filter ON,$(DEBUG)),Debug,Release)
+CMAKE_BUILD_TYPE ?= $(call bsel,$(DEBUG),Debug,Release)
 #! The root of CMake build directories.
 CMAKE_BUILD_ROOT ?= $(WORKSPACE_DIR)/target/cmake
 #! The CMake build directory for the current configuration.
@@ -57,9 +57,11 @@ cmake_clean = $(call cmake_build) --target clean
 CARGO_TOOLCHAIN +=
 #! Extra options passed to "cargo build" or "cargo run"
 CARGO_OPTS += $(if $(filter $(TARGET_TRIPLE),$(HOST_TRIPLE)),,--target $(TARGET_TRIPLE))
-CARGO_OPTS += $(if $(filter ON,$(DEBUG)),,--release)
+CARGO_OPTS += $(call bsel,$(DEBUG),,--release)
 #! Cargo binary crates
 CARGO_EXECUTABLES +=
+#! Cargo library crates
+CARGO_LIBRARIES +=
 
 # cargo_run(<crate:str>,<options:str>)
 cargo_run = cargo $(CARGO_TOOLCHAIN) run --bin $(1) $(CARGO_OPTS) $(2)
@@ -194,6 +196,12 @@ define _rules_for_cargo_cmake_tmpl_
         .PHONY: $$(foreach I,$$(CARGO_EXECUTABLES),run-$$I)
         $$(foreach I,$$(CARGO_EXECUTABLES),run-$$I):
 			@$$(call cargo_run,$$(subst run-,,$$@))
+    endif
+
+    ifneq ($$(CARGO_LIBRARIES),)
+        .PHONY: $$(CARGO_LIBRARIES)
+        $$(CARGO_LIBRARIES):
+			@$$(call cargo_build_lib,-p $$@)
     endif
 endef
 
