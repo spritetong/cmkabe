@@ -134,7 +134,7 @@ cmake-clean-root: cmake-clean-outputs
 # Clean extra output files.
 cmake-clean-outputs:
 	@$(if $(CMAKE_OUTPUT_DIRS),$(call git_remove_ignored,$(CMAKE_OUTPUT_DIRS),$(CMAKE_OUTPUT_FILE_PATTERNS)) || $(OK),$(OK))
-	@$(TOUCH) "$(WORKSPACE_DIR)/CMakeLists.txt"
+	@$(call exists,"$(WORKSPACE_DIR)/CMakeLists.txt") && $(TOUCH) "$(WORKSPACE_DIR)/CMakeLists.txt" || $(OK)
 
 # Build all Rust libraries
 cargo-lib:

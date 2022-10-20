@@ -95,11 +95,15 @@ git_ls_ignored = git ls-files --others -i $(if $(2),$(addprefix -x ,$(2)),--excl
 # git_remove_ignored(directories:str,patterns:List<str>)
 git_remove_ignored = $(call xargs_do,$(call git_ls_ignored,$(1),$(2)),$(RM) -f {})
 
-# Check existence of a file or a directory 
+# Check existence of a file or a directory in command line.
 # exists(file_or_directory:str,patterns:List<str>)
 exists = test -e $(1)
 
-# Run command with arguments read from input.
+# Set an environment variable in command line.
+# set_env(key:str,value:str)
+set_env = export $(1)=$(2)
+
+# Run command with arguments read from input in command line.
 # xargs_do(input:str,command:str)
 xargs_do = $(1) | xargs -I {} $(2)
 
@@ -120,7 +124,6 @@ CD      = cd
 CMPVER  = $(PY) "$(CMKABE_HOME)/shellutil.py" cmpver
 CP      = cp
 CWD     = $(PY) "$(CMKABE_HOME)/shellutil.py" cwd
-set_env = export $(1)=$(2)
 less    = less $(1)
 MKDIR   = $(PY) "$(CMKABE_HOME)/shellutil.py" mkdir
 MV      = mv
@@ -139,7 +142,6 @@ ifeq ($(HOST),Windows)
     PY3      = py.exe -3
     CD       = cd /d
     CP       = $(PY) "$(CMKABE_HOME)/shellutil.py" cp
-    set_env  = set $(1)=$(2)
     less     = more $(subst /,\\,$(1))
     MV       = $(PY) "$(CMKABE_HOME)/shellutil.py" mv
     RM       = $(PY) "$(CMKABE_HOME)/shellutil.py" rm
@@ -147,6 +149,7 @@ ifeq ($(HOST),Windows)
     WHICH    = where
 
     exists   = (IF NOT EXIST $(subst /,\\,$(1)) $(ERR))
+    set_env  = set $(1)=$(2)
     xargs_do = (FOR /F "tokens=*" %%x IN ('$(1)') DO $(subst {},%%x,$(2)))
     WINREG   = $(PY) "$(CMKABE_HOME)/shellutil.py" winreg
 endif
