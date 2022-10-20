@@ -80,8 +80,8 @@ cargo_upgrade = cargo upgrade --incompatible $(1)
 
 # Set crosss compile tools for Rust
 # cargo_set_gcc_env_vars()
-cargo_set_gcc_env_vars = $(eval $(_cargo_set_gcc_env_vars_tmpl_))
-define _cargo_set_gcc_env_vars_tmpl_
+cargo_set_gcc_env_vars = $(eval $(_cargo_set_gcc_env_vars_tpl_))
+define _cargo_set_gcc_env_vars_tpl_
     export CARGO_TARGET_$$(call upper,$$(subst -,_,$$(TARGET_TRIPLE)))_LINKER=$$(TARGET)-gcc
     $$(foreach I,AR=ar CC=gcc CXX=g++ LD=ld RANLIB=ranlib STRIP=strip,\
         $$(eval export $$(call kv_key,$$I)_$$(subst -,_,$$(TARGET_TRIPLE))=$$(TARGET)-$$(call kv_value,$$I)))
@@ -133,7 +133,7 @@ cmake-clean-root: cmake-clean-outputs
 
 # Clean extra output files.
 cmake-clean-outputs:
-	@$(call git_remove_ignored,$(CMAKE_OUTPUT_DIRS),$(CMAKE_OUTPUT_FILE_PATTERNS)) || $(OK)
+	@$(if $(CMAKE_OUTPUT_DIRS),$(call git_remove_ignored,$(CMAKE_OUTPUT_DIRS),$(CMAKE_OUTPUT_FILE_PATTERNS)) || $(OK),$(OK))
 	@$(TOUCH) "$(WORKSPACE_DIR)/CMakeLists.txt"
 
 # Build all Rust libraries
@@ -158,17 +158,13 @@ cargo-upgrade:
 undefine _saved_default_goal
 
 # Generate common rules for Cargo and CMake.
-rules_for_cargo_cmake = $(eval $(_rules_for_cargo_cmake_tmpl_))
-define _rules_for_cargo_cmake_tmpl_
-    .PHONY: NONE
-    NONE:
-		@echo ***Please specify a target.
-
-    .PHONY: clean
-    clean: cargo-clean cmake-clean-outputs
-
-    .PHONY: clean-cmake
-    clean-cmake: cmake-clean-root
+rules_for_cargo_cmake = $(eval $(_rules_for_cargo_cmake_tpl_))
+define _rules_for_cargo_cmake_tpl_
+    ifeq ($$(BIN),)
+        BIN = $$(call kv_value,$$(firstword $$(CARGO_EXECUTABLES)))
+    else
+        override BIN := $$(call sel,$$(BIN),$$(CARGO_EXECUTABLES),$$(BIN))
+    endif
 
     .PHONY: build
     build:
@@ -181,6 +177,12 @@ define _rules_for_cargo_cmake_tmpl_
     .PHONY: lib
     lib: cargo-lib
 
+    .PHONY: clean
+    clean: cargo-clean cmake-clean-outputs
+
+    .PHONY: clean-cmake
+    clean-cmake: cmake-clean-root
+
     .PHONY: upgrade
     upgrade: cargo-upgrade
 
@@ -188,21 +190,41 @@ define _rules_for_cargo_cmake_tmpl_
     help:
 		@$(call less,"$(CMKABE_HOME)/usage.txt")
 
-    ifneq ($$(CARGO_EXECUTABLES),)
-        .PHONY: $$(CARGO_EXECUTABLES)
-        $$(CARGO_EXECUTABLES):
-			@$$(call cargo_build,$$@)
+    $$(foreach I,$$(CARGO_EXECUTABLES),\
+        $$(eval $$(call _cargo_build_tpl_,$$(call kv_key,$$I),$$(call kv_value,$$I))))
 
-        .PHONY: $$(foreach I,$$(CARGO_EXECUTABLES),run-$$I)
-        $$(foreach I,$$(CARGO_EXECUTABLES),run-$$I):
-			@$$(call cargo_run,$$(subst run-,,$$@))
-    endif
+    $$(foreach I,$$(CARGO_EXECUTABLES),\
+        $$(eval $$(call _cargo_run_tpl_,$$(call kv_key,$$I),$$(call kv_value,$$I))))
 
-    ifneq ($$(CARGO_LIBRARIES),)
-        .PHONY: $$(CARGO_LIBRARIES)
-        $$(CARGO_LIBRARIES):
-			@$$(call cargo_build_lib,-p $$@)
+    $$(foreach I,$$(CARGO_LIBRARIES),\
+        $$(eval $$(call _cargo_build_lib_tpl_,$$(call kv_key,$$I),$$(call kv_value,$$I))))
+endef
+define _cargo_build_tpl_
+    ifneq ($(1),$(2))
+        .PHONY: $(1)
+        $(1): $(2)
     endif
+    .PHONY: $(2)
+    $(2):
+		@$$(call cargo_build,$(2))
+endef
+define _cargo_run_tpl_
+    ifneq ($(1),$(2))
+        .PHONY: run-$(1)
+        run-$(1): run-$(2)
+    endif
+    .PHONY: run-$(2)
+    run-$(2):
+		@$$(call cargo_run,$(2))
+endef
+define _cargo_build_lib_tpl_
+    ifneq ($(1),$(2))
+        .PHONY: $(1)
+        $(1): $(2)
+    endif
+    .PHONY: $(2)
+    $(2):
+		@$$(call cargo_build_lib,-p $(2))
 endef
 
 endif # __RULES_MK__
