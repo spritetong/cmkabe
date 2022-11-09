@@ -12,7 +12,7 @@ ifndef __ENV_MK__
 __ENV_MK__ = $(abspath $(lastword $(MAKEFILE_LIST)))
 CMKABE_HOME := $(abspath $(dir $(__ENV_MK__)))
 
-CMAKEABE_VERSION = 0.2.4
+CMAKEABE_VERSION = 0.2.5
 
 # ==============================================================================
 # = Environment Variables
@@ -124,6 +124,7 @@ CD      = cd
 CMPVER  = $(PY) "$(CMKABE_HOME)/shellutil.py" cmpver
 CP      = cp
 CWD     = $(PY) "$(CMKABE_HOME)/shellutil.py" cwd
+FTP_UPLOAD = $(PY) "$(CMKABE_HOME)/shellutil.py" ftp-upload
 less    = less $(1)
 MKDIR   = $(PY) "$(CMKABE_HOME)/shellutil.py" mkdir
 MV      = mv

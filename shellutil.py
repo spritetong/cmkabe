@@ -191,6 +191,38 @@ def run_shell_command(cmd, options, args):
         printf("{0}", result[1])
         status = 0 if options.force else result[0]
 
+    elif cmd == "ftp-upload":
+        import ftplib
+        import urllib.parse
+        if len(args) < 2:
+            printf("Invalid parameter {0} for ftp-upload\n", args, file=sys.stderr)
+            return EFAIL
+        
+        ftp_path = args[0]
+        files = args[1:]
+
+        parsed = urllib.parse.urlparse(ftp_path)
+        addr = '{}{}'.format(parsed.hostname, (':' + parsed.port) if parsed.port else '')
+        username = parsed.username
+        password = parsed.password or ''
+        remote_dir = parsed.path or '/'
+
+        ftp = ftplib.FTP(addr, username, password)
+        try:
+            ftp.set_pasv(True)
+            for local_file in files:
+                remote_file = '{}{}{}'.format(remote_dir,
+                                            '' if remote_dir.endswith('/') else '/', os.path.basename(local_file))
+                with open(local_file, 'rb') as fp:
+                    print(f'Upload "{local_file}"')
+                    print(f'    to "ftp://{addr}{remote_file}" ...', flush=True)
+                    ftp.storbinary('STOR {}'.format(remote_file), fp,
+                                32 * 1024, callback=lambda sent: print('.', end='', flush=True))
+                    print('')
+            print('Done.', flush=True)
+        finally:
+            ftp.quit()
+
     elif cmd == "winreg":
         try:
             value = None
