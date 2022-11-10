@@ -191,33 +191,44 @@ def run_shell_command(cmd, options, args):
         printf("{0}", result[1])
         status = 0 if options.force else result[0]
 
-    elif cmd == "ftp-upload":
+    elif cmd == "upload":
         import ftplib
         import urllib.parse
         if len(args) < 2:
-            printf("Invalid parameter {0} for ftp-upload\n", args, file=sys.stderr)
+            printf(
+                "Invalid parameter {0} for upload\n", args, file=sys.stderr)
             return EFAIL
-        
+
         ftp_path = args[0]
         files = args[1:]
 
         parsed = urllib.parse.urlparse(ftp_path)
-        addr = '{}{}'.format(parsed.hostname, (':' + parsed.port) if parsed.port else '')
-        username = parsed.username
+        if not parsed.hostname:
+            printf("No hostname\n", args, file=sys.stderr)
+            return EFAIL
+        addr = '{0}:{1}'.format(
+            parsed.hostname, parsed.port) if parsed.port else parsed.hostname
+        username = parsed.username or ''
         password = parsed.password or ''
         remote_dir = parsed.path or '/'
 
         ftp = ftplib.FTP(addr, username, password)
         try:
             ftp.set_pasv(True)
-            for local_file in files:
-                remote_file = '{}{}{}'.format(remote_dir,
-                                            '' if remote_dir.endswith('/') else '/', os.path.basename(local_file))
+            for item in files:
+                pair = item.split('=')
+                (local_file, remote_path) = (pair[0], os.path.basename(
+                    pair[0])) if len(pair) == 1 else (pair[1], pair[0])
+                remote_file = '/'.join([remote_dir,
+                                       remote_path]).replace('\\', '/')
+                while '//' in remote_file:
+                    remote_file = remote_file.replace('//', '/')
                 with open(local_file, 'rb') as fp:
-                    print(f'Upload "{local_file}"')
-                    print(f'    to "ftp://{addr}{remote_file}" ...', flush=True)
-                    ftp.storbinary('STOR {}'.format(remote_file), fp,
-                                32 * 1024, callback=lambda sent: print('.', end='', flush=True))
+                    printf('Upload "{0}"\n', local_file)
+                    printf('    to "ftp://{0}{1}" ...\n',
+                           addr, remote_file, flush=True)
+                    ftp.storbinary('STOR {0}'.format(remote_file), fp,
+                                   32 * 1024, callback=lambda sent: print('.', end='', flush=True))
                     print('')
             print('Done.', flush=True)
         finally:
@@ -267,7 +278,8 @@ def run_shell_command(cmd, options, args):
                    args, file=sys.stderr)
             return EFAIL
         ws_dir = os.environ.get("CARGO_WORKSPACE_DIR", ".")
-        cfg_file = args[0] if args[0].endswith(".toml") else os.path.join(args[0], "Cargo.toml")
+        cfg_file = args[0] if args[0].endswith(
+            ".toml") else os.path.join(args[0], "Cargo.toml")
         cargo_toml = os.path.join(ws_dir, cfg_file) if os.path.isfile(
             os.path.join(ws_dir, cfg_file)) else cfg_file
         try:
@@ -287,7 +299,7 @@ def run_shell_command(cmd, options, args):
         os.environ["CARGO_CRATE_NAME"] = package["name"]
         os.environ["CARGO_PKG_NAME"] = package["name"]
         os.environ["CARGO_PKG_VERSION"] = package["version"]
-        os.environ["CARGO_MAKE_TIMESTAMP"] = "{}".format(time.time())
+        os.environ["CARGO_MAKE_TIMESTAMP"] = "{0}".format(time.time())
         status = subprocess.call(" ".join(args[1:]), shell=True)
 
     else:
