@@ -43,6 +43,7 @@ CMAKE_INIT += $(if $(MSVC_ARCH),-A $(MSVC_ARCH),)
 CMAKE_INIT += -D "TARGET:STRING=$(TARGET)" -D "TARGET_TRIPLE:STRING=$(TARGET_TRIPLE)"
 CMAKE_INIT += -D "CMAKE_BUILD_TYPE:STRING=$(CMAKE_BUILD_TYPE)"
 CMAKE_INIT += -D "CMAKE_VERBOSE_MAKEFILE:BOOL=$(VERBOSE)"
+CMAKE_INIT += $(foreach I,$(CMAKE_DEFS), -D$I)
 
 # FIXME: repeat 3 times to work around the cache problem of cross compilation on Linux.
 cmake_init = $(CMAKE_INIT)$(foreach I,1 2, && $(CMAKE_INIT) >$(NULL) 2>&1)
