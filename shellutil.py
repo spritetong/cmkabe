@@ -102,31 +102,57 @@ def run_shell_command(cmd, options, args):
 
     elif cmd == "mv":
         import shutil
-        if len(args) != 2:
+        import glob
+        if len(args) < 2:
             printf("Invalid parameter {0} for mv\n", args, file=sys.stderr)
             return EFAIL
-        try:
-            shutil.move(args[0], args[1])
-        except OSError:
-            status = EFAIL
-            if not options.force:
-                printf("Can't move {0} to {1}\n",
-                       args[0], args[1], file=sys.stderr)
-            return status
+        dst = args[-1]
+        files = []
+        for pattern in args[:-1]:
+            files += glob.glob(pattern)
+        if len(files) > 1 and not os.path.isdir(dst):
+            printf("{0} is not a direcotry\n", dst, file=sys.stderr)
+            return EFAIL
+        if not files and not options.force:
+            printf("Can't find file {0}\n", pattern, file=sys.stderr)
+            return EFAIL
+        for file in files:
+            try:
+                shutil.move(file, dst)
+            except OSError:
+                status = EFAIL
+                if not options.force:
+                    printf("Can't move {0} to {1}\n",
+                        file, dst, file=sys.stderr)
+                return status
 
     elif cmd == "cp":
         import shutil
-        if len(args) != 2:
+        import glob
+        if len(args) < 1:
             printf("Invalid parameter {0} for cp\n", args, file=sys.stderr)
             return EFAIL
-        try:
-            shutil.copy2(args[0], args[1])
-        except OSError:
-            status = EFAIL
-            if not options.force:
-                printf("Can't copy {0} to {1}\n",
-                       args[0], args[1], file=sys.stderr)
-            return status
+        if len(args) == 1:
+            args.append(".")
+        dst = args[-1]
+        files = []
+        for pattern in args[:-1]:
+            files += glob.glob(pattern)
+        if len(files) > 1 and not os.path.isdir(dst):
+            printf("{0} is not a direcotry\n", dst, file=sys.stderr)
+            return EFAIL
+        if not files and not options.force:
+            printf("Can't find file {0}\n", pattern, file=sys.stderr)
+            return EFAIL
+        for file in files:
+            try:
+                shutil.copy2(file, dst)
+            except OSError:
+                status = EFAIL
+                if not options.force:
+                    printf("Can't copy {0} to {1}\n",
+                        file, dst, file=sys.stderr)
+                return status
 
     elif cmd == "cwd":
         printf("{0}", os.getcwd().replace("\\", "/"))
