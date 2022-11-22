@@ -27,7 +27,7 @@ override HOST := $(if $(filter Windows_NT,$(OS)),Windows,$(shell uname -s))
 cmakeabe_version_required = $(eval $(call _cmakeabe_version_check_,$(1)))
 define _cmakeabe_version_check_
     ifeq ($$(call version_compare,$(1),$$(CMAKEABE_VERSION)),+)
-        $$(error Please upgrade cmake-abe to >=$(1))
+        $$(error Please upgrade cmake-abe to >=$(1). Try: git submodule update --init))
     endif
 endef
 
