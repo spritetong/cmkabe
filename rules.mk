@@ -46,7 +46,7 @@ CMAKE_INIT += -D "CMAKE_VERBOSE_MAKEFILE:BOOL=$(VERBOSE)"
 CMAKE_INIT += $(foreach I,$(CMAKE_DEFS), -D$I)
 
 # FIXME: repeat 3 times to work around the cache problem of cross compilation on Linux.
-cmake_init = $(CMAKE_INIT)$(foreach I,1 2, && $(CMAKE_INIT) >$(NULL) 2>&1)
+cmake_init = $(CMAKE_INIT)$(foreach I,1 2, && $(CMAKE_INIT) >$(NULL) 2>&1) $(CMAKE_INIT_OPTS)
 cmake_build = cmake --build "$(CMAKE_BUILD_DIR)" --config $(CMAKE_BUILD_TYPE) --parallel $(CMAKE_OPTS)
 cmake_install = cmake --install "$(CMAKE_BUILD_DIR)" --config $(CMAKE_BUILD_TYPE) $(CMAKE_OPTS)
 cmake_clean = $(call cmake_build) --target clean
@@ -117,7 +117,7 @@ cmake-build: $(CMAKE_BUILD_DIR)
 cmake-rebuild: cmake-clean cmake-build
 
 # Install the target.
-cmake-install: cmake-build
+cmake-install:
 	@$(call cmake_install)
 
 # Clean the target.
