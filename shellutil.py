@@ -146,8 +146,11 @@ def run_shell_command(cmd, options, args):
             return EFAIL
         for file in files:
             try:
-                shutil.copy2(file, dst)
-            except OSError:
+                if os.path.isfile(file):
+                    shutil.copy2(file, dst)
+                elif options.recursive:
+                    shutil.copytree(file, dst, dirs_exist_ok=True)
+            except OSError as e:
                 status = EFAIL
                 if not options.force:
                     printf("Can't copy {0} to {1}\n",
@@ -166,10 +169,10 @@ def run_shell_command(cmd, options, args):
         printf("{0}", path.replace("\\", "/"))
 
     elif cmd == "relpath":
-        path = "."
+        start = None if len(args) <= 1 else args[1]
         try:
             path = args[0]
-            path = os.path.relpath(path, ".")
+            path = os.path.relpath(path, start)
         except (IndexError, ValueError, OSError):
             pass
         printf("{0}", path.replace("\\", "/"))
@@ -345,7 +348,7 @@ def main():
                           help="ignore errors, never prompt")
         parser.add_option("-r", "-R", "--recursive",
                           action="store_true", default=False, dest="recursive",
-                          help="remove directories and their contents recursively")
+                          help="copy/remove directories and their contents recursively")
         (options, args) = parser.parse_args()
 
         if not args:

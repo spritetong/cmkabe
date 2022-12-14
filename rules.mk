@@ -36,7 +36,7 @@ CMAKE_BUILD_DIR ?= $(CMAKE_BUILD_ROOT)/$(TARGET_TRIPLE)/$(CMAKE_BUILD_TYPE)
 #! CMake output directories to clean.
 CMAKE_OUTPUT_DIRS +=
 #! CMake output file patterns to clean.
-CMAKE_OUTPUT_FILE_PATTERNS += *.o *.obj *.a *.so *.so.* *.out *.lib *.dll *.exp *.exe *.pdb *.bin *.hex
+CMAKE_OUTPUT_FILE_PATTERNS +=
 
 CMAKE_INIT = cmake -B "$(CMAKE_BUILD_DIR)"
 CMAKE_INIT += $(if $(MSVC_ARCH),-A $(MSVC_ARCH),)
@@ -49,6 +49,9 @@ CMAKE_INIT += $(foreach I,$(CMAKE_DEFS), -D$I)
 cmake_init = $(CMAKE_INIT)$(foreach I,1 2, && $(CMAKE_INIT) >$(NULL) 2>&1) $(CMAKE_INIT_OPTS)
 cmake_build = cmake --build "$(CMAKE_BUILD_DIR)" --config $(CMAKE_BUILD_TYPE) --parallel $(CMAKE_OPTS)
 cmake_install = cmake --install "$(CMAKE_BUILD_DIR)" --config $(CMAKE_BUILD_TYPE) $(CMAKE_OPTS)
+ifeq ($(if $(filter --prefix,$(CMAKE_OPTS)),1,)$(if $(CMAKE_INSTALL_TARGET_PREFIX),,1),)
+    cmake_install += --prefix "$(CMAKE_INSTALL_TARGET_PREFIX)/$(TARGET_TRIPLE)"
+endif
 cmake_clean = $(call cmake_build) --target clean
 
 # ==============================================================================
@@ -189,7 +192,11 @@ define _rules_for_cargo_cmake_tpl_
 
     .PHONY: help
     help:
-		@$(call less,"$(CMKABE_HOME)/usage.txt")
+    ifeq ($$(HOST),Windows)
+		@cmd /c "$$(CMKABE_HOME)/README.md"
+    else
+		@$(call less,"$$(CMKABE_HOME)/README.md")
+    endif
 
     $$(foreach I,$$(CARGO_EXECUTABLES),\
         $$(eval $$(call _cargo_build_tpl_,$$(call kv_key,$$I),$$(call kv_value,$$I))))
