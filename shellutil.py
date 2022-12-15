@@ -44,6 +44,16 @@ def run_shell_command(cmd, options, args):
         else:
             import shutil
             import glob
+
+            def onerror(func, path, exc_info):
+                import stat
+                # Is the error an access error?
+                if not os.access(path, os.W_OK):
+                    os.chmod(path, stat.S_IWUSR)
+                    func(path)
+                else:
+                    raise
+
             for pattern in args:
                 files = glob.glob(pattern)
                 if not files and not options.force:
@@ -54,7 +64,8 @@ def run_shell_command(cmd, options, args):
                         if os.path.isfile(file):
                             os.remove(file)
                         elif os.path.isdir(file):
-                            shutil.rmtree(file, ignore_errors=options.force)
+                            shutil.rmtree(
+                                file, ignore_errors=False, onerror=onerror)
                     except OSError:
                         status = EFAIL
                         if options.force:
@@ -123,7 +134,7 @@ def run_shell_command(cmd, options, args):
                 status = EFAIL
                 if not options.force:
                     printf("Can't move {0} to {1}\n",
-                        file, dst, file=sys.stderr)
+                           file, dst, file=sys.stderr)
                 return status
 
     elif cmd == "cp":
@@ -149,12 +160,13 @@ def run_shell_command(cmd, options, args):
                 if os.path.isfile(file):
                     shutil.copy2(file, dst)
                 elif options.recursive:
-                    shutil.copytree(file, dst, dirs_exist_ok=True)
-            except OSError as e:
+                    shutil.copytree(file, os.path.join(
+                        dst, os.path.basename(file)), dirs_exist_ok=True)
+            except OSError:
                 status = EFAIL
                 if not options.force:
                     printf("Can't copy {0} to {1}\n",
-                        file, dst, file=sys.stderr)
+                           file, dst, file=sys.stderr)
                 return status
 
     elif cmd == "cwd":
