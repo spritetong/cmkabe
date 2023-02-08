@@ -143,6 +143,8 @@ def run_shell_command(cmd, options, args):
 
         def copy_file(src, dst):
             if os.path.islink(src) and not options.follow_symlinks:
+                if os.path.isdir(dst):
+                    dst = os.path.join(dst, os.path.basename(src))
                 if os.path.lexists(dst):
                     os.unlink(dst)
                 linkto = os.readlink(src)
