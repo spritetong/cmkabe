@@ -124,7 +124,7 @@ CD      = cd
 CMPVER  = $(PY) "$(CMKABE_HOME)/shellutil.py" cmpver
 CP      = cp
 CWD     = $(PY) "$(CMKABE_HOME)/shellutil.py" cwd
-UPLOAD  = $(PY) "$(CMKABE_HOME)/shellutil.py" upload
+FIXLINK = $(PY) "$(CMKABE_HOME)/shellutil.py" fix_symlink
 less    = less $(1)
 MKDIR   = $(PY) "$(CMKABE_HOME)/shellutil.py" mkdir
 MV      = mv
@@ -132,6 +132,7 @@ RELPATH = $(PY) "$(CMKABE_HOME)/shellutil.py" relpath
 RM      = rm
 RMDIR   = $(PY) "$(CMKABE_HOME)/shellutil.py" rmdir -f
 TOUCH   = touch
+UPLOAD  = $(PY) "$(CMKABE_HOME)/shellutil.py" upload
 WHICH   = which
 
 ifeq ($(HOST),Windows)

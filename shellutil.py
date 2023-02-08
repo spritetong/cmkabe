@@ -172,15 +172,23 @@ def run_shell_command(cmd, options, args):
                 return status
 
     elif cmd == "fix_symlink":
+        import glob
+        is_wsl = 'WSL_DISTRO_NAME' in os.environ
+
         def walk(pattern):
-            import glob
-            files = glob.glob(pattern)
-            for file in files:
+            for file in glob.glob(pattern):
                 try:
                     if os.path.isdir(file):
                         walk(os.path.join(file, '*'))
-                    elif not os.path.isfile(file) and \
-                            not os.path.islink(file) and not os.path.ismount(file):
+                        continue
+                    is_link = os.path.islink(file)
+                    if is_link and is_wsl:
+                        # On WSL Linux, rebuild all file links.
+                        target = os.readlink(file)
+                        os.unlink(file)
+                        os.symlink(target, file)
+                    elif not is_link and not os.path.isfile(file):
+                        # On Windows, a bad link is a <JUNCTION> and can be accessed.
                         for target in glob.glob(os.path.splitext(file)[0] + '.*'):
                             if os.path.isfile(target) and not os.path.islink(target):
                                 os.unlink(file)
