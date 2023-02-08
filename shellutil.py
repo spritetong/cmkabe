@@ -140,6 +140,16 @@ def run_shell_command(cmd, options, args):
     elif cmd == "cp":
         import shutil
         import glob
+
+        def copy_file(src, dst):
+            if os.path.islink(src) and not options.follow_symlinks:
+                if os.path.lexists(dst):
+                    os.unlink(dst)
+                linkto = os.readlink(src)
+                os.symlink(linkto, dst)
+            else:
+                shutil.copy2(src, dst)
+
         if len(args) < 1:
             printf("Invalid parameter {0} for cp\n", args, file=sys.stderr)
             return EFAIL
@@ -158,12 +168,11 @@ def run_shell_command(cmd, options, args):
         for file in files:
             try:
                 if os.path.isfile(file):
-                    shutil.copy2(
-                        file, dst, follow_symlinks=options.follow_symlinks)
+                    copy_file(file, dst)
                 elif options.recursive:
                     shutil.copytree(file, os.path.join(
                         dst, os.path.basename(file)),
-                        symlinks=not options.follow_symlinks, dirs_exist_ok=True)
+                        copy_function=copy_file, dirs_exist_ok=True)
             except OSError:
                 status = EFAIL
                 if not options.force:
@@ -198,6 +207,7 @@ def run_shell_command(cmd, options, args):
                     printf('Can not fix the bad symbolic link {0}\n', file,
                            file=sys.stderr)
                     raise
+
         try:
             for pattern in args:
                 walk(pattern)
@@ -396,8 +406,8 @@ def main():
         parser.add_option("-r", "-R", "--recursive",
                           action="store_true", default=False, dest="recursive",
                           help="copy/remove directories and their contents recursively")
-        parser.add_option("-L", "--dereference",
-                          action="store_true", default=False, dest="follow_symlinks",
+        parser.add_option("-P", "--no-dereference",
+                          action="store_false", default=True, dest="follow_symlinks",
                           help="always follow symbolic links in SOURCE")
         (options, args) = parser.parse_args()
 
