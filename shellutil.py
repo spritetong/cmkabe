@@ -158,16 +158,43 @@ def run_shell_command(cmd, options, args):
         for file in files:
             try:
                 if os.path.isfile(file):
-                    shutil.copy2(file, dst)
+                    shutil.copy2(
+                        file, dst, follow_symlinks=options.follow_symlinks)
                 elif options.recursive:
                     shutil.copytree(file, os.path.join(
-                        dst, os.path.basename(file)), dirs_exist_ok=True)
+                        dst, os.path.basename(file)),
+                        symlinks=not options.follow_symlinks, dirs_exist_ok=True)
             except OSError:
                 status = EFAIL
                 if not options.force:
                     printf("Can't copy {0} to {1}\n",
                            file, dst, file=sys.stderr)
                 return status
+
+    elif cmd == "fix_symlink":
+        def walk(pattern):
+            import glob
+            files = glob.glob(pattern)
+            for file in files:
+                try:
+                    if os.path.isdir(file):
+                        walk(os.path.join(file, '*'))
+                    elif not os.path.isfile(file) and \
+                            not os.path.islink(file) and not os.path.ismount(file):
+                        for target in glob.glob(os.path.splitext(file)[0] + '.*'):
+                            if os.path.isfile(target) and not os.path.islink(target):
+                                os.unlink(file)
+                                os.symlink(os.path.basename(target), file)
+                                break
+                except OSError:
+                    printf('Can not fix the bad symbolic link {0}\n', file,
+                           file=sys.stderr)
+                    raise
+        try:
+            for pattern in args:
+                walk(pattern)
+        except OSError:
+            status = EFAIL
 
     elif cmd == "cwd":
         printf("{0}", os.getcwd().replace("\\", "/"))
@@ -361,6 +388,9 @@ def main():
         parser.add_option("-r", "-R", "--recursive",
                           action="store_true", default=False, dest="recursive",
                           help="copy/remove directories and their contents recursively")
+        parser.add_option("-L", "--dereference",
+                          action="store_true", default=False, dest="follow_symlinks",
+                          help="always follow symbolic links in SOURCE")
         (options, args) = parser.parse_args()
 
         if not args:
