@@ -97,6 +97,9 @@ ifeq ($(shell $(TARGET)-gcc -dumpversion >$(NULL) 2>&1 || echo 1),)
 endif
 export CARGO_WORKSPACE_DIR = $(WORKSPACE_DIR)
 
+# Directory of cargo output binaries, as "<workspace_dir>/target/<triple>/<debug|release>"
+CARGO_TARGET_OUT_DIR := $(WORKSPACE_DIR)/target/$(if $(filter $(TARGET_TRIPLE),$(HOST_TRIPLE)),,$(TARGET_TRIPLE)/)$(call bsel,$(DEBUG),debug,release)
+
 # ==============================================================================
 # = Rules
 
