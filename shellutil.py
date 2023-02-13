@@ -199,7 +199,8 @@ def run_shell_command(cmd, options, args):
                         os.unlink(file)
                         os.symlink(target, file)
                     elif not is_link and not os.path.isfile(file):
-                        # On Windows, a bad link is a <JUNCTION> and can be accessed.
+                        # On Windows, a link is like a bad <JUNCTION> which can't be accessed.
+                        # Try to find it's target and rebuild it.
                         for target in glob.glob(os.path.splitext(file)[0] + '.*'):
                             if os.path.isfile(target) and not os.path.islink(target):
                                 os.unlink(file)
