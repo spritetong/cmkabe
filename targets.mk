@@ -62,6 +62,7 @@ endif
 ifeq ($(TARGET_TRIPLE),)
     $(error TARGET_TRIPLE is not defined)
 endif
+override TARGET_TRIPLE_UNDERSCORE := $(subst -,_,$(TARGET_TRIPLE))
 
 override WINDOWS := $(if $(findstring -windows-,$(TARGET_TRIPLE)),ON,OFF)
 override UNIX := $(call not,$(WINDOWS))

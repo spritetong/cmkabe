@@ -33,6 +33,8 @@ CMAKE_BUILD_TYPE ?= $(call bsel,$(DEBUG),Debug,Release)
 CMAKE_BUILD_ROOT ?= $(WORKSPACE_DIR)/target/cmake
 #! The CMake build directory for the current configuration.
 CMAKE_BUILD_DIR ?= $(CMAKE_BUILD_ROOT)/$(TARGET_TRIPLE)/$(CMAKE_BUILD_TYPE)
+#! The CMake output directory exclude the tailing triple.
+CMAKE_TARGET_PREFIX ?= $(WORKSPACE_DIR)
 #! CMake output directories to clean.
 CMAKE_OUTPUT_DIRS +=
 #! CMake output file patterns to clean.
@@ -86,16 +88,34 @@ cargo_upgrade = cargo upgrade --incompatible $(1)
 # cargo_set_gcc_env_vars()
 cargo_set_gcc_env_vars = $(eval $(_cargo_set_gcc_env_vars_tpl_))
 define _cargo_set_gcc_env_vars_tpl_
-    export CARGO_TARGET_$$(call upper,$$(subst -,_,$$(TARGET_TRIPLE)))_LINKER=$$(TARGET)-gcc
+    export CARGO_TARGET_$$(call upper,$$(TARGET_TRIPLE_UNDERSCORE))_LINKER=$$(TARGET)-gcc
     $$(foreach I,AR=ar CC=gcc CXX=g++ LD=ld RANLIB=ranlib STRIP=strip,\
-        $$(eval export $$(call kv_key,$$I)_$$(subst -,_,$$(TARGET_TRIPLE))=$$(TARGET)-$$(call kv_value,$$I)))
+        $$(eval export $$(call kv_key,$$I)_$$(TARGET_TRIPLE_UNDERSCORE)=$$(TARGET)-$$(call kv_value,$$I)))
 endef
 
 # If a cross compile GCC exists, set the appropriate environment variables for Rust.
 ifeq ($(shell $(TARGET)-gcc -dumpversion >$(NULL) 2>&1 || echo 1),)
     $(call cargo_set_gcc_env_vars)
 endif
+
+# Configure the cross compile pkg-config.
+ifeq ($(HOST)-$(PKG_CONFIG),Windows-)
+    ifeq ($(shell pkgconf --version >$(NULL) 2>&1 || echo 1),)
+        export PKG_CONFIG = pkgconf
+    endif
+endif
+ifneq ($(HOST_TRIPLE),$(TARGET_TRIPLE))
+    export PKG_CONFIG_ALLOW_CROSS = 1
+endif
+_k := PKG_CONFIG_PATH_$(TARGET_TRIPLE_UNDERSCORE)
+_v := $(CMAKE_TARGET_PREFIX)/$(TARGET_TRIPLE)/lib/pkgconfig
+ifeq ($(filter $(_v),$(subst $(PS), ,$($(_k)))),)
+    export $(_k) := $(_v)$(PS)$($(_k))
+endif
+
+# Export environment variables.
 export CARGO_WORKSPACE_DIR = $(WORKSPACE_DIR)
+export CMAKE_TARGET_PREFIX
 
 # Directory of cargo output binaries, as "<workspace_dir>/target/<triple>/<debug|release>"
 CARGO_TARGET_OUT_DIR := $(WORKSPACE_DIR)/target/$(if $(filter $(TARGET_TRIPLE),$(HOST_TRIPLE)),,$(TARGET_TRIPLE)/)$(call bsel,$(DEBUG),debug,release)
