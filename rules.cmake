@@ -45,7 +45,7 @@ if(NOT DEFINED TARGET_PREFIX)
     if(NOT $ENV{CMAKE_TARGET_PREFIX} STREQUAL "")
         set(TARGET_PREFIX "$ENV{CMAKE_TARGET_PREFIX}")
     else()
-        set(TARGET_PREFIX "${CMAKE_SOURCE_DIR}")
+        set(TARGET_PREFIX "${CMAKE_SOURCE_DIR}/build/output")
     endif()
 endif()
 
