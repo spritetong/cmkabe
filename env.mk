@@ -12,7 +12,7 @@ ifndef __ENV_MK__
 __ENV_MK__ = $(abspath $(lastword $(MAKEFILE_LIST)))
 CMKABE_HOME := $(abspath $(dir $(__ENV_MK__)))
 
-CMAKEABE_VERSION = 0.2.11
+CMAKEABE_VERSION = 0.3.0
 
 # ==============================================================================
 # = Environment Variables
@@ -93,7 +93,7 @@ git_ls_untracked = git ls-files --others $(if $(2),$(addprefix -x ,$(2)),--exclu
 git_ls_ignored = git ls-files --others -i $(if $(2),$(addprefix -x ,$(2)),--exclude-standard) $(1)
 
 # git_remove_ignored(directories:str,patterns:List<str>)
-git_remove_ignored = $(call xargs_do,$(call git_ls_ignored,$(1),$(2)),$(RM) -f {})
+git_remove_ignored = $(call git_ls_ignored,$(1),$(2)) | $(RM) -f --stdin
 
 # Check existence of a file or a directory in command line.
 # exists(file_or_directory:str,patterns:List<str>)
@@ -116,44 +116,43 @@ NULL    = /dev/null
 OK      = test 1 == 1
 ERR     = test 0 == 1
 
-PY      = python
-PY3     = python3
-
-CARGO_EXEC = $(PY) "$(CMKABE_HOME)/shellutil.py" cargo-exec
+CARGO_EXEC = $(PY) "$(CMKABE_HOME)/shlutil.py" cargo-exec
 CD      = cd
-CMPVER  = $(PY) "$(CMKABE_HOME)/shellutil.py" cmpver
+CMPVER  = $(PY) "$(CMKABE_HOME)/shlutil.py" cmpver
 CP      = cp
-CWD     = $(PY) "$(CMKABE_HOME)/shellutil.py" cwd
-FIXLINK = $(PY) "$(CMKABE_HOME)/shellutil.py" fix_symlink
+CWD     = $(PY) "$(CMKABE_HOME)/shlutil.py" cwd
+FIXLINK = $(PY) "$(CMKABE_HOME)/shlutil.py" fix_symlink
 less    = less $(1)
-MKDIR   = $(PY) "$(CMKABE_HOME)/shellutil.py" mkdir
+MKDIR   = $(PY) "$(CMKABE_HOME)/shlutil.py" mkdir
 MV      = mv
-RELPATH = $(PY) "$(CMKABE_HOME)/shellutil.py" relpath
-RM      = rm
-RMDIR   = $(PY) "$(CMKABE_HOME)/shellutil.py" rmdir -f
+PY      = python3
+RELPATH = $(PY) "$(CMKABE_HOME)/shlutil.py" relpath
+RM      = $(PY) "$(CMKABE_HOME)/shlutil.py" rm
+RMDIR   = $(PY) "$(CMKABE_HOME)/shlutil.py" rmdir -f
 TOUCH   = touch
-UPLOAD  = $(PY) "$(CMKABE_HOME)/shellutil.py" upload
+UPLOAD  = $(PY) "$(CMKABE_HOME)/shlutil.py" upload
 WHICH   = which
 
 ifeq ($(HOST),Windows)
-    PS       = ;
-    NULL     = NUL
-    OK       = SET _=
-    ERR      = cmd.exe /C EXIT 1
-    PY       = python.exe
-    PY3      = py.exe -3
-    CD       = cd /d
-    CP       = $(PY) "$(CMKABE_HOME)/shellutil.py" cp
-    less     = more $(subst /,\\,$(1))
-    MV       = $(PY) "$(CMKABE_HOME)/shellutil.py" mv
-    RM       = $(PY) "$(CMKABE_HOME)/shellutil.py" rm
-    TOUCH    = $(PY) "$(CMKABE_HOME)/shellutil.py" touch
-    WHICH    = where
-
     exists   = (IF NOT EXIST $(subst /,\\,$(1)) $(ERR))
     set_env  = set $(1)=$(2)
     xargs_do = (FOR /F "tokens=*" %%x IN ('$(1)') DO $(subst {},%%x,$(2)))
-    WINREG   = $(PY) "$(CMKABE_HOME)/shellutil.py" winreg
+
+    PS       = ;
+
+    NULL     = NUL
+    OK       = SET _=
+    ERR      = cmd.exe /C EXIT 1
+
+    CD       = cd /d
+    CP       = $(PY) "$(CMKABE_HOME)/shlutil.py" cp
+    less     = more $(subst /,\\,$(1))
+    MV       = $(PY) "$(CMKABE_HOME)/shlutil.py" mv
+    PY       = python.exe
+    TOUCH    = $(PY) "$(CMKABE_HOME)/shlutil.py" touch
+    WHICH    = where
+
+    WINREG   = $(PY) "$(CMKABE_HOME)/shlutil.py" winreg
 endif
 
 endif # __ENV_MK__
