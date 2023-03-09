@@ -69,14 +69,23 @@ CARGO_EXECUTABLES +=
 #! Cargo library crates
 CARGO_LIBRARIES +=
 
-# cargo_run(<crate:str>,<options:str>)
-cargo_run = cargo $(CARGO_TOOLCHAIN) run --bin $(1) $(CARGO_OPTS) $(2)
+# cargo_bench(<options:str>)
+cargo_bench = cargo $(CARGO_TOOLCHAIN) bench $(CARGO_OPTS) $(1)
 
 # cargo_build(<crate:str>,<options:str>)
 cargo_build = cargo $(CARGO_TOOLCHAIN) build --bin $(1) $(CARGO_OPTS) $(2)
 
 # cargo_build_lib(<options:str>)
 cargo_build_lib = cargo $(CARGO_TOOLCHAIN) build --lib $(CARGO_OPTS) $(1)
+
+# cargo_check(<options:str>)
+cargo_check = cargo $(CARGO_TOOLCHAIN) check $(CARGO_OPTS) $(1)
+
+# cargo_clippy(<options:str>)
+cargo_clippy = cargo $(CARGO_TOOLCHAIN) clippy $(CARGO_OPTS) $(1)
+
+# cargo_run(<crate:str>,<options:str>)
+cargo_run = cargo $(CARGO_TOOLCHAIN) run --bin $(1) $(CARGO_OPTS) $(2)
 
 # cargo_test(<options:str>)
 cargo_test = cargo $(CARGO_TOOLCHAIN) test $(CARGO_OPTS) $(1)
@@ -163,17 +172,33 @@ cmake-clean-outputs:
 	@$(if $(CMAKE_OUTPUT_DIRS),$(call git_remove_ignored,$(CMAKE_OUTPUT_DIRS),$(CMAKE_OUTPUT_FILE_PATTERNS)) || $(OK),$(OK))
 	@$(call exists,"$(WORKSPACE_DIR)/CMakeLists.txt") && $(TOUCH) "$(WORKSPACE_DIR)/CMakeLists.txt" || $(OK)
 
+# Cargo bench
+cargo-bench:
+	@$(call cargo_bench)
+
+# Cargo build
+cargo-build:
+	@cargo $(CARGO_TOOLCHAIN) build $(CARGO_OPTS)
+
+# Cargo check
+cargo-check:
+	@$(call cargo_check)
+
+# Clean all Cargo targets
+cargo-clean:
+	-@cargo clean
+
+# Cargo clippy
+cargo-clippy:
+	@$(call cargo_clippy)
+
 # Build all Rust libraries
 cargo-lib:
 	@$(call cargo_build_lib)
 
-# Cargo test.
+# Cargo test
 cargo-test:
 	@$(call cargo_test)
-
-# Clean all Cargo targets.
-cargo-clean:
-	-@cargo clean
 
 # Upgrade dependencies
 cargo-upgrade:
