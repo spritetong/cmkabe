@@ -108,11 +108,6 @@ ifeq ($(shell $(TARGET)-gcc -dumpversion >$(NULL) 2>&1 || echo 1),)
 endif
 
 # Configure the cross compile pkg-config.
-ifeq ($(HOST)-$(PKG_CONFIG),Windows-)
-    ifeq ($(shell pkgconf --version >$(NULL) 2>&1 || echo 1),)
-        export PKG_CONFIG = pkgconf
-    endif
-endif
 ifneq ($(HOST_TRIPLE),$(TARGET_TRIPLE))
     export PKG_CONFIG_ALLOW_CROSS = 1
 endif
@@ -136,7 +131,7 @@ _saved_default_goal := $(.DEFAULT_GOAL)
 
 .PHONY: cmake cmake-init cmake-build cmake-rebuild cmake-install \
         cmake-clean cmake-distclean cmake-clean-root cmake-clean-outputs \
-        cargo-lib cargo-clean cargo-upgrade
+        cargo-bench cargo-build cargo-check cargo-clean cargo-clippy cargo-lib cargo-test
 
 cmake: cmake-build
 
