@@ -11,6 +11,13 @@
 if(NOT DEFINED CMKABE_HOME)
 set(CMKABE_HOME "${CMAKE_CURRENT_LIST_DIR}")
 
+# The path separator: ";" on Windows, ":" on Linux
+if(WIN32)
+    set(CMKABE_PS ";")
+else()
+    set(CMKABE_PS ":")
+endif()
+
 # Capitalize the initial fo a string.
 function(cmkabe_initial_capitalize str var)
     # Convert the system name to camel case.

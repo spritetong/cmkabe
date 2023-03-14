@@ -148,3 +148,13 @@ include_directories(BEFORE
     SYSTEM "${TARGET_COMMON_INCLUDE_DIR}"
 )
 link_directories(BEFORE "${TARGET_LIB_DIR}")
+
+# pkg-config
+string(REGEX MATCHALL "[^${CMKABE_PS}]+" _l "$ENV{PKG_CONFIG_PATH_${TARGET_TRIPLE}}${CMKABE_PS}$ENV{PKG_CONFIG_PATH_${TARGET_TRIPLE_UNDERSCORE}}${CMKABE_PS}$ENV{PKG_CONFIG_PATH}")
+list(REMOVE_ITEM _l "")
+set(_s "${TARGET_PREFIX}/${TARGET_TRIPLE}/lib/pkgconfig")
+if (NOT _s IN_LIST _l)
+    list(INSERT _l 0 "${_s}")
+endif()
+string(JOIN "${CMKABE_PS}" _s ${_l})
+set(ENV{PKG_CONFIG_PATH} "${_s}")
