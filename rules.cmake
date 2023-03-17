@@ -50,7 +50,15 @@ if(NOT DEFINED TARGET_PREFIX)
 endif()
 
 if(NOT DEFINED TARGET_COMMON_INCLUDE_DIR)
-    set(TARGET_COMMON_INCLUDE_DIR "${TARGET_PREFIX}/include")
+    if(IS_DIRECTORY "${TARGET_PREFIX}/include")
+        set(TARGET_COMMON_INCLUDE_DIR "${TARGET_PREFIX}/include")
+    elseif(IS_DIRECTORY "${TARGET_PREFIX}/common/include")
+        set(TARGET_COMMON_INCLUDE_DIR "${TARGET_PREFIX}/common/include")
+    elseif(IS_DIRECTORY "${TARGET_PREFIX}/public/include")
+        set(TARGET_COMMON_INCLUDE_DIR "${TARGET_PREFIX}/public/include")
+    elseif(IS_DIRECTORY "${TARGET_PREFIX}/share/include")
+        set(TARGET_COMMON_INCLUDE_DIR "${TARGET_PREFIX}/share/include")
+    endif()
 endif()
 
 if(NOT DEFINED TARGET_INCLUDE_DIR)
@@ -143,10 +151,10 @@ if(TARGET_MSVC_UNICODE AND WIN32)
     add_compile_definitions("_UNICODE")
 endif()
 
-include_directories(BEFORE
-    SYSTEM "${TARGET_INCLUDE_DIR}"
-    SYSTEM "${TARGET_COMMON_INCLUDE_DIR}"
-)
+if(NOT TARGET_COMMON_INCLUDE_DIR STREQUAL "")
+    include_directories(BEFORE SYSTEM "${TARGET_COMMON_INCLUDE_DIR}")
+endif()
+include_directories(BEFORE SYSTEM "${TARGET_INCLUDE_DIR}")
 link_directories(BEFORE "${TARGET_LIB_DIR}")
 
 # pkg-config
