@@ -151,7 +151,7 @@ if(TARGET_MSVC_UNICODE AND WIN32)
     add_compile_definitions("_UNICODE")
 endif()
 
-if(NOT TARGET_COMMON_INCLUDE_DIR STREQUAL "")
+if(NOT ${TARGET_COMMON_INCLUDE_DIR} STREQUAL "")
     include_directories(BEFORE SYSTEM "${TARGET_COMMON_INCLUDE_DIR}")
 endif()
 include_directories(BEFORE SYSTEM "${TARGET_INCLUDE_DIR}")
