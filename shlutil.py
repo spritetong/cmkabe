@@ -52,7 +52,7 @@ class ShellCmd:
                     return self.EFAIL
                 for file in files:
                     try:
-                        if os.path.isfile(file):
+                        if os.path.isfile(file) or os.path.islink(file):
                             os.remove(file)
                         elif os.path.isdir(file):
                             os.rmdir(file)
@@ -74,7 +74,7 @@ class ShellCmd:
                     return self.EFAIL
                 for file in files:
                     try:
-                        if os.path.isfile(file):
+                        if os.path.isfile(file) or os.path.islink(file):
                             os.remove(file)
                         elif os.path.isdir(file):
                             shutil.rmtree(
@@ -119,14 +119,34 @@ class ShellCmd:
     def run__rmdir(self):
         status = 0
         for path in self.args:
-            try:
-                os.rmdir(path)
-            except OSError:
-                status = self.EFAIL
-                if self.options.force:
-                    continue
-                print('Can not remove directory {}'.format(path), file=sys.stderr)
-                return status
+            if not self.options.remove_empty_dirs:
+                try:
+                    os.rmdir(path)
+                except OSError:
+                    status = self.EFAIL
+                    if self.options.force:
+                        continue
+                    print('Can not remove directory {}'.format(
+                        path), file=sys.stderr)
+                    return status
+            else:
+                def remove_empty_dirs(path):
+                    # Remove empty sub-directories recursively
+                    for item in os.listdir(path):
+                        dir = os.path.join(path, item)
+                        if os.path.isdir(dir):
+                            remove_empty_dirs(dir)
+                            if not os.listdir(dir):
+                                os.rmdir(dir)
+                if os.path.isdir(path):
+                    try:
+                        remove_empty_dirs(path)
+                        # Try to remove empty ancestor directories.
+                        while path:
+                            os.rmdir(path)
+                            path = os.path.dirname(path)
+                    except OSError:
+                        pass
         return status
 
     def run__mv(self):
@@ -429,6 +449,9 @@ def main():
         parser = OptionParser(
             usage=('Usage: %prog [options] command <arguments>\n\n'))
         parser.get_option('-h').help = 'Show this help message and exit.'
+        parser.add_option('-e', '--empty-dirs',
+                          action='store_true', default=False, dest='remove_empty_dirs',
+                          help='remove all empty directories')
         parser.add_option('-f', '--force',
                           action='store_true', default=False, dest='force',
                           help='ignore errors, never prompt')

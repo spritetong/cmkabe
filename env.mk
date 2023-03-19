@@ -93,7 +93,7 @@ git_ls_untracked = git ls-files --others $(if $(2),$(addprefix -x ,$(2)),--exclu
 git_ls_ignored = git ls-files --others -i $(if $(2),$(addprefix -x ,$(2)),--exclude-standard) $(1)
 
 # git_remove_ignored(directories:str,patterns:List<str>)
-git_remove_ignored = $(call git_ls_ignored,$(1),$(2)) | $(RM) -f --stdin
+git_remove_ignored = $(call git_ls_ignored,$(1),$(2)) | $(RM) -f --stdin && $(RMDIR) -e $(1)
 
 # Check existence of a file or a directory in command line.
 # exists(file_or_directory:str,patterns:List<str>)
