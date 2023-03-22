@@ -11,7 +11,7 @@
 include("${CMAKE_CURRENT_LIST_DIR}/env.cmake")
 
 # TARGET, TARGET_TRIPLE
-if(NOT("${TARGET}" MATCHES "^(|native)$"))
+if(NOT "${TARGET}" MATCHES "^(|native)$")
 	# pass
 elseif(WIN32 AND (CMAKE_SYSTEM_PROCESSOR STREQUAL "AMD64"))
     set(TARGET "x86_64-pc-windows-msvc")

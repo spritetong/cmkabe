@@ -399,6 +399,7 @@ class ShellCmd:
 
     def run__upload(self):
         import urllib.parse
+        import glob
 
         if len(self.args) < 2:
             print(
@@ -421,6 +422,8 @@ class ShellCmd:
         password = parsed.password or ''
         remote_dir = parsed.path or '/'
 
+        print(scheme, hostname, port, url, username, password, remote_dir)
+
         ftp = None
         ssh = None
         sftp = None
@@ -431,7 +434,7 @@ class ShellCmd:
             ftp.login(username, password)
             if scheme == 'ftps':
                 ftp.prot_p()
-            ftp.set_pasv()
+            ftp.set_pasv(True)
         elif scheme == 'sftp':
             try:
                 import paramiko
@@ -441,7 +444,7 @@ class ShellCmd:
                 return self.EFAIL
             ssh = paramiko.SSHClient()
             ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            ssh.connect(hostname, port or 23, username, password)
+            ssh.connect(hostname, port or 22, username, password)
             sftp = ssh.open_sftp()
         else:
             print('Unsupported protocol: {}'.format(scheme), file=sys.stderr)
@@ -449,23 +452,25 @@ class ShellCmd:
 
         for item in files:
             pair = item.split('=')
-            (local_path, remote_path) = (pair[0], os.path.basename(
-                pair[0])) if len(pair) == 1 else (pair[1], pair[0])
-            remote_path = '/'.join([remote_dir,
-                                    remote_path]).replace('\\', '/')
-            while '//' in remote_path:
-                remote_path = remote_path.replace('//', '/')
+            for local_path in glob.glob(pair[-1]):
+                if not os.path.isdir(local_path):
+                    remote_path = os.path.basename(local_path) if len(pair) == 1 else pair[0]
+                    if not remote_path.startswith('/'):
+                        remote_path = '/'.join([remote_dir, remote_path])
+                    if remote_path.endswith('/'):
+                        remote_path = '/'.join([remote_path, os.path.basename(local_path)])
+                    while '//' in remote_path:
+                        remote_path = remote_path.replace('//', '/')
 
-            print('Upload "{}"'.format(local_path))
-            print('    to "{}{}" ...'.format(url, remote_path), flush=True)
-            if ftp is not None:
-                with open(local_path, 'rb') as fp:
-                    ftp.storbinary('STOR {}'.format(remote_path), fp,
-                                   32 * 1024, callback=lambda _sent: print('.', end='', flush=True))
-
-            elif sftp is not None:
-                sftp.put(local_path, remote_path)
-            print('')
+                    print('Upload "{}"'.format(local_path))
+                    print('    to "{}{}" ...'.format(url, remote_path), end="", flush=True)
+                    if ftp is not None:
+                        with open(local_path, 'rb') as fp:
+                            ftp.storbinary('STOR {}'.format(remote_path), fp,
+                                        32 * 1024, callback=lambda _sent: print('.', end='', flush=True))
+                    elif sftp is not None:
+                        sftp.put(local_path, remote_path)
+                    print('')
         print('Done.', flush=True)
 
         if ftp is not None:
