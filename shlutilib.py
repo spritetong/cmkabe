@@ -422,8 +422,6 @@ class ShellCmd:
         password = parsed.password or ''
         remote_dir = parsed.path or '/'
 
-        print(scheme, hostname, port, url, username, password, remote_dir)
-
         ftp = None
         ssh = None
         sftp = None
