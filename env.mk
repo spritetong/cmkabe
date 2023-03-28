@@ -12,7 +12,7 @@ ifndef __ENV_MK__
 __ENV_MK__ = $(abspath $(lastword $(MAKEFILE_LIST)))
 CMKABE_HOME := $(abspath $(dir $(__ENV_MK__)))
 
-CMAKEABE_VERSION = 0.3.5
+CMAKEABE_VERSION = 0.3.6
 
 # ==============================================================================
 # = Environment Variables
@@ -132,6 +132,9 @@ RMDIR   = $(PY) "$(CMKABE_HOME)/shlutil.py" rmdir -f
 TOUCH   = touch
 UPLOAD  = $(PY) "$(CMKABE_HOME)/shlutil.py" upload
 WHICH   = which
+WIN2WSL = $(PY) "$(CMKABE_HOME)/shlutil.py" win2wsl_path
+WSL2WIN = $(PY) "$(CMKABE_HOME)/shlutil.py" wsl2win_path
+wslrun  = $(if $(WSL_DISTRO_NAME),$(1),wsl "$(shell $(WIN2WSL) $(CMKABE_HOME))/wslrun.sh" $(1))
 
 ifeq ($(HOST),Windows)
     exists   = (IF NOT EXIST $(subst /,\\,$(1)) $(ERR))

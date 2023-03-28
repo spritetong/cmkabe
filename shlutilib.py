@@ -286,6 +286,33 @@ class ShellCmd:
         print(path.replace('\\', '/'), end='')
         return 0
 
+    def run__win2wsl_path(self):
+        path = self.args[0] if self.args else os.getcwd()
+        if os.path.isabs(path):
+            path = os.path.abspath(path).replace('\\', '/')
+        else:
+            path = path.replace('\\', '/')
+        drive_path = path.split(':', 1)
+        if len(drive_path) > 1 and len(drive_path[0]) == 1:
+            path = '/mnt/{}{}'.format(drive_path[0].lower(),
+                                      drive_path[1]).rstrip('/')
+        print(path, end='')
+        return 0
+
+    def run__wsl2win_path(self):
+        path = self.args[0] if self.args else os.getcwd()
+        if os.path.isabs(path):
+            path = os.path.abspath(path).replace('\\', '/')
+        else:
+            path = path.replace('\\', '/')
+        if len(path) >= 6 and path.startswith('/mnt/'):
+            if len(path) == 6:
+                path = path[5].upper() + ':/'
+            elif path[6] == '/':
+                path = '{}:{}'.format(path[5].upper(), path[6:])
+        print(path, end='')
+        return 0
+
     def run__touch(self):
         import glob
         status = 0
