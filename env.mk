@@ -12,7 +12,7 @@ ifndef __ENV_MK__
 __ENV_MK__ = $(abspath $(lastword $(MAKEFILE_LIST)))
 CMKABE_HOME := $(abspath $(dir $(__ENV_MK__)))
 
-CMAKEABE_VERSION = 0.3.4
+CMAKEABE_VERSION = 0.3.5
 
 # ==============================================================================
 # = Environment Variables
@@ -113,8 +113,8 @@ PS      = :# PATH variable's separator
 SPACE  := $(subst :,,: :)
 
 NULL    = /dev/null
-OK      = test 1 == 1
-ERR     = test 0 == 1
+OK      = true
+ERR     = false
 
 CARGO_EXEC = $(PY) "$(CMKABE_HOME)/shlutil.py" cargo-exec
 CD      = cd
