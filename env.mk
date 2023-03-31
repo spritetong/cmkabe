@@ -103,7 +103,11 @@ exists = test -e $(1)
 # set_env(key:str,value:str)
 set_env = export $(1)=$(2)
 
-# Run command with arguments read from input in command line.
+# Run a command on WSL Linux.
+# wsl_run(cmd:str)
+wsl_run = $(1)
+
+# Run a command with arguments read from input in command line.
 # xargs_do(input:str,command:str)
 xargs_do = $(1) | xargs -I {} $(2)
 
@@ -134,11 +138,11 @@ UPLOAD  = $(PY) "$(CMKABE_HOME)/shlutil.py" upload
 WHICH   = which
 WIN2WSL = $(PY) "$(CMKABE_HOME)/shlutil.py" win2wsl_path
 WSL2WIN = $(PY) "$(CMKABE_HOME)/shlutil.py" wsl2win_path
-wslrun  = $(if $(WSL_DISTRO_NAME),$(1),wsl "$(shell $(WIN2WSL) $(CMKABE_HOME))/wslrun.sh" $(1))
 
 ifeq ($(HOST),Windows)
     exists   = (IF NOT EXIST $(subst /,\\,$(1)) $(ERR))
     set_env  = set $(1)=$(2)
+    wsl_run  = wsl --shell-type login$(if $(WSL_DIST), -d "$(WSL_DIST)",)$(if $(WSL_USER), -u "$(WSL_USER)",) $(1)
     xargs_do = (FOR /F "tokens=*" %%x IN ('$(1)') DO $(subst {},%%x,$(2)))
 
     PS       = ;
