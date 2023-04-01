@@ -120,14 +120,18 @@ CARGO_TARGET_OUT_DIR := $(WORKSPACE_DIR)/target/$(if $(filter $(TARGET_TRIPLE),$
 
 _saved_default_goal := $(.DEFAULT_GOAL)
 
-.PHONY: cmake cmake-init cmake-build cmake-rebuild cmake-install \
-        cmake-clean cmake-distclean cmake-clean-root cmake-clean-outputs \
-        cargo-bench cargo-build cargo-check cargo-clean cargo-clippy cargo-lib cargo-test
+.PHONY: before-build \
+        cmake cmake-init cmake-build cmake-rebuild cmake-install \
+        cmake-clean cmake-distclean cmake-clean-root cmake-clean-output \
+        cargo-bench cargo-build cargo-check cargo-clean cargo-clippy cargo-lib cargo-test \
 
 cmake: cmake-build
 
+# Do something before building
+before-build:
+
 # Initialize the cmake build directory.
-cmake-init $(CMAKE_BUILD_DIR):
+cmake-init $(CMAKE_BUILD_DIR): before-build
 	@$(call cmake_init)
 
 # Build the target 
@@ -142,19 +146,19 @@ cmake-install:
 	@$(call cmake_install)
 
 # Clean the target.
-cmake-clean: cmake-clean-outputs
+cmake-clean: cmake-clean-output
 	@$(call exists,"$(CMAKE_BUILD_DIR)") && $(call cmake_clean) || $(OK)
 
 # Clean the target and erase the build directory.
-cmake-distclean: cmake-clean-outputs
+cmake-distclean: cmake-clean-output
 	@$(RM) -rf "$(CMAKE_BUILD_DIR)" || $(OK)
 
 # Clean the root directory of all targets.
-cmake-clean-root: cmake-clean-outputs
+cmake-clean-root: cmake-clean-output
 	@$(RM) -rf "$(CMAKE_BUILD_ROOT)" || $(OK)
 
 # Clean extra output files.
-cmake-clean-outputs:
+cmake-clean-output:
 	@$(if $(CMAKE_OUTPUT_DIRS),$(call git_remove_ignored,$(CMAKE_OUTPUT_DIRS),$(CMAKE_OUTPUT_FILE_PATTERNS)) || $(OK),$(OK))
 	@$(call exists,"$(WORKSPACE_DIR)/CMakeLists.txt") && $(TOUCH) "$(WORKSPACE_DIR)/CMakeLists.txt" || $(OK)
 
@@ -163,15 +167,15 @@ cargo:
 	@$(call cargo_command,$(CARGO_CMD))
 
 # Cargo bench
-cargo-bench:
+cargo-bench: before-build
 	@$(call cargo_command,bench)
 
 # Cargo build
-cargo-build:
+cargo-build: before-build
 	@cargo $(CARGO_TOOLCHAIN) build $(CARGO_OPTS)
 
 # Cargo check
-cargo-check:
+cargo-check: before-build
 	@$(call cargo_command,check)
 
 # Clean all Cargo targets
@@ -179,15 +183,15 @@ cargo-clean:
 	-@cargo clean
 
 # Cargo clippy
-cargo-clippy:
+cargo-clippy: before-build
 	@$(call cargo_command,clippy)
 
 # Build all Rust libraries
-cargo-lib:
+cargo-lib: before-build
 	@$(call cargo_build_lib)
 
 # Cargo test
-cargo-test:
+cargo-test: before-build
 	@$(call cargo_command,test)
 
 # Upgrade dependencies
@@ -200,8 +204,8 @@ cargo-upgrade:
 undefine _saved_default_goal
 
 # Generate common rules for Cargo and CMake.
-rules_for_cargo_cmake = $(eval $(_rules_for_cargo_cmake_tpl_))
-define _rules_for_cargo_cmake_tpl_
+cargo_cmake_rules = $(eval $(_cargo_cmake_rules_tpl_))
+define _cargo_cmake_rules_tpl_
     ifeq ($$(BIN),)
         BIN = $$(call kv_value,$$(firstword $$(CARGO_EXECUTABLES)))
     else
@@ -209,18 +213,18 @@ define _rules_for_cargo_cmake_tpl_
     endif
 
     .PHONY: build
-    build:
+    build: before-build
 		@$$(call cargo_build,$$(BIN)) || echo ***Please specify the binary name by "BIN=<name>"
 
     .PHONY: run
-    run:
+    run: before-build
 		@$$(call cargo_run,$$(BIN))
 
     .PHONY: lib
     lib: cargo-lib
 
     .PHONY: clean
-    clean: cargo-clean cmake-clean-outputs
+    clean: cargo-clean cmake-clean-output
 
     .PHONY: clean-cmake
     clean-cmake: cmake-clean-root
@@ -251,7 +255,7 @@ define _cargo_build_tpl_
         $(1): $(2)
     endif
     .PHONY: $(2)
-    $(2):
+    $(2): before-build
 		@$$(call cargo_build,$(2))
 endef
 define _cargo_run_tpl_
@@ -260,7 +264,7 @@ define _cargo_run_tpl_
         run-$(1): run-$(2)
     endif
     .PHONY: run-$(2)
-    run-$(2):
+    run-$(2): before-build
 		@$$(call cargo_run,$(2))
 endef
 define _cargo_build_lib_tpl_
@@ -269,8 +273,34 @@ define _cargo_build_lib_tpl_
         $(1): $(2)
     endif
     .PHONY: $(2)
-    $(2):
+    $(2): before-build
 		@$$(call cargo_build_lib,-p $(2))
+endef
+
+# Download external libraries for CMake
+# cmake_update_libs_rule(target:str=update-libs,git_path_url:str,local_repo_dir:str=,git_sources:str,
+#    local_destination_dir:str,tmp_dir:str=.libs)
+cmake_update_libs_rule = $(eval $(call _cmake_update_libs_rule_tpl_,$(1),$(2),$(3),$(4),$(5),$(6)))
+define _cmake_update_libs_rule_tpl_
+    $(1)__target := $(if $(1),$(1),update-libs)
+    $(1)__local_repo := $(if $(3),$(3),../$$(notdir $$(basename $(2))))
+    $(1)__tmp_dir := $(if $(6),$(6),.libs)
+
+    before-build: $(5)
+    .PHONY: $$($(1)__target)
+    $$($(1)__target): cmake-clean-output
+    $$($(1)__target) $(5):
+		@$$(RM) -rf $$($(1)__tmp_dir)
+    ifeq ($$(call bool,$$(REBUILD)),OFF)
+		@git clone --depth 1 --branch master $(2) $$($(1)__tmp_dir)
+		@$$(MKDIR) $(5)
+		@$$(CP) -rfP $$(foreach I,$(4),$$($(1)__tmp_dir)/$$I) $(5)/ && $$(FIXLINK) $(5)/
+		@$$(RM) -rf $$($(1)__tmp_dir)
+    else
+		@$$(CD) $$($(1)__local_repo) && make DEBUG=0 && $$(CD) $$(WORKSPACE_DIR)
+		@$$(MKDIR) $(5)
+		@$$(CP) -rfP $$(foreach I,$(4),$$($(1)__local_repo)/$$I) $(5)/ && $$(FIXLINK) $(5)/
+    endif
 endef
 
 endif # __RULES_MK__
