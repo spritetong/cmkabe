@@ -279,17 +279,18 @@ endef
 
 # Download external libraries for CMake
 # cmake_update_libs_rule(target:str=update-libs,git_path_url:str,local_repo_dir:str=,git_sources:str,
-#    local_destination_dir:str,tmp_dir:str=.libs)
-cmake_update_libs_rule = $(eval $(call _cmake_update_libs_rule_tpl_,$(1),$(2),$(3),$(4),$(5),$(6)))
+#    local_destination_dir:str,local_target_file:str=,tmp_dir:str=.libs)
+cmake_update_libs_rule = $(eval $(call _cmake_update_libs_rule_tpl_,$(1),$(2),$(3),$(4),$(5),$(6),$(7)))
 define _cmake_update_libs_rule_tpl_
     $(1)__target := $(if $(1),$(1),update-libs)
     $(1)__local_repo := $(if $(3),$(3),../$$(notdir $$(basename $(2))))
-    $(1)__tmp_dir := $(if $(6),$(6),.libs)
+	$(1)__local_file := $(if $(6),$(6),$(5))
+    $(1)__tmp_dir := $(if $(7),$(7),.libs)
 
-    before-build: $(5)
+    before-build: $$($(1)__local_file)
     .PHONY: $$($(1)__target)
     $$($(1)__target): cmake-clean-output
-    $$($(1)__target) $(5):
+    $$($(1)__target) $$($(1)__local_file):
 		@$$(RM) -rf $$($(1)__tmp_dir)
     ifeq ($$(call bool,$$(REBUILD)),OFF)
 		@git clone --depth 1 --branch master $(2) $$($(1)__tmp_dir)
