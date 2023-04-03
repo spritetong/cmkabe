@@ -148,4 +148,13 @@ function(cmakabe_target_arch system_name system_processor var)
     set(${var} "${arch}" PARENT_SCOPE)
 endfunction()
 
+# Set C++ standard
+function(cmakabe_set_cxx_standard cxx_standard)
+    set(CMAKE_CXX_STANDARD ${cxx_standard} CACHE INTERNAL "" FORCE)
+    set(CMAKE_CXX_STANDARD_REQUIRED ON CACHE INTERNAL "" FORCE)
+    if(MSVC)
+        add_compile_options("/Zc:__cplusplus")
+    endif()
+endfunction()
+
 endif()
