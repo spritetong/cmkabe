@@ -8,33 +8,8 @@
 # *             - Initial revision.
 # *
 
-# Cross compiler
-if(NOT TARGET_C_COMPILER)
-    # Try to get the full path of the cross compile GCC.
-    cmkabe_get_exe_path("${TARGET}-gcc" TARGET_C_COMPILER)
-endif()
-if(TARGET_C_COMPILER)
-    if(TARGET_TRIPLE MATCHES "^([^-]+)-([^-]+)-([^-]+)")
-        set(CMAKE_SYSTEM_PROCESSOR "${CMAKE_MATCH_1}" CACHE STRING "")
-        # Convert the system name to camel case.
-        cmkabe_initial_capitalize("${CMAKE_MATCH_3}" _system)
-        set(CMAKE_SYSTEM_NAME "${_system}" CACHE STRING "")
-    else()
-        message(FATAL_ERROR "Invalid target triple ${TARGET_TRIPLE}")
-    endif()
-
-    if(NOT IS_ABSOLUTE TARGET_C_COMPILER)
-        cmkabe_get_exe_path("${TARGET_C_COMPILER}" TARGET_C_COMPILER)
-    endif()
-    string(REGEX REPLACE "-[^-]+$" "-" _prefix "${TARGET_C_COMPILER}")
-    if(NOT _prefix)
-        message(FATAL_ERROR "*** Can not find the C compiler: ${TARGET_C_COMPILER}, please add its path to the PATH enviornment variable.")
-    endif()
-    set(CMAKE_C_COMPILER "${_prefix}gcc" CACHE STRING "" FORCE)
-    set(CMAKE_CXX_COMPILER "${_prefix}g++" CACHE STRING "" FORCE)
-    set(CMAKE_ASM_COMPILER "${_prefix}gcc" CACHE STRING "" FORCE)
-    set(CMAKE_ASM-ATT_COMPILER "${_prefix}as" CACHE STRING "" FORCE)
-endif()
+if(NOT DEFINED _CMKABE_RULES_INITED)
+set(_CMKABE_RULES_INITED ON)
 
 if(NOT CMAKE_BUILD_TYPE)
     # Build for Release by default
@@ -103,6 +78,12 @@ endif()
 
 # ==============================================================================
 
+if(PROJECT_NAME)
+    message(FATAL_ERROR "Can not define any project before `include <cmake-abe>/rules.cmake`.")
+endif()
+# Define a dummy project.
+project(__cmakabe__)
+
 include(CheckCCompilerFlag)
 check_c_compiler_flag("-s" CC_SUPPORT_STRIP)
 check_c_compiler_flag("-fPIC" CC_SUPPORT_PIC)
@@ -166,3 +147,26 @@ if (NOT _s IN_LIST _l)
 endif()
 string(JOIN "${CMKABE_PS}" _s ${_l})
 set(ENV{PKG_CONFIG_PATH} "${_s}")
+
+# CARGO_WORKSPACE_DIR
+cmkabe_find_in_ancesters("${CMAKE_SOURCE_DIR}" "cargo.toml" _s)
+if(_s)
+    get_filename_component(CARGO_WORKSPACE_DIR "${_s}" DIRECTORY)
+else()
+    set(CARGO_WORKSPACE_DIR "${CMAKE_SOURCE_DIR}")
+endif()
+
+# CARGO_TARGET_OUT_DIR
+if(TARGET_TRIPLE STREQUAL HOST_TRIPLE)
+    set(_s "")
+else()
+    set(_s "${TARGET_TRIPLE}/")
+endif()
+if(CMAKE_BUILD_TYPE MATCHES "^(Debug|debug)$")
+    set(_s "${_s}debug") 
+else()
+    set(_s "${_s}release")
+endif()
+set(CARGO_TARGET_OUT_DIR "${CARGO_WORKSPACE_DIR}/target/${_s}")
+
+endif()

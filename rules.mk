@@ -45,10 +45,10 @@ CMAKE_INIT += $(if $(MSVC_ARCH),-A $(MSVC_ARCH),)
 CMAKE_INIT += -D "TARGET:STRING=$(TARGET)" -D "TARGET_TRIPLE:STRING=$(TARGET_TRIPLE)"
 CMAKE_INIT += -D "CMAKE_BUILD_TYPE:STRING=$(CMAKE_BUILD_TYPE)"
 CMAKE_INIT += -D "CMAKE_VERBOSE_MAKEFILE:BOOL=$(VERBOSE)"
-CMAKE_INIT += $(foreach I,$(CMAKE_DEFS), -D$I) $(CMAKE_INIT_OPTS)
+CMAKE_INIT += $(foreach I,$(CMAKE_DEFS), -D$I)
 
 # FIXME: repeat 3 times to work around the cache problem of cross compilation on Linux.
-cmake_init = $(CMAKE_INIT) 2>$(NULL) || $(OK) && $(CMAKE_INIT) 1>$(NULL) 2>&1 || $(OK) && $(CMAKE_INIT) 1>$(NULL)
+cmake_init = $(CMAKE_INIT) $(CMAKE_INIT_OPTS)
 cmake_build = cmake --build "$(CMAKE_BUILD_DIR)" --config $(CMAKE_BUILD_TYPE) --parallel $(CMAKE_OPTS)
 cmake_install = cmake --install "$(CMAKE_BUILD_DIR)" --config $(CMAKE_BUILD_TYPE) $(CMAKE_OPTS)
 ifeq ($(if $(filter --prefix,$(CMAKE_OPTS)),1,)$(if $(CMAKE_INSTALL_TARGET_PREFIX),,1),)

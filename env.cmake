@@ -115,4 +115,37 @@ function(cmkabe_set_target_output_directory target output_dir)
     endif()
 endfunction()
 
+# Find a target file or directory in a directory and its ancesters,
+# Set the full path in ${var} if the target is found.
+function(cmkabe_find_in_ancesters directory name var)
+    get_filename_component(current_dir "${directory}" ABSOLUTE)
+    while(true)
+        if (EXISTS "${current_dir}/${name}")
+            set(${var} "${current_dir}/${name}" PARENT_SCOPE)
+            return()
+        endif()
+        # Get the parent directory.
+        get_filename_component(current_dir "${current_dir}" DIRECTORY)
+        if(NOT "${current_dir}" MATCHES "^([A-Za-z]:)?/$")
+            break()
+        endif()
+    endwhile()
+    set(${var} "" PARENT_SCOPE)
+endfunction()
+
+# Get the target architecture from the system processor.
+function(cmakabe_target_arch system_name system_processor var)
+    cmkabe_camel_case_to_lower_underscore("${system_processor}" arch)
+    if(system_name STREQUAL "Windows")
+        if(arch STREQUAL "arm64")
+            set(arch "aarch64")
+        elseif(arch MATCHES "^(amd64|x64)$")
+            set(arch "x86_64")
+        elseif(arch MATCHES "^(x86|win32)$")
+            set(arch "i686")
+        endif()
+    endif()
+    set(${var} "${arch}" PARENT_SCOPE)
+endfunction()
+
 endif()
