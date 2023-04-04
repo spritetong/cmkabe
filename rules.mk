@@ -109,8 +109,13 @@ ifeq ($(filter $(_v),$(subst $(PS), ,$($(_k)))),)
 endif
 
 # Export environment variables.
-export CARGO_WORKSPACE_DIR = $(WORKSPACE_DIR)
 export CMAKE_TARGET_PREFIX
+export CARGO_WORKSPACE_DIR = $(WORKSPACE_DIR)
+ifeq ($(HOST):$(origin WSL_DISTRO_NAME),Linux:environment)
+    # Reduce the number of concurrent tasks of the Rust CC crate on WSL Linux.
+    # https://docs.rs/cc/latest/cc/#parallelism
+    export RAYON_NUM_THREADS = 1
+endif
 
 # Directory of cargo output binaries, as "<workspace_dir>/target/<triple>/<debug|release>"
 CARGO_TARGET_OUT_DIR := $(WORKSPACE_DIR)/target/$(if $(filter $(TARGET_TRIPLE),$(HOST_TRIPLE)),,$(TARGET_TRIPLE)/)$(call bsel,$(DEBUG),debug,release)
