@@ -12,7 +12,7 @@ ifndef __ENV_MK__
 __ENV_MK__ = $(abspath $(lastword $(MAKEFILE_LIST)))
 CMKABE_HOME := $(abspath $(dir $(__ENV_MK__)))
 
-CMAKEABE_VERSION = 0.4.0
+CMAKEABE_VERSION = 0.4.1
 
 # ==============================================================================
 # = Environment Variables
@@ -127,6 +127,7 @@ CP      = cp
 CWD     = $(PY) "$(CMKABE_HOME)/shlutil.py" cwd
 FIXLINK = $(PY) "$(CMKABE_HOME)/shlutil.py" fix_symlink
 less    = less $(1)
+ln_s    = ln -s $(1) $(2)
 MKDIR   = $(PY) "$(CMKABE_HOME)/shlutil.py" mkdir
 MV      = mv
 PY      = python3
@@ -154,6 +155,7 @@ ifeq ($(HOST),Windows)
     CD       = cd /d
     CP       = $(PY) "$(CMKABE_HOME)/shlutil.py" cp
     less     = more $(subst /,\\,$(1))
+    ln_s     = mklink $(subst /,\\,$(2)) $(subst /,\\,$(1))
     MV       = $(PY) "$(CMKABE_HOME)/shlutil.py" mv
     PY       = python.exe
     TOUCH    = $(PY) "$(CMKABE_HOME)/shlutil.py" touch
