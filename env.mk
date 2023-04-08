@@ -12,7 +12,7 @@ ifndef __ENV_MK__
 __ENV_MK__ = $(abspath $(lastword $(MAKEFILE_LIST)))
 CMKABE_HOME := $(abspath $(dir $(__ENV_MK__)))
 
-CMAKEABE_VERSION = 0.4.1
+CMAKEABE_VERSION = 0.4.2
 
 # ==============================================================================
 # = Environment Variables
@@ -120,30 +120,32 @@ NULL    = /dev/null
 OK      = true
 ERR     = false
 
-CARGO_EXEC = $(PY) "$(CMKABE_HOME)/shlutil.py" cargo-exec
+SHLUTIL = $(PY) "$(CMKABE_HOME)/shlutil.py"
+
+CARGO_EXEC = $(SHLUTIL) cargo-exec
 CD      = cd
-CMPVER  = $(PY) "$(CMKABE_HOME)/shlutil.py" cmpver
+CMPVER  = $(SHLUTIL) cmpver
 CP      = cp
-CWD     = $(PY) "$(CMKABE_HOME)/shlutil.py" cwd
-FIXLINK = $(PY) "$(CMKABE_HOME)/shlutil.py" fix_symlink
+CWD     = $(SHLUTIL) cwd
+FIXLINK = $(SHLUTIL) fix_symlink
 less    = less $(1)
 ln_s    = ln -s $(1) $(2)
-MKDIR   = $(PY) "$(CMKABE_HOME)/shlutil.py" mkdir
+MKDIR   = $(SHLUTIL) mkdir
 MV      = mv
 PY      = python3
-RELPATH = $(PY) "$(CMKABE_HOME)/shlutil.py" relpath
-RM      = $(PY) "$(CMKABE_HOME)/shlutil.py" rm
-RMDIR   = $(PY) "$(CMKABE_HOME)/shlutil.py" rmdir -f
+RELPATH = $(SHLUTIL) relpath
+RM      = $(SHLUTIL) rm
+RMDIR   = $(SHLUTIL) rmdir -f
 TOUCH   = touch
-UPLOAD  = $(PY) "$(CMKABE_HOME)/shlutil.py" upload
+UPLOAD  = $(SHLUTIL) upload
 WHICH   = which
-WIN2WSL = $(PY) "$(CMKABE_HOME)/shlutil.py" win2wsl_path
-WSL2WIN = $(PY) "$(CMKABE_HOME)/shlutil.py" wsl2win_path
+WIN2WSL = $(SHLUTIL) win2wsl_path
+WSL2WIN = $(SHLUTIL) wsl2win_path
 
 ifeq ($(HOST),Windows)
     exists   = (IF NOT EXIST $(subst /,\\,$(1)) $(ERR))
     set_env  = set $(1)=$(2)
-    wsl_run  = wsl --shell-type login$(if $(WSL_DIST), -d "$(WSL_DIST)",)$(if $(WSL_USER), -u "$(WSL_USER)",) $(1)
+    wsl_run  = wsl --shell-type login$(if $(WSL_DISTRO), -d "$(WSL_DISTRO)",)$(if $(WSL_USER), -u "$(WSL_USER)",) $(1)
     xargs_do = (FOR /F "tokens=*" %%x IN ('$(1)') DO $(subst {},%%x,$(2)))
 
     PS       = ;
@@ -153,15 +155,15 @@ ifeq ($(HOST),Windows)
     ERR      = cmd.exe /C EXIT 1
 
     CD       = cd /d
-    CP       = $(PY) "$(CMKABE_HOME)/shlutil.py" cp
+    CP       = $(SHLUTIL) cp
     less     = more $(subst /,\\,$(1))
     ln_s     = mklink $(subst /,\\,$(2)) $(subst /,\\,$(1))
-    MV       = $(PY) "$(CMKABE_HOME)/shlutil.py" mv
+    MV       = $(SHLUTIL) mv
     PY       = python.exe
-    TOUCH    = $(PY) "$(CMKABE_HOME)/shlutil.py" touch
+    TOUCH    = $(SHLUTIL) touch
     WHICH    = where
 
-    WINREG   = $(PY) "$(CMKABE_HOME)/shlutil.py" winreg
+    WINREG   = $(SHLUTIL) winreg
 endif
 
 endif # __ENV_MK__

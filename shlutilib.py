@@ -289,11 +289,10 @@ class ShellCmd:
     def run__win2wsl_path(self):
         path = self.args[0] if self.args else os.getcwd()
         if os.path.isabs(path):
-            path = os.path.abspath(path).replace('\\', '/')
-        else:
-            path = path.replace('\\', '/')
+            path = os.path.abspath(path)
+        path = path.replace('\\', '/')
         drive_path = path.split(':', 1)
-        if len(drive_path) > 1 and len(drive_path[0]) == 1:
+        if len(drive_path) > 1 and len(drive_path[0]) == 1 and drive_path[0].isalpha():
             path = '/mnt/{}{}'.format(drive_path[0].lower(),
                                       drive_path[1]).rstrip('/')
         print(path, end='')
@@ -302,15 +301,24 @@ class ShellCmd:
     def run__wsl2win_path(self):
         path = self.args[0] if self.args else os.getcwd()
         if os.path.isabs(path):
-            path = os.path.abspath(path).replace('\\', '/')
-        else:
-            path = path.replace('\\', '/')
-        if len(path) >= 6 and path.startswith('/mnt/'):
+            path = os.path.abspath(path)
+        path = path.replace('\\', '/')
+        if len(path) >= 6 and path.startswith('/mnt/') and path[5].isalpha():
             if len(path) == 6:
                 path = path[5].upper() + ':/'
             elif path[6] == '/':
                 path = '{}:{}'.format(path[5].upper(), path[6:])
         print(path, end='')
+        return 0
+
+    def run__is_wsl_win_path(self):
+        path = os.path.abspath(self.args[0]) if self.args else os.getcwd()
+        path = path.replace('\\', '/')
+        if len(path) >= 6 and path.startswith('/mnt/') and path[5].isalpha():
+            if len(path) == 6 or path[6] == '/':
+                print('true', end='')
+                return 0
+        print('false', end='')
         return 0
 
     def run__touch(self):
@@ -479,20 +487,23 @@ class ShellCmd:
             pair = item.split('=')
             for local_path in glob.glob(pair[-1]):
                 if not os.path.isdir(local_path):
-                    remote_path = os.path.basename(local_path) if len(pair) == 1 else pair[0]
+                    remote_path = os.path.basename(
+                        local_path) if len(pair) == 1 else pair[0]
                     if not remote_path.startswith('/'):
                         remote_path = '/'.join([remote_dir, remote_path])
                     if remote_path.endswith('/'):
-                        remote_path = '/'.join([remote_path, os.path.basename(local_path)])
+                        remote_path = '/'.join([remote_path,
+                                               os.path.basename(local_path)])
                     while '//' in remote_path:
                         remote_path = remote_path.replace('//', '/')
 
                     print('Upload "{}"'.format(local_path))
-                    print('    to "{}{}" ...'.format(url, remote_path), end="", flush=True)
+                    print('    to "{}{}" ...'.format(
+                        url, remote_path), end="", flush=True)
                     if ftp is not None:
                         with open(local_path, 'rb') as fp:
                             ftp.storbinary('STOR {}'.format(remote_path), fp,
-                                        32 * 1024, callback=lambda _sent: print('.', end='', flush=True))
+                                           32 * 1024, callback=lambda _sent: print('.', end='', flush=True))
                     elif sftp is not None:
                         sftp.put(local_path, remote_path)
                     print('')
