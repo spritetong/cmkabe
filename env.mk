@@ -143,7 +143,7 @@ WIN2WSL = $(SHLUTIL) win2wsl_path
 WSL2WIN = $(SHLUTIL) wsl2win_path
 
 ifeq ($(HOST),Windows)
-    exists   = (IF NOT EXIST $(subst /,\\,$(1)) $(ERR))
+    exists   = (IF NOT EXIST $(subst /,\,$(1)) $(ERR))
     set_env  = set $(1)=$(2)
     wsl_run  = wsl --shell-type login$(if $(WSL_DISTRO), -d "$(WSL_DISTRO)",)$(if $(WSL_USER), -u "$(WSL_USER)",) $(1)
     xargs_do = (FOR /F "tokens=*" %%x IN ('$(1)') DO $(subst {},%%x,$(2)))
@@ -156,8 +156,8 @@ ifeq ($(HOST),Windows)
 
     CD       = cd /d
     CP       = $(SHLUTIL) cp
-    less     = more $(subst /,\\,$(1))
-    ln_s     = mklink $(subst /,\\,$(2)) $(subst /,\\,$(1))
+    less     = more $(subst /,\,$(1))
+    ln_s     = mklink $(subst /,\,$(2)) $(subst /,\,$(1))
     MV       = $(SHLUTIL) mv
     PY       = python.exe
     TOUCH    = $(SHLUTIL) touch
