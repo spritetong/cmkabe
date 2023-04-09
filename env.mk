@@ -157,7 +157,7 @@ ifeq ($(HOST),Windows)
     CD       = cd /d
     CP       = $(SHLUTIL) cp
     less     = more $(subst /,\,$(1))
-    ln_s     = mklink $(subst /,\,$(2)) $(subst /,\,$(1))
+    ln_s     = $(SHLUTIL) mklink $(2) $(1)
     MV       = $(SHLUTIL) mv
     PY       = python.exe
     TOUCH    = $(SHLUTIL) touch

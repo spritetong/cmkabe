@@ -227,6 +227,23 @@ class ShellCmd:
                 return status
         return status
 
+    def run__mklink(self):
+        if len(self.args) < 2:
+            print('Invalid parameter', file=sys.stderr)
+            return self.EINVAL
+        link = self.args[0]
+        target = self.args[1]
+        try:
+            if os.path.isdir(target):
+                os.symlink(target, link, True)
+            else:
+                os.symlink(target, link, False)
+        except OSError:
+            print('Can not create symbolic link: {} -> {}'.format(link, target),
+                  file=sys.stderr)
+            return self.EFAIL
+        return 0
+
     def run__fix_symlink(self):
         import glob
         is_wsl = 'WSL_DISTRO_NAME' in os.environ
