@@ -109,7 +109,7 @@ This option is used for cross compilation.
 
 Specify a full Clang triple like  
 `x86_64-pc-windows-msvc`, `aarch64-unknown-linux-gnu`...,  
-or `native` for the host OS's triple,  
+or `native` for the host OS triple,  
 or other simple vendor/architecture string(s) defined by the project's Makefile.
 
 Default is `native`.

@@ -234,10 +234,8 @@ class ShellCmd:
         link = self.args[0]
         target = self.args[1]
         try:
-            if os.path.isdir(target):
-                os.symlink(target, link, True)
-            else:
-                os.symlink(target, link, False)
+            target = target.replace('/', os.sep).replace('\\', os.sep)
+            os.symlink(target, link, os.path.isdir(target))
         except OSError:
             print('Can not create symbolic link: {} -> {}'.format(link, target),
                   file=sys.stderr)
