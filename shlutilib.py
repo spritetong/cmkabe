@@ -56,6 +56,9 @@ class ShellCmd:
                             os.remove(file)
                         elif os.path.isdir(file):
                             os.rmdir(file)
+                        else:
+                            # On Windows, a link like a bad <JUNCTION> can't be accessed.
+                            os.remove(file)
                     except OSError:
                         status = self.EFAIL
                         if self.options.force:
@@ -79,6 +82,9 @@ class ShellCmd:
                         elif os.path.isdir(file):
                             shutil.rmtree(
                                 file, ignore_errors=False, onerror=onerror)
+                        else:
+                            # On Windows, a link like a bad <JUNCTION> can't be accessed.
+                            os.remove(file)
                     except OSError:
                         status = self.EFAIL
                         if self.options.force:
@@ -228,6 +234,7 @@ class ShellCmd:
         return status
 
     def run__mklink(self):
+        status = 0
         if len(self.args) < 2:
             print('Invalid parameter', file=sys.stderr)
             return self.EINVAL
@@ -237,10 +244,11 @@ class ShellCmd:
             target = target.replace('/', os.sep).replace('\\', os.sep)
             os.symlink(target, link, os.path.isdir(target))
         except OSError:
-            print('Can not create symbolic link: {} -> {}'.format(link, target),
-                  file=sys.stderr)
-            return self.EFAIL
-        return 0
+            status = self.EFAIL
+            if not self.options.force:
+                print('Can not create symbolic link: {} -> {}'.format(link, target),
+                      file=sys.stderr)
+        return status
 
     def run__fix_symlink(self):
         import glob
@@ -259,7 +267,7 @@ class ShellCmd:
                         os.unlink(file)
                         os.symlink(target, file)
                     elif not is_link and not os.path.isfile(file):
-                        # On Windows, a link is like a bad <JUNCTION> which can't be accessed.
+                        # On Windows, a link like a bad <JUNCTION> can't be accessed.
                         # Try to find it's target and rebuild it.
                         for target in glob.glob(os.path.splitext(file)[0] + '.*'):
                             if os.path.isfile(target) and not os.path.islink(target):

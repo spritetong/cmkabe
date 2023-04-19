@@ -221,27 +221,22 @@ define _cargo_cmake_rules_tpl_
         override BIN := $$(call sel,$$(BIN),$$(CARGO_EXECUTABLES),$$(BIN))
     endif
 
-    .PHONY: build
+    .PHONY: build run lib clean clean-cmake upgrade help
+
     build: before-build
 		@$$(call cargo_build,$$(BIN)) || echo ***Please specify the binary name by "BIN=<name>"
 
-    .PHONY: run
     run: before-build
 		@$$(call cargo_run,$$(BIN))
 
-    .PHONY: lib
     lib: cargo-lib
 
-    .PHONY: clean
-    clean: cargo-clean cmake-clean-output
-
-    .PHONY: clean-cmake
+    cargo-clean: cmake-clean-output
+    clean: cargo-clean
     clean-cmake: cmake-clean-root
 
-    .PHONY: upgrade
     upgrade: cargo-upgrade
 
-    .PHONY: help
     help:
     ifeq ($$(HOST),Windows)
 		@cmd /c "$$(CMKABE_HOME)/README.md"
