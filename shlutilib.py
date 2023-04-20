@@ -242,7 +242,7 @@ class ShellCmd:
         target = self.args[1]
         try:
             target = target.replace('/', os.sep).replace('\\', os.sep)
-            os.symlink(target, link, os.path.isdir(target))
+            os.symlink(target, link, self.options.symlinkd or os.path.isdir(target))
         except OSError:
             status = self.EFAIL
             if not self.options.force:
@@ -547,6 +547,9 @@ class ShellCmd:
             parser = OptionParser(
                 usage=('Usage: %prog [options] command <arguments>\n\n'))
             parser.get_option('-h').help = 'Show this help message and exit.'
+            parser.add_option('-D', '--symlinkd',
+                              action='store_true', default=False, dest='symlinkd',
+                              help='creates a directory symbolic link')
             parser.add_option('-e', '--empty-dirs',
                               action='store_true', default=False, dest='remove_empty_dirs',
                               help='remove all empty directories')
