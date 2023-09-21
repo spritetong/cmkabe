@@ -111,15 +111,15 @@ endif
 # Export environment variables.
 export CMAKE_TARGET_PREFIX
 export CARGO_WORKSPACE_DIR = $(WORKSPACE_DIR)
-ifeq ($(HOST):$(origin WSL_DISTRO_NAME):$(CARGO_BUILD_JOBS),Linux:environment:)
-    ifeq ($(shell $(SHLUTIL) is_wsl_win_path "$(CMKABE_HOME)"),true)
-        # Reduce the number of concurrent tasks of Rust & the CC crate on WSL Linux.
-        # https://doc.rust-lang.org/cargo/reference/config.html#buildjobs
-        # https://docs.rs/cc/latest/cc/#parallelism
-        export CARGO_BUILD_JOBS := $(shell $(PY) -c "import multiprocessing as mp; print(max(mp.cpu_count() // 2, 1));")
-        export RAYON_NUM_THREADS := 1
-    endif
-endif
+# ifeq ($(HOST):$(origin WSL_DISTRO_NAME):$(CARGO_BUILD_JOBS),Linux:environment:)
+#     ifeq ($(shell $(SHLUTIL) is_wsl_win_path "$(CMKABE_HOME)"),true)
+#         # Reduce the number of concurrent tasks of Rust & the CC crate on WSL Linux.
+#         # https://doc.rust-lang.org/cargo/reference/config.html#buildjobs
+#         # https://docs.rs/cc/latest/cc/#parallelism
+#         export CARGO_BUILD_JOBS := $(shell $(PY) -c "import multiprocessing as mp; print(max(mp.cpu_count() // 2, 1));")
+#         export RAYON_NUM_THREADS := 1
+#     endif
+# endif
 
 # Directory of cargo output binaries, as "<workspace_dir>/target/<triple>/<debug|release>"
 CARGO_TARGET_OUT_DIR := $(WORKSPACE_DIR)/target/$(if $(filter $(TARGET_TRIPLE),$(HOST_TRIPLE)),,$(TARGET_TRIPLE)/)$(call bsel,$(DEBUG),debug,release)

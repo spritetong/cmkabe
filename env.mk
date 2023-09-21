@@ -12,7 +12,7 @@ ifndef __ENV_MK__
 __ENV_MK__ = $(abspath $(lastword $(MAKEFILE_LIST)))
 CMKABE_HOME := $(abspath $(dir $(__ENV_MK__)))
 
-CMAKEABE_VERSION = 0.4.4
+CMAKEABE_VERSION = 0.5.0
 
 # ==============================================================================
 # = Environment Variables
@@ -120,6 +120,7 @@ NULL    = /dev/null
 OK      = true
 ERR     = false
 
+RMAKE   = "$(shell $(WIN2WSL) "$(CMKABE_HOME)")/rmake.sh" --src-dir "$(shell $(WIN2WSL) "$(WORKSPACE_DIR)")"
 SHLUTIL = $(PY) "$(CMKABE_HOME)/shlutil.py"
 
 CARGO_EXEC = $(SHLUTIL) cargo-exec
