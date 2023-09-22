@@ -215,7 +215,7 @@ define _cargo_cmake_rules_tpl_
     .PHONY: build run lib clean clean-cmake upgrade help
 
     build: before-build
-		@$$(call cargo_build,$$(BIN)) || echo ***Please specify the binary name by "BIN=<name>"
+		@$$(call cargo_build,$$(BIN))
 
     run: before-build
 		@$$(call cargo_run,$$(BIN))
