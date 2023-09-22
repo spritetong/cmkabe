@@ -1,5 +1,7 @@
 #!/bin/bash
 
+echo "args: $*"
+
 # Set the default arguments
 git_home_dir=~/.rmake/githome
 src_dir=
@@ -7,18 +9,21 @@ dst_dir=
 commands=
 make_vars=
 exec_cmd_args=
-rsync_args="-av --delete --mkpath --exclude='.git'"
-rsync_exclude_from=
+rsync_args="-av --delete --mkpath --exclude=".git""
 force=0
 git_origin=origin
-is_synced=0
+
+# internal variables
+has_include_from=0
+has_exclude_from=0
+is_sources_synced=0
 
 # Retrieve the workspace root directory
 workspace_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 dir="$workspace_dir"
 while true; do
     # Check if the file exists in the current directory
-    if [[ -f "$dir/.rmake-user.sh" || -f "$dir/.rmake-excludes.txt" || -d "$dir/.git" ]]; then
+    if [[ -f "$dir/.rmake-user.sh" || -f "$dir/.rmake-excludes" || -f "$dir/.rmake-includes" || -d "$dir/.git" ]]; then
         workspace_dir=$dir
     fi
     # Get the parent directory
@@ -77,7 +82,7 @@ while [[ $# -gt 0 ]]; do
                 src_dir="$2"
                 shift 2
             else
-                echo "Error: --src-dir requires an argument." >&2
+                echo "Error: $1 requires an argument." >&2
                 exit 1
             fi
             ;;
@@ -86,21 +91,26 @@ while [[ $# -gt 0 ]]; do
                 dst_dir="$2"
                 shift 2
             else
-                echo "Error: --dst-dir requires an argument." >&2
+                echo "Error: $1 requires an argument." >&2
                 exit 1
             fi
             ;;
-        --exclude-from)
+        --include|--include-from|--exclude|--exclude-from)
             if [[ -n "$2" && "$2" != "-"* ]]; then
-                rsync_exclude_from="$2"
+                rsync_args="$rsync_args $1="$2""
+                if [[ $1 == "--include-from" ]]; then
+                    has_include_from=1
+                elif [[ $1 == "--exclude-from" ]]; then
+                    has_exclude_from=1
+                fi
                 shift 2
             else
-                echo "Error: --exclude-from requires an argument." >&2
+                echo "Error: $1 requires an argument." >&2
                 exit 1
             fi
             ;;
         --progress|--no-perms)
-            rsync_args="$rsync_args $1"
+            rsync_args="$rsync_args "$1""
             ;;
         -f|--force)
             force=1
@@ -111,7 +121,7 @@ while [[ $# -gt 0 ]]; do
                 git_origin="$2"
                 shift 2
             else
-                echo "Error: --git-origin requires an argument." >&2
+                echo "Error: $1 requires an argument." >&2
                 exit 1
             fi
             ;;
@@ -177,7 +187,8 @@ if3() {
     fi
 }
 
-# Clone repository and checkout the current branch
+# Clone repository, checkout the current branch,
+# and change the working directory to the cloned repository.
 git_try_clone() {
     if [[ ! -d "$dst_dir" ]]; then
         cd "$src_dir" || return $?
@@ -231,10 +242,10 @@ git_checkout() {
 
 # Sync source files to the destination directory
 sync_sources() {
-    if [[ $is_synced -eq 0 ]]; then
+    if [[ $is_sources_synced -eq 0 ]]; then
         git_try_clone || return $?
-        is_synced=1
-        rsync $rsync_args --exclude-from="$rsync_exclude_from" "$src_dir/" "$dst_dir/"
+        is_sources_synced=1
+        rsync $rsync_args "$src_dir/" "$dst_dir/"
         return $?
     fi
     return 0
@@ -250,11 +261,18 @@ test -z "$dst_dir" && dst_dir="$(replace_substr_and_before \
         echo "Please specify the destination directory with the option: --dst-dir <xxx>"
         exit $?
     }
-# <rsync_exclude_from>
-test -z "$rsync_exclude_from" && {
-    rsync_exclude_from="$src_dir/.rmake-excludes.txt"
-    if [[ ! -f "$rsync_exclude_from" && -f "$src_dir/.gitignore" ]]; then
-        rsync_exclude_from="$src_dir/.gitignore"
+# <rsync_args>
+test $has_include_from -eq 0 && {
+    if [[ -f "$src_dir/.rmake-includes" ]]; then
+        rsync_args="$rsync_args --include-from="$src_dir/.rmake-includes""
+    fi
+}
+test $has_exclude_from -eq 0 && {
+    rsync_exclude_from="$src_dir/.rmake-excludes"
+    if [[ -f "$src_dir/.rmake-excludes" ]]; then
+        rsync_args="$rsync_args --exclude-from="$src_dir/.rmake-excludes""
+    elif [[ -f "$src_dir/.gitignore" ]]; then
+        rsync_args="$rsync_args --exclude-from="$src_dir/.gitignore""
     fi
 }
 # <commands>
@@ -286,7 +304,7 @@ for command in $commands; do
         rsync-exec)
             sync_sources && $exec_cmd_args || exit $?
             ;;
-        cmake|cmake-*|cargo|cargo-*)
+        cargo|cargo-*|clean|clean-*|cmake|cmake-*)
             sync_sources && make $command $make_vars || exit $?
             ;;
         *)

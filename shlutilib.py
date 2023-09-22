@@ -242,7 +242,8 @@ class ShellCmd:
         target = self.args[1]
         try:
             target = target.replace('/', os.sep).replace('\\', os.sep)
-            os.symlink(target, link, self.options.symlinkd or os.path.isdir(target))
+            os.symlink(
+                target, link, self.options.symlinkd or os.path.isdir(target))
         except OSError:
             status = self.EFAIL
             if not self.options.force:
@@ -309,8 +310,8 @@ class ShellCmd:
         print(path.replace('\\', '/'), end='')
         return 0
 
-    def run__win2wsl_path(self):
-        path = self.args[0] if self.args else os.getcwd()
+    @staticmethod
+    def win2wsl_path(path):
         if os.path.isabs(path):
             path = os.path.abspath(path)
         path = path.replace('\\', '/')
@@ -318,11 +319,16 @@ class ShellCmd:
         if len(drive_path) > 1 and len(drive_path[0]) == 1 and drive_path[0].isalpha():
             path = '/mnt/{}{}'.format(drive_path[0].lower(),
                                       drive_path[1]).rstrip('/')
+        return path
+
+    def run__win2wsl_path(self):
+        path = ShellCmd.win2wsl_path(
+            self.args[0] if self.args else os.getcwd())
         print(path, end='')
         return 0
 
-    def run__wsl2win_path(self):
-        path = self.args[0] if self.args else os.getcwd()
+    @staticmethod
+    def wsl2win_path(path):
         if os.path.isabs(path):
             path = os.path.abspath(path)
         path = path.replace('\\', '/')
@@ -331,6 +337,10 @@ class ShellCmd:
                 path = path[5].upper() + ':/'
             elif path[6] == '/':
                 path = '{}:{}'.format(path[5].upper(), path[6:])
+        return path
+
+    def run__wsl2win_path(self):
+        path = ShellCmd.wsl2win_path(self.args[0] if self.args else os.getcwd())
         print(path, end='')
         return 0
 
@@ -540,8 +550,8 @@ class ShellCmd:
             ssh.close()
         return 0
 
-    @classmethod
-    def main(cls):
+    @staticmethod
+    def main():
         try:
             from optparse import OptionParser
             parser = OptionParser(
@@ -591,3 +601,68 @@ class ShellCmd:
         except KeyboardInterrupt:
             print('^C')
             return ShellCmd.EINTERRUPT
+
+    @staticmethod
+    def rmake_main():
+        import subprocess
+
+        def get_workspace_dir(script_path):
+            workspace_dir = os.path.dirname(script_path)
+            current = workspace_dir
+            while True:
+                for name in ('.rmake-user.sh', '.rmake-excludes', '.rmake-includes',):
+                    if os.path.isfile(os.path.join(current, name)):
+                        workspace_dir = current
+                        break
+                for name in ('.git',):
+                    if os.path.isdir(os.path.join(current, name)):
+                        workspace_dir = current
+                        break
+                parent = os.path.dirname(current)
+                if current == parent:
+                    break
+                current = parent
+            return workspace_dir
+
+        # Enter the workspace directory.
+        cmake_dir = os.path.dirname(os.path.realpath(sys.argv[0]))
+        os.chdir(get_workspace_dir(cmake_dir))
+
+        wsl_args = ['wsl.exe', '--shell-type', 'login']
+        rmake_args = []
+
+        # Split WSL options from rmake options.
+        cmd_args = sys.argv[1:]
+        while cmd_args:
+            arg = cmd_args[0]
+            for option in ('--distribution', '-d', '--user', '-u'):
+                if arg == option:
+                    wsl_args.append(arg)
+                    if len(cmd_args) <= 1:
+                        print('Error: {} requires an argument.'.format(
+                            arg), file=sys.stderr)
+                        return 1
+                    wsl_args.append(cmd_args[1])
+                    cmd_args = cmd_args[1:]
+                    arg = None
+                    break
+                elif option.startswith('--') and arg.startswith(option + '='):
+                    wsl_args.append(arg)
+                    arg = None
+                    break
+            if arg:
+                rmake_args.append(arg)
+            cmd_args = cmd_args[1:]
+
+        # The path of rmake.sh must contains '/'.
+        rmake_sh = os.path.relpath(os.path.join(
+            cmake_dir, 'rmake.sh')).replace('\\', '/')
+        if '/' not in rmake_sh:
+            rmake_sh = './' + rmake_sh
+
+        # Only run wsl.exe on Windows.
+        if sys.platform != "win32":
+            wsl_args.clear()
+        wsl_args.append(rmake_sh)
+        wsl_args.extend(rmake_args)
+        return subprocess.call(wsl_args)
