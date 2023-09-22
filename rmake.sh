@@ -47,6 +47,19 @@ function quote() {
     echo "${params[*]}"
 }
 
+# Define a function for "<condition> ? <true_value> : <false_value>"
+function if3() {
+    local condition="$1"
+    local true_value="$2"
+    local false_value="$3"
+
+    if [ "$condition" -eq 0 ]; then
+        echo $false_value
+    else
+        echo $true_value
+    fi
+}
+
 # Include the user script if it exists
 if [[ -f "$workspace_dir/.rmake-user.sh" ]]; then
     source "$workspace_dir/.rmake-user.sh"
@@ -132,7 +145,7 @@ while [[ $# -gt 0 ]]; do
             fi
             shift $parsed
             ;;
-        exec|rsync-exec)
+        exec)
             commands="$commands $1"
             shift 1
             exec_cmd_args="$*"
@@ -150,7 +163,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Define a function for substring replacement
-replace_substr_and_before() {
+function replace_substr_and_before() {
     local original="$1"
     local substring="$2"
     local replacement="$3"
@@ -172,22 +185,9 @@ replace_substr_and_before() {
     fi
 }
 
-# Define a function for "<condition> ? <true_value> : <false_value>"
-if3() {
-    local condition="$1"
-    local true_value="$2"
-    local false_value="$3"
-
-    if [ "$condition" -eq 0 ]; then
-        echo $false_value
-    else
-        echo $true_value
-    fi
-}
-
 # Clone repository, checkout the current branch,
 # and change the working directory to the cloned repository.
-git_try_clone() {
+function git_try_clone() {
     if [[ ! -d "$dst_dir" ]]; then
         cd "$src_dir" || return $?
         # Get the current repository URL
@@ -211,10 +211,11 @@ git_try_clone() {
 }
 
 # Checkout the current branch
-git_checkout() {
+function git_checkout() {
     local force="$1"
 
     git_try_clone || return $?
+    cd "$dst_dir" || return $?
 
     pushd "$src_dir" >/dev/null || return $?
     # Get the current repository URL
@@ -222,6 +223,14 @@ git_checkout() {
     # Get the current branch name
     local branch="$(git rev-parse --abbrev-ref HEAD)" || return $?
     popd >/dev/null || return $?
+
+    # Clean unversioned files and revert dirty files.
+    if [[ $force -eq 1 ]]; then
+        git clean -f
+        git checkout -f
+        git submodule foreach --recursive git clean -f
+        git submodule update --init --recursive -f
+    fi
 
     local current_branch="$(git rev-parse --abbrev-ref HEAD)" || return $?
     if [[ "$current_branch" != "$branch" || $force -eq 1 ]]; then
@@ -232,14 +241,15 @@ git_checkout() {
             # The remote branch exists
             git checkout $(if3 $force -f) -b "$branch" "$git_origin/$branch" || return $?
         fi
-        git pull || return $?
-        git submodule update --init --recursive || return $?
     fi
+
+    git pull || return $?
+    git submodule update --init --recursive || return $?
     return 0
 }
 
 # Sync source files to the destination directory
-sync_sources() {
+function sync_sources() {
     if [[ $is_sources_synced -eq 0 ]]; then
         git_try_clone || return $?
         is_sources_synced=1
@@ -295,14 +305,13 @@ for command in $commands; do
         remove-git)
             cd ~ && rm -rf "$dst_dir" || exit $?
             ;;
+        rsync)
+            sync_sources || exit $?
+            ;;
         exec)
-            test -d "$dst_dir" && cd "$dst_dir"
-            $exec_cmd_args || exit $?
+            cd "$dst_dir" && $exec_cmd_args || exit $?
             ;;
-        rsync-exec)
-            sync_sources && $exec_cmd_args || exit $?
-            ;;
-        cargo|cargo-*|clean|clean-*|cmake|cmake-*)
+        cargo|cargo-*|clean|clean-*|cmake|cmake-*|update-libs)
             sync_sources && make $command $make_vars || exit $?
             ;;
         *)
