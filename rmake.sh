@@ -1,7 +1,5 @@
 #!/bin/bash
 
-echo "args: $*"
-
 # Set the default arguments
 git_home_dir=~/.rmake/githome
 src_dir=
