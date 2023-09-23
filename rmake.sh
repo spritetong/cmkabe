@@ -2,6 +2,7 @@
 
 # Set the default arguments
 git_home_dir=~/.rmake/githome
+git_home_base=$(basename $git_home_dir)
 src_dir=
 dst_dir=
 commands=
@@ -262,13 +263,16 @@ function sync_sources() {
 # Set the default arguments after parsing the command-line
 # <src_dir>
 test -z "$src_dir" && src_dir="$workspace_dir"
+src_dir="$(realpath -m "$src_dir")"
 # <dst_dir>
-test -z "$dst_dir" && dst_dir="$(replace_substr_and_before \
-    "$src_dir" "/$(basename $git_home_dir)/" "$git_home_dir/")" || {\
-        echo "Error: \"$src_dir\" does not have an ancestor directory named \"$(basename $git_home_dir)\"" >&2
-        echo "Please specify the destination directory with the option: --dst-dir <xxx>"
+test -n "$dst_dir" || dst_dir="$(replace_substr_and_before \
+    "$src_dir" "/$git_home_base/" "$git_home_dir/")" || {\
+        echo "Error: \"$src_dir\" does not have an ancestor directory named \"$git_home_base\"" >&2
+        echo "Please move the source repository into a directory named \"$git_home_base\","
+		echo "or specify the destination directory with the option: --dst-dir <dst_dir>"
         exit $?
     }
+dst_dir="$(realpath -m "$dst_dir")"
 # <rsync_args>
 test $has_include_from -eq 0 && {
     if [[ -f "$src_dir/.rmake-includes" ]]; then
@@ -287,7 +291,12 @@ test $has_exclude_from -eq 0 && {
 test -z "$commands" && commands=build
 
 if [[ ! -d "$src_dir" ]]; then
-    echo "Error: $src_dir is not a directory." >&2
+    echo "Error: \"$src_dir\" is not a directory." >&2
+    exit 1
+fi
+
+if [[ "$src_dir" == "$dst_dir"* || "$dst_dir" == "$src_dir"* ]]; then
+    echo "Error: the source directory and the destination directory can't be nested within each other." >&2
     exit 1
 fi
 
