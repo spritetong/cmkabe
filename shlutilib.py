@@ -685,20 +685,6 @@ class RmakeUserBase:
         return -1
 
 
-class RsyncMakeError(Exception):
-    """
-    Initializes an error intance.
-
-    Args:
-        message (str): The error message.
-        code (int, optional): The error code. Defaults to 1.
-    """
-
-    def __init__(self, message, code=1):
-        super().__init__(message)
-        self.code = code
-
-
 class RsyncMake:
     GIT_HOME_DIR = '~/.rmake/githome'
     RMAKE_USER = '.rmake-user.py'
@@ -824,7 +810,8 @@ class RsyncMake:
     """
 
     def error(self, message, code=1):
-        raise RsyncMakeError(message, code)
+        print('*** [Error {}]'.format(code), message, file=sys.stderr)
+        sys.exit(code)
 
     """
     Load a user script from the given file path.
@@ -1098,9 +1085,10 @@ class RsyncMake:
                                 help='execute the following shell command at the destination directory')
             parser.add_argument('build', type=command_type, nargs='?',
                                 help='(DEFAULT) execute build in the remote repository and sync backward')
-            parser.add_argument(' | '.join(rmake.make_targets),
-                                type=command_type, nargs='?',
-                                help='execute `make` in the remote repository and sync backward if it is not a clean command.')
+            if rmake.make_targets:
+                parser.add_argument(' | '.join(rmake.make_targets),
+                                    type=command_type, nargs='?',
+                                    help='execute `make` in the remote repository and sync backward if it is not a clean command.')
             rmake.user.add_arguments(parser, command_type)
             parser.add_argument('commands', metavar='COMMAND', type=command_type, nargs='*',
                                 help='other user defined command')
@@ -1121,9 +1109,8 @@ class RsyncMake:
         except KeyboardInterrupt:
             print('^C')
             return ShellCmd.EINTERRUPT
-        except RsyncMakeError as e:
-            print('*** [Error {}]'.format(e.code), e, file=sys.stderr)
-            return e.code
+        except SystemExit:
+            raise
         except Exception as e:
             print('***', e, file=sys.stderr)
             return ShellCmd.EFAIL
