@@ -5,5 +5,5 @@ if __name__ == '__main__':
     import os
     import sys
     sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
-    from shlutilib import ShellCmd
-    sys.exit(ShellCmd.rmake_main())
+    from shlutilib import RsyncMake
+    sys.exit(RsyncMake.main(os.path.basename(__file__)))
