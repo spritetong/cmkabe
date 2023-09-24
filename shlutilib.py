@@ -708,6 +708,7 @@ class RsyncMake:
     RMAKE_INCLUDES = '.rmake-includes'
     RMAKE_EXCLUDES = '.rmake-excludes'
     RSYNC_ARGS = ['-av', '--delete', '--mkpath', '--exclude=.git']
+    MAKE_TARGETS = ['cargo', 'cargo-*', 'clean', 'clean-*', 'cmake', 'cmake-*', 'update-libs']
 
     def __init__(self):
         self.args = None
@@ -717,6 +718,7 @@ class RsyncMake:
         self.dst_dir = ''
         self.rsync_args = list(self.RSYNC_ARGS)
         self.commands = []
+        self.make_targets = list(self.MAKE_TARGETS)
         self.make_vars = []
         self.exec_cmd_args = []
         self.is_sources_synced = False
@@ -797,8 +799,7 @@ class RsyncMake:
                 subprocess.check_call(self.exec_cmd_args)
             elif self.user.exec_command(command) != -1:
                 pass
-            elif command == 'build' or \
-                    re.match('^(?:cargo|cargo-.*|clean|clean-.*|cmake|cmake-.*|update-libs)$', command):
+            elif re.match('^(?:build|{})$'.format('|'.join(self.make_targets).replace('*', '.*')), command):
                 self.user.sync_forward()
                 # Run make
                 self.run_make(command)
@@ -1057,7 +1058,7 @@ class RsyncMake:
                                 help='execute the following shell command at the destination directory')
             parser.add_argument('build', type=command_type, nargs='?',
                                 help='(DEFAULT) execute build in the remote repository and sync backward')
-            parser.add_argument('cargo | cargo-* | clean | clean-* | cmake | cmake-* | update-libs',
+            parser.add_argument(' | '.join(rmake.make_targets),
                                 type=command_type, nargs='?',
                                 help='execute `make` in the remote repository and sync backward if it is not a clean command.')
             rmake.user.add_arguments(parser, command_type)
