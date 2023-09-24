@@ -635,10 +635,11 @@ class RmakeUserBase:
         pass
 
     """
-    Synchronizes the source files from the source directory to the destination directory.
+    Synchronizes the source files from the local source directory to
+    the remote destination directory.
 
     Parameters:
-        self (object): The instance of the class.
+        None
     
     Returns:
         None
@@ -648,18 +649,16 @@ class RmakeUserBase:
         import subprocess
         rmake = self.rmake
 
-        if not rmake.is_sources_synced:
-            rmake.git_try_clone()
+        rmake.git_try_clone()
 
-            rmake.is_sources_synced = True
-            rsync_args = ['rsync']
-            rsync_args.extend(rmake.rsync_args)
-            rsync_args.append((rmake.src_dir + '/').replace('//', '/'))
-            rsync_args.append((rmake.dst_dir + '/').replace('//', '/'))
-            subprocess.check_call(rsync_args)
+        rsync_args = ['rsync']
+        rsync_args.extend(rmake.rsync_args)
+        rsync_args.append((rmake.src_dir + '/').replace('//', '/'))
+        rsync_args.append((rmake.dst_dir + '/').replace('//', '/'))
+        subprocess.check_call(rsync_args)
 
     """
-    Syncs the generated files from the remote destination directory to
+    Synchronizes the generated files from the remote destination directory to
     the local source directory.
 
     Parameters:
@@ -668,7 +667,6 @@ class RmakeUserBase:
     Returns:
         None
     """
-    # Synchronize generated files from <dst_dir> into <src_dir>.
 
     def sync_backward(self):
         pass
@@ -708,7 +706,8 @@ class RsyncMake:
     RMAKE_INCLUDES = '.rmake-includes'
     RMAKE_EXCLUDES = '.rmake-excludes'
     RSYNC_ARGS = ['-av', '--delete', '--mkpath', '--exclude=.git']
-    MAKE_TARGETS = ['cargo', 'cargo-*', 'clean', 'clean-*', 'cmake', 'cmake-*', 'update-libs']
+    MAKE_TARGETS = ['cargo', 'cargo-*', 'clean',
+                    'clean-*', 'cmake', 'cmake-*', 'update-libs']
 
     def __init__(self):
         self.args = None
@@ -721,7 +720,8 @@ class RsyncMake:
         self.make_targets = list(self.MAKE_TARGETS)
         self.make_vars = []
         self.exec_cmd_args = []
-        self.is_sources_synced = False
+        self.has_synced_forward = False
+        self.need_sync_backward = False
         self.workspace_dir = RsyncMake.get_workspace_dir(__file__)
 
     def run(self, args):
@@ -791,8 +791,9 @@ class RsyncMake:
                 subprocess.check_call(
                     'cd ~ && rm -rf "{}"'.format(self.dst_dir), shell=True)
             elif command == 'rsync':
-                self.user.sync_forward()
+                self.sync_forward()
             elif command == 'rsync-back':
+                # Do sync immediately
                 self.user.sync_backward()
             elif command == 'exec':
                 os.chdir(self.dst_dir)
@@ -800,14 +801,18 @@ class RsyncMake:
             elif self.user.exec_command(command) != -1:
                 pass
             elif re.match('^(?:build|{})$'.format('|'.join(self.make_targets).replace('*', '.*')), command):
-                self.user.sync_forward()
+                self.sync_forward()
                 # Run make
                 self.run_make(command)
                 # Sync generated files after build
                 if 'clean' not in command:
-                    self.user.sync_backward()
+                    self.sync_backward()
             else:
                 self.error('Unknown command "{}"'.format(command))
+
+        if self.need_sync_backward:
+            # Do sync at the end
+            self.user.sync_backward()
         return 0
 
     """
@@ -944,6 +949,41 @@ class RsyncMake:
         subprocess.check_call('git pull', shell=True)
         subprocess.check_call(
             'git submodule update --init --recursive', shell=True)
+
+    """
+    Synchronizes the source files from the local source directory to
+    the remote destination directory.
+
+    This method checks if the synchronization operation has already been executed.
+    If not, it calls the `sync_forward()` method of the `user` object.
+
+    Parameters:
+        None
+    
+    Returns:
+        None
+    """
+
+    def sync_forward(self):
+        if not self.has_synced_forward:
+            self.user.sync_forward()
+            self.has_synced_forward = True
+
+    """
+    Set the `need_sync_backward` flag to `True` to synchronize the generated files from 
+    the remote destination directory to the local source directory in future.
+
+    This function does not do the real synchronization operation, but only sets the flag.
+
+    Parameters:
+        None
+
+    Returns:
+        None
+    """
+
+    def sync_backward(self):
+        self.need_sync_backward = True
 
     """
     Runs the `make` command with the specified target in the remote destination directory.
