@@ -535,8 +535,8 @@ class RsyncMake:
     @staticmethod
     def wsl_main(main_prog, args=None):
         # Enter the workspace directory.
-        cmake_dir = os.path.dirname(os.path.realpath(sys.argv[0]))
-        os.chdir(RsyncMake.get_workspace_dir(cmake_dir))
+        rmake_dir = os.path.dirname(os.path.realpath(sys.argv[0]))
+        os.chdir(RsyncMake.get_workspace_dir(rmake_dir))
 
         wsl_args = ['wsl.exe', '--shell-type', 'login']
         rmake_args = []
@@ -567,7 +567,7 @@ class RsyncMake:
 
         # The path of the rmake program must contains '/'.
         rmake_py = os.path.relpath(os.path.join(
-            cmake_dir, main_prog)).replace('\\', '/')
+            rmake_dir, main_prog)).replace('\\', '/')
         if '/' not in rmake_py:
             rmake_py = './' + rmake_py
 
