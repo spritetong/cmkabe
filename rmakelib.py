@@ -151,7 +151,7 @@ class RsyncMake:
         self.dst_dir = os.path.realpath(self.dst_dir)
 
         # <rsync_args>
-        self.rsync_args.extend(args.rsync_options or [])
+        self.rsync_args.extend(args.rsync_args or [])
         if not list(filter(lambda x: x.startswith('--include-from='), self.rsync_args)):
             include_from = os.path.join(self.src_dir, self.RMAKE_INCLUDES)
             if os.path.isfile(include_from):
@@ -181,6 +181,19 @@ class RsyncMake:
         print("rsync: [ {} ] -- [ {} ]".format(
             self.src_dir, self.dst_dir), flush=True)
 
+        # Enter the destination directory
+        if os.path.isdir(self.dst_dir):
+            os.chdir(self.dst_dir)
+        
+        # Set environment variables
+        for item in self.args.env_vars or []:
+            kv = item.split('=', 1)
+            if len(kv) == 2:
+                if kv[1]:
+                    os.environ[kv[0]] = kv[1]
+                elif kv[0] in os.environ:
+                    del os.environ[kv[0]]
+
         for command in self.commands:
             if command in ('clone', 'pull'):
                 self.git_checkout(force=True)
@@ -190,7 +203,8 @@ class RsyncMake:
                 subprocess.check_call(
                     'cd ~ && rm -rf "{}"'.format(self.dst_dir), shell=True)
             elif command == 'rsync':
-                self.sync_forward()
+                # Force to run sync
+                self.sync_forward(force=True)
             elif command == 'rsync-back':
                 # Do sync immediately
                 self.user.sync_backward()
@@ -204,12 +218,11 @@ class RsyncMake:
                 # Run make
                 self.run_make(command)
                 # Sync generated files after build
-                if 'clean' not in command:
-                    self.sync_backward()
+                self.sync_backward()
             else:
                 self.error('Unknown command "{}"'.format(command))
 
-        if self.need_sync_backward:
+        if self.need_sync_backward and not self.args.skip_rsync_back and not self.args.skip_rsync_all:
             # Do sync at the end
             self.user.sync_backward()
         return 0
@@ -367,10 +380,13 @@ class RsyncMake:
         None
     """
 
-    def sync_forward(self):
+    def sync_forward(self, force=False):
         if not self.has_synced_forward:
-            self.user.sync_forward()
-            self.has_synced_forward = True
+            if (force or (not self.args.skip_rsync and not self.args.skip_rsync_all)):
+                self.user.sync_forward()
+                self.has_synced_forward = True
+            else:
+                os.chdir(self.dst_dir)
 
     """
     Set the `need_sync_backward` flag to `True` to synchronize the generated files from 
@@ -399,7 +415,9 @@ class RsyncMake:
     """
 
     def run_make(self, target):
-        make_args = ['make', target]
+        make_args = ['make']
+        make_args.extend(self.args.make_options or [])
+        make_args.append(target)
         make_args.extend(self.make_vars)
         subprocess.check_call(make_args)
 
@@ -451,42 +469,61 @@ class RsyncMake:
                                     'a Windows local repository and a WSL2 remote repository automatically, '
                                     'and execute compilation in the remote repository to improve '
                                     'compilation performance.')
-            parser.add_argument('--wsl-distribution', '--wsl-d', metavar='WSL_DISTRO',
+            parser.add_argument('--wsl-distribution', '--wsl-d', metavar='DISTRO',
                                 action='store', type=str, default='', dest='wsl_distro',
                                 help='run the specified WSL2 distribution')
-            parser.add_argument('--wsl-user', '--wsl-u', metavar='WSL_USER',
+            parser.add_argument('--wsl-user', '--wsl-u', metavar='USER',
                                 action='store', type=str, default='', dest='wsl_user',
                                 help='run as the specified WSL2 user')
-            parser.add_argument('--src-dir',
+            parser.add_argument('-e', '--environment', metavar='NAME=VALUE',
+                                action='append', type=str, dest='env_vars',
+                                help='environment variables')
+            parser.add_argument('--src-dir', metavar='DIRECTORY',
                                 action='store', type=str, default='', dest='src_dir',
                                 help='the source directory of the local repository')
-            parser.add_argument('--dst-dir',
+            parser.add_argument('--dst-dir', metavar='DIRECTORY',
                                 action='store', type=str, default='', dest='dst_dir',
                                 help='the destination directory of the remote repository')
-            parser.add_argument('--git-origin',
+            parser.add_argument('--git-origin', metavar='ORIGIN',
                                 action='store', type=str, default='origin', dest='git_origin',
                                 help='git remote origin, defaults to `origin`')
             parser.add_argument('-f', '--force',
                                 action='store_true', default=False, dest='force',
-                                help='ignore errors, never prompt')
-            parser.add_argument('--include', metavar='INCLUDE',
-                                action='append', type=lambda x: '--include=' + x, dest='rsync_options',
+                                help='see the `checkout` command')
+            parser.add_argument('--include', metavar='PATTERN',
+                                action='append', type=lambda x: '--include=' + x, dest='rsync_args',
                                 help='rsync option --include')
-            parser.add_argument('--include-from', metavar='INCLUDE-FROM',
-                                action='append', type=lambda x: '--include-from=' + x, dest='rsync_options',
+            parser.add_argument('--include-from', metavar='FILE',
+                                action='append', type=lambda x: '--include-from=' + x, dest='rsync_args',
                                 help='rsync option --include-from')
-            parser.add_argument('--exclude', metavar='EXCLUDE',
-                                action='append', type=lambda x: '--exclude=' + x, dest='rsync_options',
+            parser.add_argument('--exclude', metavar='PATTERN',
+                                action='append', type=lambda x: '--exclude=' + x, dest='rsync_args',
                                 help='rsync option --exclude')
-            parser.add_argument('--exclude-from', metavar='EXCLUDE-FROM',
-                                action='append', type=lambda x: '--exclude-from=' + x, dest='rsync_options',
+            parser.add_argument('--exclude-from', metavar='FILE',
+                                action='append', type=lambda x: '--exclude-from=' + x, dest='rsync_args',
                                 help='rsync option --exclude-from')
             parser.add_argument('--no-perms',
-                                action='append_const', const='--no-perms', dest='rsync_options',
+                                action='append_const', const='--no-perms', dest='rsync_args',
                                 help='rsync option --no-perms')
             parser.add_argument('--progress',
-                                action='append_const', const='--progress', dest='rsync_options',
+                                action='append_const', const='--progress', dest='rsync_args',
                                 help='rsync option --progress')
+            parser.add_argument('--skip-rsync',
+                                action='store_true', default=False, dest='skip_rsync',
+                                help='skip `rsync` forward before executing commands')
+            parser.add_argument('--skip-rsync-back',
+                                action='store_true', default=False, dest='skip_rsync_back',
+                                help='skip `rsync` backward after executing commands')
+            parser.add_argument('--skip-rsync-all',
+                                action='store_true', default=False, dest='skip_rsync_all',
+                                help='skip `rsync` both forward and backward')
+            if rmake.make_targets:
+                parser.add_argument('--file', '--makefile', metavar='FILE',
+                                    action='append', type=lambda x: '--file=' + x, dest='make_options',
+                                    help='read FILE as a makefile, passed to `make`')
+                parser.add_argument('--make-opt', metavar='OPTION',
+                                    action='append', type=str, dest='make_options',
+                                    help='an option passed to `make`')
             parser.add_argument('clone', type=command_type, nargs='?',
                                 help='clone a clean remote repository at the destination directory')
             parser.add_argument('pull', type=command_type, nargs='?',
@@ -506,7 +543,7 @@ class RsyncMake:
             if rmake.make_targets:
                 parser.add_argument(' | '.join(rmake.make_targets),
                                     type=command_type, nargs='?',
-                                    help='execute `make` in the remote repository, then sync backward if it is not a clean command.')
+                                    help='execute `make` in the remote repository, then sync backward.')
             rmake.user.add_arguments(parser, command_type)
             parser.add_argument('commands', metavar='COMMAND', type=command_type, nargs='*',
                                 help='other user defined command')
