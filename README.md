@@ -1,5 +1,7 @@
 # User Manual
 
+https://github.com/spritetong/cmake-abe
+
 ## Usage
 
 `make <make_target> [BIN=<binary>] [DEBUG=<debug>] [TARGET=<target_triple>]`
@@ -101,7 +103,7 @@ Build for debug configuration if ON, and for release configuration if OFF.
 
 Default is OFF.
 
-e.g. `make build BIN=app DEBUG=1` (Build the cargo crate "app" for release)
+e.g. `make build BIN=app DEBUG=0` (Build the cargo crate "app" for release)
 
 ## *target_triple*
 

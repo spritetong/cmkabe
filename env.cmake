@@ -1,9 +1,12 @@
 # * @file       env.cmake
 # * @brief      This file contains environment and common utilities for CMake.
-# * @details    Copyright (C) 2022 spritetong@gmail.com.\n
-# *             All rights reserved.\n
+# * @details    This file is the part of the cmake-abe library
+# *             (https://github.com/spritetong/cmake-abe),
+# *             which is licensed under the MIT license
+# *             (https://opensource.org/licenses/MIT).
+# *             Copyright (C) 2022 spritetong@gmail.com.
 # * @author     spritetong@gmail.com
-# * @date       2014
+# * @date       2022
 # * @version    1.0, 7/9/2022, Tong
 # *             - Initial revision.
 # *

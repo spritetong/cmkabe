@@ -1,9 +1,12 @@
 # * @file       env.mk
 # * @brief      This file contains environment and common utilities for CMake.
-# * @details    Copyright (C) 2022 spritetong@gmail.com.\n
-# *             All rights reserved.\n
+# * @details    This file is the part of the cmake-abe library
+# *             (https://github.com/spritetong/cmake-abe),
+# *             which is licensed under the MIT license
+# *             (https://opensource.org/licenses/MIT).
+# *             Copyright (C) 2022 spritetong@gmail.com.
 # * @author     spritetong@gmail.com
-# * @date       2014
+# * @date       2022
 # * @version    1.0, 7/9/2022, Tong
 # *             - Initial revision.
 # *
@@ -12,7 +15,7 @@ ifndef __ENV_MK__
 __ENV_MK__ = $(abspath $(lastword $(MAKEFILE_LIST)))
 CMKABE_HOME := $(abspath $(dir $(__ENV_MK__)))
 
-CMAKEABE_VERSION = 0.5.3
+CMKABE_VERSION = 0.5.4
 
 # ==============================================================================
 # = Environment Variables
@@ -23,10 +26,11 @@ override HOST := $(if $(filter Windows_NT,$(OS)),Windows,$(shell uname -s))
 # ==============================================================================
 # = Utilities
 
-# cmakeabe_version_required(version:str)
-cmakeabe_version_required = $(eval $(call _cmakeabe_version_check_,$(1)))
-define _cmakeabe_version_check_
-    ifeq ($$(call version_compare,$(1),$$(CMAKEABE_VERSION)),+)
+# cmkabe_version_required(version:str)
+cmkabe_version_required = $(eval $(call _cmkabe_version_check_,$(1)))
+cmakeabe_version_required = $(call cmkabe_version_required,$(1))
+define _cmkabe_version_check_
+    ifeq ($$(call version_compare,$(1),$$(CMKABE_VERSION)),+)
         $$(error Please upgrade cmake-abe to >=$(1). Try: git submodule update --init))
     endif
 endef

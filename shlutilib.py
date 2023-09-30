@@ -1,5 +1,10 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
+"""Shell utility library
+
+This file is the part of the cmake-abe library (https://github.com/spritetong/cmake-abe),
+which is licensed under the MIT license (https://opensource.org/licenses/MIT).
+
+Copyright (C) 2022 spritetong@gmail.com.
+"""
 
 import sys
 import os
@@ -553,6 +558,7 @@ class ShellCmd:
 
     @staticmethod
     def main(args=None):
+        args = args or sys.argv[1:]
         try:
             from optparse import OptionParser
             parser = OptionParser(
