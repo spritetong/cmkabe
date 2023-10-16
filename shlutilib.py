@@ -606,5 +606,5 @@ class ShellCmd:
             return ShellCmd.EINVAL
 
         except KeyboardInterrupt:
-            print('^C')
+            print('^C', file=sys.stderr)
             return ShellCmd.EINTERRUPT

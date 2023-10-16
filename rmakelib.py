@@ -245,8 +245,9 @@ class RsyncMake:
                 self.sync_backward()
                 self.finish_sync_backward()
             elif command == 'exec':
-                os.chdir(self.dst_dir)
-                subprocess.check_call(self.exec_cmd_args)
+                if self.exec_cmd_args:
+                    os.chdir(self.dst_dir)
+                    subprocess.check_call(self.exec_cmd_args)
             elif self.user.exec_command(command) != -1:
                 pass
             elif re.match('^(?:build|{})$'.format('|'.join(self.make_targets).replace('*', '.*')), command):
@@ -381,10 +382,10 @@ class RsyncMake:
 
         # Clean unversioned files and revert dirty files.
         if force:
-            subprocess.call(['git', 'clean', '--force'])
+            subprocess.call(['git', 'clean', '--force', '-d'])
             subprocess.call(['git', 'checkout', '--force'])
             subprocess.call(['git', 'submodule', 'foreach',
-                            '--recursive', 'git', 'clean', '--force'])
+                            '--recursive', 'git', 'clean', '--force', '-d'])
             subprocess.call(['git', 'submodule', 'update',
                             '--init', '--recursive', '--force'])
 
@@ -671,7 +672,7 @@ class RsyncMake:
             return rmake._run(parse_args(args))
 
         except KeyboardInterrupt:
-            print('^C')
+            print('^C', file=sys.stderr)
             return 254
         except Exception as e:
             print('***', e, file=sys.stderr)
