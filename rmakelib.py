@@ -413,7 +413,7 @@ class RsyncMake:
             elif self.git_remote_branch_exists(branch):
                 # The remote branch exists
                 git_checkout.extend(
-                    ['--branch', branch, '{}/{}'.format(branch, self.args.git_origin)])
+                    ['-b', branch, '{}/{}'.format(self.args.git_origin, branch)])
                 subprocess.check_call(git_checkout)
 
         subprocess.check_call(['git', 'pull'])
