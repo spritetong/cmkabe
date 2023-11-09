@@ -67,7 +67,8 @@ ifeq ($(TARGET_TRIPLE),)
 endif
 override TARGET_TRIPLE_UNDERSCORE := $(subst -,_,$(TARGET_TRIPLE))
 
-override WINDOWS := $(if $(findstring -windows-,$(TARGET_TRIPLE)),ON,OFF)
+override WINDOWS := $(if $(findstring -windows,$(TARGET_TRIPLE)),ON,OFF)
+override ANDROID := $(if $(findstring -android,$(TARGET_TRIPLE)),ON,OFF)
 override UNIX := $(call not,$(WINDOWS))
 
 override ARCH := $(firstword $(subst -, ,$(TARGET_TRIPLE)))

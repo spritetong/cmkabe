@@ -38,6 +38,8 @@ CMAKE_BUILD_ROOT ?= $(WORKSPACE_DIR)/target/cmake
 CMAKE_BUILD_DIR ?= $(CMAKE_BUILD_ROOT)/$(TARGET_TRIPLE)/$(CMAKE_BUILD_TYPE)
 #! The CMake output directory exclude the tailing triple.
 CMAKE_TARGET_PREFIX ?= $(WORKSPACE_DIR)
+#! The CMake targets (libraries and executables) to build.
+CMAKE_TARGETS +=
 #! CMake output directories to clean.
 CMAKE_OUTPUT_DIRS +=
 #! CMake output file patterns to clean.
@@ -52,7 +54,7 @@ CMAKE_INIT += $(foreach I,$(CMAKE_DEFS), -D$I)
 
 # FIXME: repeat 3 times to work around the cache problem of cross compilation on Linux.
 cmake_init = $(CMAKE_INIT) $(CMAKE_INIT_OPTS)
-cmake_build = cmake --build "$(CMAKE_BUILD_DIR)" --config $(CMAKE_BUILD_TYPE) --parallel $(CMAKE_OPTS)
+cmake_build = cmake --build "$(CMAKE_BUILD_DIR)"$(foreach I,$(CMAKE_TARGETS), --target $I) --config $(CMAKE_BUILD_TYPE) --parallel $(CMAKE_OPTS)
 cmake_install = cmake --install "$(CMAKE_BUILD_DIR)" --config $(CMAKE_BUILD_TYPE) $(CMAKE_OPTS)
 ifeq ($(if $(filter --prefix,$(CMAKE_OPTS)),1,)$(if $(CMAKE_INSTALL_TARGET_PREFIX),,1),)
     cmake_install += --prefix "$(CMAKE_INSTALL_TARGET_PREFIX)/$(TARGET_TRIPLE)"
