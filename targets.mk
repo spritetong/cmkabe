@@ -66,6 +66,7 @@ ifeq ($(TARGET_TRIPLE),)
     $(error TARGET_TRIPLE is not defined)
 endif
 override TARGET_TRIPLE_UNDERSCORE := $(subst -,_,$(TARGET_TRIPLE))
+override TARGET_TRIPLE_UNDERSCORE_UPPER := $(call upper,$(TARGET_TRIPLE_UNDERSCORE))
 
 override WINDOWS := $(if $(findstring -windows,$(TARGET_TRIPLE)),ON,OFF)
 override ANDROID := $(if $(findstring -android,$(TARGET_TRIPLE)),ON,OFF)
@@ -74,8 +75,11 @@ override UNIX := $(call not,$(WINDOWS))
 override ARCH := $(firstword $(subst -, ,$(TARGET_TRIPLE)))
 override MSVC_ARCH := $(call bsel,$(WINDOWS),$(call sel,$(ARCH),\
     aarch64=ARM64 x86_64=x64 i686=Win32),)
+override ANDROID_ARCH := $(call bsel,$(ANDROID),$(call sel,$(ARCH),\
+    aarch64=aarch64 armv7=armv7a i686=i686 x86_64=x86_64),)
+override ANROID_TRIPLE := $(ANDROID_ARCH)-linux-$(if $(findstring armv7,$(ANDROID_ARCH)),androideabi,android)
 
-ifeq ($(WINDOWS)-$(MSVC_ARCH),ON-)
+ifneq ($(filter ON,$(WINDOWS)$(MSVC_ARCH) $(ANDROID)$(ANDROID_ARCH)),)
     $(error Unknown ARCH: $(ARCH))
 endif
 

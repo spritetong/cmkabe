@@ -74,6 +74,9 @@ CARGO_EXECUTABLES +=
 #! Cargo library crates
 CARGO_LIBRARIES +=
 
+#! Anroid SDK version
+ANROID_SDK_VERSION ?= 23
+
 # cargo_command(<command:str>)
 cargo_command = cargo $(CARGO_TOOLCHAIN) $(1) $(CARGO_OPTS)
 
@@ -93,13 +96,40 @@ cargo_upgrade = cargo upgrade --incompatible $(1)
 # cargo_set_gcc_env_vars()
 cargo_set_gcc_env_vars = $(eval $(_cargo_set_gcc_env_vars_tpl_))
 define _cargo_set_gcc_env_vars_tpl_
-    export CARGO_TARGET_$$(call upper,$$(TARGET_TRIPLE_UNDERSCORE))_LINKER=$$(TARGET)-gcc
-    $$(foreach I,AR=ar CC=gcc CXX=g++ LD=ld RANLIB=ranlib STRIP=strip,\
+    export CARGO_TARGET_$$(TARGET_TRIPLE_UNDERSCORE_UPPER)_LINKER=$$(TARGET)-gcc
+    $$(foreach I,AR=ar CC=gcc CXX=g++ RANLIB=ranlib STRIP=strip,\
         $$(eval export $$(call kv_key,$$I)_$$(TARGET_TRIPLE_UNDERSCORE)=$$(TARGET)-$$(call kv_value,$$I)))
 endef
 
-# If a cross compile GCC exists, set the appropriate environment variables for Rust.
-ifeq ($(shell $(TARGET)-gcc -dumpversion >$(NULL) 2>&1 || echo 1),)
+ifeq ($(ANDROID),ON)
+    # Set Android NDK environment variables for Rust.
+    ifeq ($(ANDROID_NDK_ROOT),)
+        $(error `ANDROID_NDK_ROOT` is not defined)
+    endif
+    _exe := $(if $(filter Windows,$(HOST)),.exe,)
+    _ndk_bin_dir := $(ANDROID_NDK_ROOT)/toolchains/llvm/prebuilt/$(call lower,$(HOST))-$(HOST_ARCH)/bin
+    _ndk_target_opt := --target=$(ANROID_TRIPLE)$(ANROID_SDK_VERSION)
+    # LINKER
+    export CARGO_TARGET_$(TARGET_TRIPLE_UNDERSCORE_UPPER)_LINKER := $(_ndk_bin_dir)/clang$(_exe)
+    # AR, CC, CXX, RANLIB, STRIP
+    export AR_$(TARGET_TRIPLE_UNDERSCORE) := $(_ndk_bin_dir)/llvm-ar$(_exe)
+    export CC_$(TARGET_TRIPLE_UNDERSCORE) := $(_ndk_bin_dir)/clang$(_exe)
+    export CXX_$(TARGET_TRIPLE_UNDERSCORE) := $(_ndk_bin_dir)/clang++$(_exe)
+    export RANLIB_$(TARGET_TRIPLE_UNDERSCORE) := $(_ndk_bin_dir)/llvm-ranlib$(_exe)
+    export STRIP_$(TARGET_TRIPLE_UNDERSCORE) := $(_ndk_bin_dir)/llvm-strip$(_exe)
+    # CFLAGS, CXXFLAGS, RUSTFLAGS
+    override CFLAGS_$(TARGET_TRIPLE_UNDERSCORE) += $(_ndk_target_opt)
+    export CFLAGS_$(TARGET_TRIPLE_UNDERSCORE)
+    override CXXFLAGS_$(TARGET_TRIPLE_UNDERSCORE) += $(_ndk_target_opt)
+    export CXXFLAGS_$(TARGET_TRIPLE_UNDERSCORE)
+    override CARGO_TARGET_$(TARGET_TRIPLE_UNDERSCORE_UPPER)_RUSTFLAGS += -C link-arg=$(_ndk_target_opt)
+    export CARGO_TARGET_$(TARGET_TRIPLE_UNDERSCORE_UPPER)_RUSTFLAGS
+    # Check if the NDK CC exists.
+    ifeq ($(wildcard $(CC_$(TARGET_TRIPLE_UNDERSCORE))),)
+        $(error "$(CC_$(TARGET_TRIPLE_UNDERSCORE))" does not exist)
+    endif
+else ifeq ($(shell $(TARGET)-gcc -dumpversion >$(NULL) 2>&1 || echo 1),)
+    # If the cross compile GCC exists, set the appropriate environment variables for Rust.
     $(call cargo_set_gcc_env_vars)
 endif
 
