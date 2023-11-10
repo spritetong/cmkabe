@@ -12,7 +12,6 @@
 # *
 
 if(NOT DEFINED _CMKABE_RULES_INITIALIZED)
-set(_CMKABE_RULES_INITIALIZED ON)
 
 if(NOT DEFINED CMAKE_BUILD_TYPE)
     # Build for Debug by default
@@ -187,4 +186,5 @@ else()
 endif()
 set(CARGO_TARGET_OUT_DIR "${CARGO_WORKSPACE_DIR}/target/${_s}")
 
+set(_CMKABE_RULES_INITIALIZED ON)
 endif()

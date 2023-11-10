@@ -19,10 +19,22 @@ endif
 include $(CMKABE_HOME)/targets.mk
 
 ifndef WORKSPACE_DIR
-    #! Insert to the head of Makefile in the workspace directory:
-    #!    WORKSPACE_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
+    $(warning Please insert to the head of `Makefile` in the workspace directory:)
+    $(warning    WORKSPACE_DIR := $$(abspath $$(dir $$(lastword $$(MAKEFILE_LIST)))))
     $(error WORKSPACE_DIR is not defined)
 endif
+
+# ==============================================================================
+# = Android NDK
+
+#! Android SDK version (API level)
+ANDROID_SDK_VERSION ?= 23
+#! Specifies whether to generate arm or thumb instructions for armeabi-v7a: arm, thumb (default)
+ANDROID_ARM_MODE ?= thumb
+#! Enables or disables NEON for armeabi-v7a
+ANDROID_ARM_NEON ?= OFF
+#! NDK STL: c++_shared, c++_static (default), none, system
+ANDROID_STL ?=
 
 # ==============================================================================
 # = CMake
@@ -30,7 +42,7 @@ endif
 override DEBUG := $(call bool,$(DEBUG),ON)
 override VERBOSE := $(call bool,$(VERBOSE),OFF)
 
-#! The current configuration of CMake build.
+#! The current configuration of CMake build: Debug, Release
 CMAKE_BUILD_TYPE ?= $(call bsel,$(DEBUG),Debug,Release)
 #! The root of CMake build directories.
 CMAKE_BUILD_ROOT ?= $(WORKSPACE_DIR)/target/cmake
@@ -44,15 +56,46 @@ CMAKE_TARGETS +=
 CMAKE_OUTPUT_DIRS +=
 #! CMake output file patterns to clean.
 CMAKE_OUTPUT_FILE_PATTERNS +=
+#! CMake definitions, such as `FOO=bar`
+CMAKE_DEFS ?=
+#! CMake additional options
+CMAKE_OPTS ?=
 
 CMAKE_INIT = cmake -B "$(CMAKE_BUILD_DIR)"
 CMAKE_INIT += $(if $(MSVC_ARCH),-A $(MSVC_ARCH),)
 CMAKE_INIT += -D "TARGET:STRING=$(TARGET)" -D "TARGET_TRIPLE:STRING=$(TARGET_TRIPLE)"
 CMAKE_INIT += -D "CMAKE_BUILD_TYPE:STRING=$(CMAKE_BUILD_TYPE)"
-CMAKE_INIT += -D "CMAKE_VERBOSE_MAKEFILE:BOOL=$(VERBOSE)"
+# For Android NDK
+ifeq ($(ANDROID),ON)
+    ifeq ($(ANDROID_NDK_ROOT),)
+        $(error `ANDROID_NDK_ROOT` is not defined)
+    endif
+	_cmake_ndk_tc_file := $(ANDROID_NDK_ROOT)/build/cmake/android.toolchain.cmake
+    CMAKE_INIT += -GNinja
+    CMAKE_INIT += -D "CMAKE_TOOLCHAIN_FILE:STRING=$(_cmake_ndk_tc_file)"
+    CMAKE_INIT += -D "CMAKE_ANDROID_ARCH_ABI:STRING=$(ANDROID_ABI)"
+    CMAKE_INIT += -D "CMAKE_ANDROID_NDK:STRING=$(ANDROID_NDK_ROOT)"
+    CMAKE_INIT += -D "CMAKE_SYSTEM_NAME:STRING=Android"
+    CMAKE_INIT += -D "CMAKE_SYSTEM_PROCESSOR:STRING=$(ANDROID_ARCH)"
+    CMAKE_INIT += -D "CMAKE_SYSTEM_VERSION:INT=$(ANDROID_SDK_VERSION)"
+    CMAKE_INIT += -D "ANDROID_ABI:STRING=$(ANDROID_ABI)"
+    CMAKE_INIT += -D "ANDROID_NDK:STRING=$(ANDROID_NDK_ROOT)"
+    CMAKE_INIT += -D "ANDROID_PLATFORM:STRING=android-$(ANDROID_SDK_VERSION)"
+    ifeq ($(ANDROID_ABI),armeabi-v7a)
+        CMAKE_INIT += -D "ANDROID_ARM_MODE:STRING=$(ANDROID_ARM_MODE)"
+        CMAKE_INIT += -D "ANDROID_ARM_NEON:STRING=$(ANDROID_ARM_NEON)"
+    endif
+    ifneq ($(ANDROID_STL),)
+        CMAKE_INIT += -D "ANDROID_STL:STRING=$(ANDROID_STL)"
+    endif
+    ifeq ($(wildcard $(_cmake_ndk_tc_file)),)
+        $(error "$(_cmake_ndk_tc_file)" does not exist)
+    endif
+else
+    CMAKE_INIT += -D "CMAKE_VERBOSE_MAKEFILE:BOOL=$(VERBOSE)"
+endif
 CMAKE_INIT += $(foreach I,$(CMAKE_DEFS), -D$I)
 
-# FIXME: repeat 3 times to work around the cache problem of cross compilation on Linux.
 cmake_init = $(CMAKE_INIT) $(CMAKE_INIT_OPTS)
 cmake_build = cmake --build "$(CMAKE_BUILD_DIR)"$(foreach I,$(CMAKE_TARGETS), --target $I) --config $(CMAKE_BUILD_TYPE) --parallel $(CMAKE_OPTS)
 cmake_install = cmake --install "$(CMAKE_BUILD_DIR)" --config $(CMAKE_BUILD_TYPE) $(CMAKE_OPTS)
@@ -73,9 +116,6 @@ CARGO_OPTS += $(call bsel,$(DEBUG),,--release)
 CARGO_EXECUTABLES +=
 #! Cargo library crates
 CARGO_LIBRARIES +=
-
-#! Anroid SDK version
-ANROID_SDK_VERSION ?= 23
 
 # cargo_command(<command:str>)
 cargo_command = cargo $(CARGO_TOOLCHAIN) $(1) $(CARGO_OPTS)
@@ -103,12 +143,9 @@ endef
 
 ifeq ($(ANDROID),ON)
     # Set Android NDK environment variables for Rust.
-    ifeq ($(ANDROID_NDK_ROOT),)
-        $(error `ANDROID_NDK_ROOT` is not defined)
-    endif
     _exe := $(if $(filter Windows,$(HOST)),.exe,)
     _ndk_bin_dir := $(ANDROID_NDK_ROOT)/toolchains/llvm/prebuilt/$(call lower,$(HOST))-$(HOST_ARCH)/bin
-    _ndk_target_opt := --target=$(ANROID_TRIPLE)$(ANROID_SDK_VERSION)
+    _ndk_target_opt := --target=$(ANDROID_TRIPLE)$(ANDROID_SDK_VERSION)
     # LINKER
     export CARGO_TARGET_$(TARGET_TRIPLE_UNDERSCORE_UPPER)_LINKER := $(_ndk_bin_dir)/clang$(_exe)
     # AR, CC, CXX, RANLIB, STRIP

@@ -76,8 +76,16 @@ override ARCH := $(firstword $(subst -, ,$(TARGET_TRIPLE)))
 override MSVC_ARCH := $(call bsel,$(WINDOWS),$(call sel,$(ARCH),\
     aarch64=ARM64 x86_64=x64 i686=Win32),)
 override ANDROID_ARCH := $(call bsel,$(ANDROID),$(call sel,$(ARCH),\
-    aarch64=aarch64 armv7=armv7a i686=i686 x86_64=x86_64),)
-override ANROID_TRIPLE := $(ANDROID_ARCH)-linux-$(if $(findstring armv7,$(ANDROID_ARCH)),androideabi,android)
+    aarch64=aarch64 armv7=armv7a thumbv7neon=armv7a i686=i686 x86_64=x86_64),)
+ifeq ($(ANDROID),ON)
+    override ANDROID_TRIPLE := $(ANDROID_ARCH)-linux-$(if $(filter armv7a,$(ANDROID_ARCH)),androideabi,android)
+    override ANDROID_ABI := $(call sel,$(ANDROID_ARCH),\
+        aarch64=arm64-v8a armv7a=armeabi-v7a thumbv7neon=armeabi-v7a i686=x86 x86_64=x86_64)
+    ifeq ($(ARCH),thumbv7neon)
+        override ANDROID_ARM_NEON = ON
+	endif
+    override ANDROID_NDK_ROOT := $(subst \,/,$(ANDROID_NDK_ROOT))
+endif
 
 ifneq ($(filter ON,$(WINDOWS)$(MSVC_ARCH) $(ANDROID)$(ANDROID_ARCH)),)
     $(error Unknown ARCH: $(ARCH))

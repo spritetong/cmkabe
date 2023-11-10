@@ -22,16 +22,16 @@ else()
 endif()
 
 # Capitalize the initial fo a string.
-function(cmkabe_initial_capitalize str var)
+function(cmkabe_initial_capitalize str result)
     # Convert the system name to camel case.
     string(SUBSTRING "${str}" 0 1 x)
     string(TOUPPER "${x}" x)
     string(REGEX REPLACE "^.(.*)$" "${x}\\1" x "${str}")
-    set(${var} "${x}" PARENT_SCOPE)
+    set(${result} "${x}" PARENT_SCOPE)
 endfunction()
 
 # Convert an underscore string into camel-case.
-function(cmkabe_underscore_camel_case str var)
+function(cmkabe_underscore_camel_case str result)
     string(TOLOWER "${str}" str)
     string(REPLACE "_" ";" words "${str}")
     set(value "")
@@ -39,26 +39,26 @@ function(cmkabe_underscore_camel_case str var)
         cmkabe_initial_capitalize("${x}" x)
         set(value "${value}${x}")
     endforeach()
-    set(${var} "${value}" PARENT_SCOPE)
+    set(${result} "${value}" PARENT_SCOPE)
 endfunction()
 
 # Convert a camel-case string into lower-case-underscore.
-function(cmkabe_camel_case_to_lower_underscore str var)
+function(cmkabe_camel_case_to_lower_underscore str result)
     string(REGEX REPLACE "(.)([A-Z][a-z]+)" "\\1_\\2" value "${str}")
     string(REGEX REPLACE "([a-z0-9])([A-Z])" "\\1_\\2" value "${value}")
     string(TOLOWER "${value}" value)
-    set(${var} "${value}" PARENT_SCOPE)
+    set(${result} "${value}" PARENT_SCOPE)
 endfunction()
 
 # Convert a camel-case string into upper-case-underscore.
-function(cmkabe_camel_case_to_upper_underscore str var)
+function(cmkabe_camel_case_to_upper_underscore str result)
     cmkabe_camel_case_to_lower_underscore("${str}" value)
     string(TOUPPER "${value}" value)
-    set(${var} "${value}" PARENT_SCOPE)
+    set(${result} "${value}" PARENT_SCOPE)
 endfunction()
 
 # Get the full path of an executable.
-function(cmkabe_get_exe_path executable var)
+function(cmkabe_get_exe_path executable result)
     if(CMAKE_HOST_WIN32)
         set(which "where")
     else()
@@ -76,7 +76,7 @@ function(cmkabe_get_exe_path executable var)
     else()
         set(output "")
     endif()
-    set(${var} "${output}" PARENT_SCOPE)
+    set(${result} "${output}" PARENT_SCOPE)
 endfunction()
 
 # Search in a directory and add all projects in its child directories.
@@ -119,12 +119,12 @@ function(cmkabe_set_target_output_directory target output_dir)
 endfunction()
 
 # Find a target file or directory in a directory and its ancesters,
-# Set the full path in ${var} if the target is found.
-function(cmkabe_find_in_ancesters directory name var)
+# Set the full path in ${result} if the target is found.
+function(cmkabe_find_in_ancesters directory name result)
     get_filename_component(current_dir "${directory}" ABSOLUTE)
     while(true)
         if (EXISTS "${current_dir}/${name}")
-            set(${var} "${current_dir}/${name}" PARENT_SCOPE)
+            set(${result} "${current_dir}/${name}" PARENT_SCOPE)
             return()
         endif()
         # Get the parent directory.
@@ -133,11 +133,11 @@ function(cmkabe_find_in_ancesters directory name var)
             break()
         endif()
     endwhile()
-    set(${var} "" PARENT_SCOPE)
+    set(${result} "" PARENT_SCOPE)
 endfunction()
 
 # Get the target architecture from the system processor.
-function(cmkabe_target_arch system_name system_processor var)
+function(cmkabe_target_arch system_name system_processor result)
     cmkabe_camel_case_to_lower_underscore("${system_processor}" arch)
     if(system_name STREQUAL "Windows")
         if(arch STREQUAL "arm64")
@@ -148,7 +148,7 @@ function(cmkabe_target_arch system_name system_processor var)
             set(arch "i686")
         endif()
     endif()
-    set(${var} "${arch}" PARENT_SCOPE)
+    set(${result} "${arch}" PARENT_SCOPE)
 endfunction()
 
 # Set C++ standard
@@ -159,5 +159,28 @@ function(cmkabe_set_cxx_standard cxx_standard)
         add_compile_options("/Zc:__cplusplus")
     endif()
 endfunction()
+
+# Function: 
+#   cmkabe_rust_link_dlls(result dll1 dll2 ...)
+#
+# On Windows, add a postfix ".dll.lib" to each item of the dll list and return the result list.
+# On other platforms, return the input list directly.
+macro(cmkabe_rust_link_dlls)
+    set(_cmkabe_rust_link_dlls_args "${ARGN}")
+    if("${_cmkabe_rust_link_dlls_args}" STREQUAL "")
+        message(FATAL_ERROR "The result variable is missing.")
+    endif()
+    list(GET _cmkabe_rust_link_dlls_args 0 _cmkabe_rust_link_dlls_result)
+    list(REMOVE_AT _cmkabe_rust_link_dlls_args 0)
+
+    set(${_cmkabe_rust_link_dlls_result})
+    foreach(item IN LISTS _cmkabe_rust_link_dlls_args)
+        if(WIN32)
+            list(APPEND ${_cmkabe_rust_link_dlls_result} "${item}.dll.lib")
+        else()
+            list(APPEND ${_cmkabe_rust_link_dlls_result} "${item}")
+        endif()
+    endforeach()
+endmacro()
 
 endif()

@@ -1,4 +1,5 @@
 crcmod
+ninja
 paramiko
 pycryptodome
 toml
