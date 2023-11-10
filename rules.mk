@@ -214,7 +214,7 @@ cmake-build: $(CMAKE_BUILD_DIR)
 cmake-rebuild: cmake-clean cmake-build
 
 # Install the target.
-cmake-install:
+cmake-install: $(CMAKE_BUILD_DIR)
 	@$(call cmake_install)
 
 # Clean the target.
