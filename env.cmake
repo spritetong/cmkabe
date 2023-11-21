@@ -151,7 +151,7 @@ function(cmkabe_target_arch system_name system_processor result)
     set(${result} "${arch}" PARENT_SCOPE)
 endfunction()
 
-# Set C++ standard
+# Set C++ standard (11, 14, or 17 ...)
 function(cmkabe_set_cxx_standard cxx_standard)
     set(CMAKE_CXX_STANDARD ${cxx_standard} CACHE STRING "C++ stardard version." FORCE)
     set(CMAKE_CXX_STANDARD_REQUIRED ON CACHE BOOL "Enable/disable setting of C++ stardard version." FORCE)
@@ -160,27 +160,53 @@ function(cmkabe_set_cxx_standard cxx_standard)
     endif()
 endfunction()
 
-# Function: 
-#   cmkabe_rust_link_dlls(result dll1 dll2 ...)
+# Function:
+#   cmkabe_rust_dll_libs(result dll1 dll2 ...)
 #
-# On Windows, add a postfix ".dll.lib" to each item of the dll list and return the result list.
+# On Windows, add a suffix ".dll.lib" to each item of the dll list and return the result list.
 # On other platforms, return the input list directly.
-macro(cmkabe_rust_link_dlls)
-    set(_cmkabe_rust_link_dlls_args "${ARGN}")
-    if("${_cmkabe_rust_link_dlls_args}" STREQUAL "")
+function(cmkabe_rust_dll_libs)
+    set(args "${ARGN}")
+    if(args STREQUAL "")
         message(FATAL_ERROR "The result variable is missing.")
     endif()
-    list(GET _cmkabe_rust_link_dlls_args 0 _cmkabe_rust_link_dlls_result)
-    list(REMOVE_AT _cmkabe_rust_link_dlls_args 0)
+    list(GET args 0 result)
+    list(REMOVE_AT args 0)
 
-    set(${_cmkabe_rust_link_dlls_result})
-    foreach(item IN LISTS _cmkabe_rust_link_dlls_args)
+    set(dlls)
+    foreach(item IN LISTS args)
         if(WIN32)
-            list(APPEND ${_cmkabe_rust_link_dlls_result} "${item}.dll.lib")
+            list(APPEND dlls "${item}.dll.lib")
         else()
-            list(APPEND ${_cmkabe_rust_link_dlls_result} "${item}")
+            list(APPEND dlls "${item}")
         endif()
     endforeach()
-endmacro()
+    set(${result} ${dlls} PARENT_SCOPE)
+endfunction()
+
+# Function:
+#   cmkabe_install_rust_dlls(dll1 dll2 ... DIRECTORY dir)
+#
+# Install the specified DLL files.
+# <dir> is the source directory if specified.
+function(cmkabe_install_rust_dlls)
+    cmake_parse_arguments(args "" "DIRECTORY" "" ${ARGN})
+    foreach(item IN LISTS args_UNPARSED_ARGUMENTS)
+        if(WIN32)
+            if(args_DIRECTORY)
+                set(item "${args_DIRECTORY}/${item}")
+            endif()
+            install(FILES "${item}.dll" DESTINATION bin)
+            get_filename_component(name "${item}" NAME_WE)
+            install(FILES "${item}.dll.lib" DESTINATION lib RENAME "${name}.lib")
+        else()
+            set(item "lib${item}")
+            if(args_DIRECTORY)
+                set(item "${args_DIRECTORY}/${item}")
+            endif()
+            install(FILES "${item}.so" DESTINATION lib)
+        endif()
+    endforeach()
+endfunction()
 
 endif()

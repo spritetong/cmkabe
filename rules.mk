@@ -27,8 +27,9 @@ endif
 # ==============================================================================
 # = Android NDK
 
-#! Android SDK version (API level):
-ANDROID_SDK_VERSION ?= 23
+#! Android SDK version (API level), defaults to 21.
+override ANDROID_SDK_VERSION := \
+    $(call either,$(ANDROID_SDK_VERSION),$(call either,$(CMAKE_SYSTEM_VERSION),21))
 #! NDK STL: c++_shared, c++_static (default), none, system
 ANDROID_STL ?=
 
@@ -40,6 +41,8 @@ override VERBOSE := $(call bool,$(VERBOSE),OFF)
 
 #! The current configuration of CMake build: Debug, Release
 CMAKE_BUILD_TYPE ?= $(call bsel,$(DEBUG),Debug,Release)
+#! The CMake system version
+CMAKE_SYSTEM_VERSION ?=
 #! The root of CMake build directories.
 CMAKE_BUILD_ROOT ?= $(WORKSPACE_DIR)/target/cmake
 #! The CMake build directory for the current configuration.
@@ -61,6 +64,7 @@ CMAKE_INIT = cmake -B "$(CMAKE_BUILD_DIR)"
 CMAKE_INIT += $(if $(MSVC_ARCH),-A $(MSVC_ARCH),)
 CMAKE_INIT += -D "TARGET:STRING=$(TARGET)" -D "TARGET_TRIPLE:STRING=$(TARGET_TRIPLE)"
 CMAKE_INIT += -D "CMAKE_BUILD_TYPE:STRING=$(CMAKE_BUILD_TYPE)"
+CMAKE_INIT += $(if $(CMAKE_SYSTEM_VERSION),-D "CMAKE_SYSTEM_VERSION:STRING=$(CMAKE_SYSTEM_VERSION)",)
 # For Android NDK
 ifeq ($(ANDROID),ON)
     ifndef ANDROID_NDK_ROOT
@@ -72,10 +76,9 @@ ifeq ($(ANDROID),ON)
         $(error `ANDROID_NDK_ROOT` is not defined)
     endif
     export ANDROID_NDK_ROOT
+    override CMAKE_SYSTEM_VERSION := $(ANDROID_SDK_VERSION)
     CMAKE_INIT += -GNinja
-    ifneq ($(ANDROID_SDK_VERSION),)
-        CMAKE_INIT += -D "ANDROID_SDK_VERSION:STRING=$(ANDROID_SDK_VERSION)"
-    endif
+    CMAKE_INIT += -D "ANDROID_SDK_VERSION:STRING=$(ANDROID_SDK_VERSION)"
     ifneq ($(ANDROID_STL),)
         CMAKE_INIT += -D "ANDROID_STL:STRING=$(ANDROID_STL)"
     endif
@@ -181,7 +184,7 @@ CARGO_TARGET_OUT_DIR := $(WORKSPACE_DIR)/target/$(if $(filter $(TARGET_TRIPLE),$
 
 _saved_default_goal := $(.DEFAULT_GOAL)
 
-.PHONY: cmkabe-before-build \
+.PHONY: cmake-before-build \
         cmake cmake-init cmake-build cmake-rebuild cmake-install \
         cmake-clean cmake-distclean cmake-clean-root cmake-clean-output \
         cargo-bench cargo-build cargo-check cargo-clean cargo-clippy cargo-lib cargo-test \
@@ -189,10 +192,10 @@ _saved_default_goal := $(.DEFAULT_GOAL)
 cmake: cmake-build
 
 # Do something before building
-cmkabe-before-build:
+cmake-before-build:
 
 # Initialize the cmake build directory.
-cmake-init $(CMAKE_BUILD_DIR): cmkabe-before-build
+cmake-init $(CMAKE_BUILD_DIR): cmake-before-build
 	@$(call cmake_init)
 
 # Build the target 
@@ -228,15 +231,15 @@ cargo:
 	@$(call cargo_command,$(CARGO_CMD))
 
 # Cargo bench
-cargo-bench: cmkabe-before-build
+cargo-bench: cmake-before-build
 	@$(call cargo_command,bench)
 
 # Cargo build
-cargo-build: cmkabe-before-build
+cargo-build: cmake-before-build
 	@cargo $(CARGO_TOOLCHAIN) build $(CARGO_OPTS)
 
 # Cargo check
-cargo-check: cmkabe-before-build
+cargo-check: cmake-before-build
 	@$(call cargo_command,check)
 
 # Clean all Cargo targets
@@ -244,15 +247,15 @@ cargo-clean:
 	-@cargo clean
 
 # Cargo clippy
-cargo-clippy: cmkabe-before-build
+cargo-clippy: cmake-before-build
 	@$(call cargo_command,clippy)
 
 # Build all Rust libraries
-cargo-lib: cmkabe-before-build
+cargo-lib: cmake-before-build
 	@$(call cargo_build_lib)
 
 # Cargo test
-cargo-test: cmkabe-before-build
+cargo-test: cmake-before-build
 	@$(call cargo_command,test)
 
 # Upgrade dependencies
@@ -278,10 +281,10 @@ define _cargo_cmake_rules_tpl_
 
     .PHONY: build run lib clean clean-cmake upgrade help
 
-    build: cmkabe-before-build
+    build: cmake-before-build
 		@$$(call cargo_build,$$(BIN))
 
-    run: cmkabe-before-build
+    run: cmake-before-build
 		@$$(call cargo_run,$$(BIN))
 
     lib: cargo-lib
@@ -314,7 +317,7 @@ define _cargo_build_tpl_
         $(1): $(2)
     endif
     .PHONY: $(2)
-    $(2): cmkabe-before-build
+    $(2): cmake-before-build
 		@$$(call cargo_build,$(2))
 endef
 define _cargo_run_tpl_
@@ -323,7 +326,7 @@ define _cargo_run_tpl_
         run-$(1): run-$(2)
     endif
     .PHONY: run-$(2)
-    run-$(2): cmkabe-before-build
+    run-$(2): cmake-before-build
 		@$$(call cargo_run,$(2))
 endef
 define _cargo_build_lib_tpl_
@@ -332,7 +335,7 @@ define _cargo_build_lib_tpl_
         $(1): $(2)
     endif
     .PHONY: $(2)
-    $(2): cmkabe-before-build
+    $(2): cmake-before-build
 		@$$(call cargo_build_lib,-p $(2))
 endef
 
@@ -347,7 +350,7 @@ define _cmake_update_libs_rule_tpl_
     $(1)__tmp_dir := $$(if $(7),$(7),.libs)
     $(1)__rebuild := $$(if $(8),$$($(8)),OFF)
 
-    cmkabe-before-build: $$($(1)__local_file)
+    cmake-before-build: $$($(1)__local_file)
     .PHONY: $$($(1)__target)
     $$($(1)__target): cmake-clean-output
     $$($(1)__target) $$($(1)__local_file):

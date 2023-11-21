@@ -418,48 +418,10 @@ class ShellCmd:
             return self.EFAIL
 
     def run__ndk_root(self):
-        sdk_dir = ''
-        if 'ANDROID_HOME' in os.environ:
-            sdk_dir = os.path.join(os.environ['ANDROID_HOME'], 'ndk')
-        elif sys.platform != 'win32':
-            for dir in ('/opt/ndk', '/opt/android/ndk', '/opt/android/sdk/ndk',):
-                if os.path.isdir(dir):
-                    sdk_dir = dir
-                    break
-        if not sdk_dir:
-            print('The environment variable `ANDROID_HOME` is not set.',
-                  file=sys.stderr)
-            return self.ENOENT
-
-        try:
-            import re
-            pattern1 = re.compile(r'^(\d+)\.(\d+)\.(\d+)(?:\.\w+)?$')
-            pattern2 = re.compile(r'^android-ndk-r(\d+)([a-z]+)$')
-            ndk_dirs = []
-            for name in os.listdir(sdk_dir):
-                if not os.path.isfile(os.path.join(sdk_dir, name, 'build', 'cmake', 'android.toolchain.cmake')):
-                    continue
-                group = pattern1.match(name)
-                if group:
-                    ndk_dirs.append(
-                        (name, [int(group[1]), int(group[2]), int(group[3])]))
-                    continue
-                group = pattern2.match(name)
-                if group:
-                    ndk_dirs.append((
-                        name, [int(group[1]),
-                               int(''.join(chr(ord(x) + ord('0') - ord('a'))
-                                           for x in group[2])),
-                               0]
-                    ))
-                    continue
-            if ndk_dirs:
-                (ndk_root, _) = sorted(
-                    ndk_dirs, key=lambda x: x[1], reverse=True)[0]
-                print(os.path.join(sdk_dir, ndk_root).replace('\\', '/'), end='')
-                return 0
-        except OSError:
-            raise
+        ndk_root = ShellCmd.ndk_root()
+        if ndk_root:
+            print(ndk_root, end='')
+            return 0
         return self.ENOENT
 
     def run__cargo_exec(self):
@@ -602,6 +564,61 @@ class ShellCmd:
         return path
 
     @staticmethod
+    def ndk_root(check_env=False):
+        if check_env:
+            ndk_root = os.environ.get('ANDROID_NDK_ROOT', '')
+            if ndk_root:
+                os.environ['ANDROID_NDK_HOME'] = ndk_root
+                return ndk_root
+
+        sdk_dir = ''
+        if 'ANDROID_HOME' in os.environ:
+            sdk_dir = os.path.join(os.environ['ANDROID_HOME'], 'ndk')
+        elif sys.platform != 'win32':
+            for dir in ('/opt/ndk', '/opt/android/ndk', '/opt/android/sdk/ndk',):
+                if os.path.isdir(dir):
+                    sdk_dir = dir
+                    break
+        if not sdk_dir:
+            print('The environment variable `ANDROID_HOME` is not set.',
+                  file=sys.stderr)
+            return ''
+
+        try:
+            import re
+            pattern1 = re.compile(r'^(\d+)\.(\d+)\.(\d+)(?:\.\w+)?$')
+            pattern2 = re.compile(r'^android-ndk-r(\d+)([a-z]+)$')
+            ndk_dirs = []
+            for name in os.listdir(sdk_dir):
+                if not os.path.isfile(os.path.join(sdk_dir, name, 'build', 'cmake', 'android.toolchain.cmake')):
+                    continue
+                group = pattern1.match(name)
+                if group:
+                    ndk_dirs.append(
+                        (name, [int(group[1]), int(group[2]), int(group[3])]))
+                    continue
+                group = pattern2.match(name)
+                if group:
+                    ndk_dirs.append((
+                        name, [int(group[1]),
+                               int(''.join(chr(ord(x) + ord('0') - ord('a'))
+                                           for x in group[2])),
+                               0]
+                    ))
+                    continue
+            if ndk_dirs:
+                (dir, _) = sorted(
+                    ndk_dirs, key=lambda x: x[1], reverse=True)[0]
+                ndk_root = os.path.join(sdk_dir, dir).replace('\\', '/')
+                if check_env:
+                    os.environ['ANDROID_NDK_ROOT'] = ndk_root
+                    os.environ['ANDROID_NDK_HOME'] = ndk_root
+                return ndk_root
+        except OSError:
+            pass
+        return ''
+
+    @staticmethod
     def main(args=None):
         args = args or sys.argv[1:]
         try:
@@ -633,7 +650,7 @@ class ShellCmd:
                                 help='read arguments from stdin')
             parser.add_argument('command', nargs='?', default='')
             parser.add_argument('args', nargs='*', default=[])
-            namespace = parser.parse_args(args)
+            namespace = parser.parse_intermixed_args(args)
 
             if namespace.list_cmds:
                 for name in dir(ShellCmd(namespace)):
