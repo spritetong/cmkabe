@@ -27,12 +27,8 @@ endif
 # ==============================================================================
 # = Android NDK
 
-#! Android SDK version (API level)
+#! Android SDK version (API level):
 ANDROID_SDK_VERSION ?= 23
-#! Specifies whether to generate arm or thumb instructions for armeabi-v7a: arm, thumb (default)
-ANDROID_ARM_MODE ?= thumb
-#! Enables or disables NEON for armeabi-v7a
-ANDROID_ARM_NEON ?= OFF
 #! NDK STL: c++_shared, c++_static (default), none, system
 ANDROID_STL ?=
 
@@ -67,29 +63,21 @@ CMAKE_INIT += -D "TARGET:STRING=$(TARGET)" -D "TARGET_TRIPLE:STRING=$(TARGET_TRI
 CMAKE_INIT += -D "CMAKE_BUILD_TYPE:STRING=$(CMAKE_BUILD_TYPE)"
 # For Android NDK
 ifeq ($(ANDROID),ON)
+    ifndef ANDROID_NDK_ROOT
+        ANDROID_NDK_ROOT := $(shell $(SHLUTIL) ndk-root)
+	else
+        override ANDROID_NDK_ROOT := $(subst \,/,$(ANDROID_NDK_ROOT))
+    endif
     ifeq ($(ANDROID_NDK_ROOT),)
         $(error `ANDROID_NDK_ROOT` is not defined)
     endif
-	_cmake_ndk_tc_file := $(ANDROID_NDK_ROOT)/build/cmake/android.toolchain.cmake
+    export ANDROID_NDK_ROOT
     CMAKE_INIT += -GNinja
-    CMAKE_INIT += -D "CMAKE_TOOLCHAIN_FILE:STRING=$(_cmake_ndk_tc_file)"
-    CMAKE_INIT += -D "CMAKE_ANDROID_ARCH_ABI:STRING=$(ANDROID_ABI)"
-    CMAKE_INIT += -D "CMAKE_ANDROID_NDK:STRING=$(ANDROID_NDK_ROOT)"
-    CMAKE_INIT += -D "CMAKE_SYSTEM_NAME:STRING=Android"
-    CMAKE_INIT += -D "CMAKE_SYSTEM_PROCESSOR:STRING=$(ANDROID_ARCH)"
-    CMAKE_INIT += -D "CMAKE_SYSTEM_VERSION:INT=$(ANDROID_SDK_VERSION)"
-    CMAKE_INIT += -D "ANDROID_ABI:STRING=$(ANDROID_ABI)"
-    CMAKE_INIT += -D "ANDROID_NDK:STRING=$(ANDROID_NDK_ROOT)"
-    CMAKE_INIT += -D "ANDROID_PLATFORM:STRING=android-$(ANDROID_SDK_VERSION)"
-    ifeq ($(ANDROID_ABI),armeabi-v7a)
-        CMAKE_INIT += -D "ANDROID_ARM_MODE:STRING=$(ANDROID_ARM_MODE)"
-        CMAKE_INIT += -D "ANDROID_ARM_NEON:STRING=$(ANDROID_ARM_NEON)"
+    ifneq ($(ANDROID_SDK_VERSION),)
+        CMAKE_INIT += -D "ANDROID_SDK_VERSION:STRING=$(ANDROID_SDK_VERSION)"
     endif
     ifneq ($(ANDROID_STL),)
         CMAKE_INIT += -D "ANDROID_STL:STRING=$(ANDROID_STL)"
-    endif
-    ifeq ($(wildcard $(_cmake_ndk_tc_file)),)
-        $(error "$(_cmake_ndk_tc_file)" does not exist)
     endif
 else
     CMAKE_INIT += -D "CMAKE_VERBOSE_MAKEFILE:BOOL=$(VERBOSE)"
@@ -145,7 +133,8 @@ ifeq ($(ANDROID),ON)
     # Set Android NDK environment variables for Rust.
     _exe := $(if $(filter Windows,$(HOST)),.exe,)
     _ndk_bin_dir := $(ANDROID_NDK_ROOT)/toolchains/llvm/prebuilt/$(call lower,$(HOST))-$(HOST_ARCH)/bin
-    _ndk_target_opt := --target=$(ANDROID_TRIPLE)$(ANDROID_SDK_VERSION)
+    _ndk_triple := $(ANDROID_ARCH)-linux-$(if $(filter armv7a,$(ANDROID_ARCH)),androideabi,android)
+    _ndk_target_opt := --target=$(_ndk_triple)$(ANDROID_SDK_VERSION)
     # LINKER
     export CARGO_TARGET_$(TARGET_TRIPLE_UNDERSCORE_UPPER)_LINKER := $(_ndk_bin_dir)/clang$(_exe)
     # AR, CC, CXX, RANLIB, STRIP
@@ -192,7 +181,7 @@ CARGO_TARGET_OUT_DIR := $(WORKSPACE_DIR)/target/$(if $(filter $(TARGET_TRIPLE),$
 
 _saved_default_goal := $(.DEFAULT_GOAL)
 
-.PHONY: before-build \
+.PHONY: cmkabe-before-build \
         cmake cmake-init cmake-build cmake-rebuild cmake-install \
         cmake-clean cmake-distclean cmake-clean-root cmake-clean-output \
         cargo-bench cargo-build cargo-check cargo-clean cargo-clippy cargo-lib cargo-test \
@@ -200,10 +189,10 @@ _saved_default_goal := $(.DEFAULT_GOAL)
 cmake: cmake-build
 
 # Do something before building
-before-build:
+cmkabe-before-build:
 
 # Initialize the cmake build directory.
-cmake-init $(CMAKE_BUILD_DIR): before-build
+cmake-init $(CMAKE_BUILD_DIR): cmkabe-before-build
 	@$(call cmake_init)
 
 # Build the target 
@@ -239,15 +228,15 @@ cargo:
 	@$(call cargo_command,$(CARGO_CMD))
 
 # Cargo bench
-cargo-bench: before-build
+cargo-bench: cmkabe-before-build
 	@$(call cargo_command,bench)
 
 # Cargo build
-cargo-build: before-build
+cargo-build: cmkabe-before-build
 	@cargo $(CARGO_TOOLCHAIN) build $(CARGO_OPTS)
 
 # Cargo check
-cargo-check: before-build
+cargo-check: cmkabe-before-build
 	@$(call cargo_command,check)
 
 # Clean all Cargo targets
@@ -255,21 +244,24 @@ cargo-clean:
 	-@cargo clean
 
 # Cargo clippy
-cargo-clippy: before-build
+cargo-clippy: cmkabe-before-build
 	@$(call cargo_command,clippy)
 
 # Build all Rust libraries
-cargo-lib: before-build
+cargo-lib: cmkabe-before-build
 	@$(call cargo_build_lib)
 
 # Cargo test
-cargo-test: before-build
+cargo-test: cmkabe-before-build
 	@$(call cargo_command,test)
 
 # Upgrade dependencies
 cargo-upgrade:
 	@cargo update
 	@$(call cargo_upgrade)
+
+# Disable parallel execution
+.NOTPARALLEL:
 
 # Do not change the default goal.
 .DEFAULT_GOAL := $(_saved_default_goal)
@@ -286,10 +278,10 @@ define _cargo_cmake_rules_tpl_
 
     .PHONY: build run lib clean clean-cmake upgrade help
 
-    build: before-build
+    build: cmkabe-before-build
 		@$$(call cargo_build,$$(BIN))
 
-    run: before-build
+    run: cmkabe-before-build
 		@$$(call cargo_run,$$(BIN))
 
     lib: cargo-lib
@@ -322,7 +314,7 @@ define _cargo_build_tpl_
         $(1): $(2)
     endif
     .PHONY: $(2)
-    $(2): before-build
+    $(2): cmkabe-before-build
 		@$$(call cargo_build,$(2))
 endef
 define _cargo_run_tpl_
@@ -331,7 +323,7 @@ define _cargo_run_tpl_
         run-$(1): run-$(2)
     endif
     .PHONY: run-$(2)
-    run-$(2): before-build
+    run-$(2): cmkabe-before-build
 		@$$(call cargo_run,$(2))
 endef
 define _cargo_build_lib_tpl_
@@ -340,7 +332,7 @@ define _cargo_build_lib_tpl_
         $(1): $(2)
     endif
     .PHONY: $(2)
-    $(2): before-build
+    $(2): cmkabe-before-build
 		@$$(call cargo_build_lib,-p $(2))
 endef
 
@@ -355,7 +347,7 @@ define _cmake_update_libs_rule_tpl_
     $(1)__tmp_dir := $$(if $(7),$(7),.libs)
     $(1)__rebuild := $$(if $(8),$$($(8)),OFF)
 
-    before-build: $$($(1)__local_file)
+    cmkabe-before-build: $$($(1)__local_file)
     .PHONY: $$($(1)__target)
     $$($(1)__target): cmake-clean-output
     $$($(1)__target) $$($(1)__local_file):

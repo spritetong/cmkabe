@@ -16,9 +16,9 @@ class ShellCmd:
     EINVAL = 8
     EINTERRUPT = 254
 
-    def __init__(self, options, args):
-        self.options = options
-        self.args = args
+    def __init__(self, namespace):
+        self.options = namespace
+        self.args = namespace.args
 
     def run__rm(self):
         def read_arg():
@@ -311,7 +311,7 @@ class ShellCmd:
             path = self.args[0]
             path = os.path.relpath(path, start)
         except (IndexError, ValueError, OSError):
-            pass
+            path = ''
         print(path.replace('\\', '/'), end='')
         return 0
 
@@ -416,6 +416,51 @@ class ShellCmd:
             return 0
         except (NameError, AttributeError):
             return self.EFAIL
+
+    def run__ndk_root(self):
+        sdk_dir = ''
+        if 'ANDROID_HOME' in os.environ:
+            sdk_dir = os.path.join(os.environ['ANDROID_HOME'], 'ndk')
+        elif sys.platform != 'win32':
+            for dir in ('/opt/ndk', '/opt/android/ndk', '/opt/android/sdk/ndk',):
+                if os.path.isdir(dir):
+                    sdk_dir = dir
+                    break
+        if not sdk_dir:
+            print('The environment variable `ANDROID_HOME` is not set.',
+                  file=sys.stderr)
+            return self.ENOENT
+
+        try:
+            import re
+            pattern1 = re.compile(r'^(\d+)\.(\d+)\.(\d+)(?:\.\w+)?$')
+            pattern2 = re.compile(r'^android-ndk-r(\d+)([a-z]+)$')
+            ndk_dirs = []
+            for name in os.listdir(sdk_dir):
+                if not os.path.isfile(os.path.join(sdk_dir, name, 'build', 'cmake', 'android.toolchain.cmake')):
+                    continue
+                group = pattern1.match(name)
+                if group:
+                    ndk_dirs.append(
+                        (name, [int(group[1]), int(group[2]), int(group[3])]))
+                    continue
+                group = pattern2.match(name)
+                if group:
+                    ndk_dirs.append((
+                        name, [int(group[1]),
+                               int(''.join(chr(ord(x) + ord('0') - ord('a'))
+                                           for x in group[2])),
+                               0]
+                    ))
+                    continue
+            if ndk_dirs:
+                (ndk_root, _) = sorted(
+                    ndk_dirs, key=lambda x: x[1], reverse=True)[0]
+                print(os.path.join(sdk_dir, ndk_root).replace('\\', '/'), end='')
+                return 0
+        except OSError:
+            raise
+        return self.ENOENT
 
     def run__cargo_exec(self):
         import time
@@ -560,49 +605,51 @@ class ShellCmd:
     def main(args=None):
         args = args or sys.argv[1:]
         try:
-            from optparse import OptionParser
-            parser = OptionParser(
-                usage=('Usage: %prog [options] command <arguments>\n\n'))
-            parser.get_option('-h').help = 'Show this help message and exit.'
-            parser.add_option('-D', '--symlinkd',
-                              action='store_true', default=False, dest='symlinkd',
-                              help='creates a directory symbolic link')
-            parser.add_option('-e', '--empty-dirs',
-                              action='store_true', default=False, dest='remove_empty_dirs',
-                              help='remove all empty directories')
-            parser.add_option('-f', '--force',
-                              action='store_true', default=False, dest='force',
-                              help='ignore errors, never prompt')
-            parser.add_option('--list',
-                              action='store_true', default=False, dest='list_cmds',
-                              help='list all commands')
-            parser.add_option('-P', '--no-dereference',
-                              action='store_false', default=True, dest='follow_symlinks',
-                              help='always follow symbolic links in SOURCE')
-            parser.add_option('-p', '--parents',
-                              action='store_true', default=True, dest='parents',
-                              help='if existing, make parent directories as needed')
-            parser.add_option('-r', '-R', '--recursive',
-                              action='store_true', default=False, dest='recursive',
-                              help='copy/remove directories and their contents recursively')
-            parser.add_option('--args-from-stdin', '--stdin',
-                              action='store_true', default=False, dest='args_from_stdin',
-                              help='read arguments from stdin')
-            (options, args) = parser.parse_args(args)
+            from argparse import ArgumentParser, RawTextHelpFormatter
+            parser = ArgumentParser(formatter_class=RawTextHelpFormatter)
+            parser.add_argument('-D', '--symlinkd',
+                                action='store_true', default=False, dest='symlinkd',
+                                help='creates a directory symbolic link')
+            parser.add_argument('-e', '--empty-dirs',
+                                action='store_true', default=False, dest='remove_empty_dirs',
+                                help='remove all empty directories')
+            parser.add_argument('-f', '--force',
+                                action='store_true', default=False, dest='force',
+                                help='ignore errors, never prompt')
+            parser.add_argument('--list',
+                                action='store_true', default=False, dest='list_cmds',
+                                help='list all commands')
+            parser.add_argument('-P', '--no-dereference',
+                                action='store_false', default=True, dest='follow_symlinks',
+                                help='always follow symbolic links in SOURCE')
+            parser.add_argument('-p', '--parents',
+                                action='store_true', default=True, dest='parents',
+                                help='if existing, make parent directories as needed')
+            parser.add_argument('-r', '-R', '--recursive',
+                                action='store_true', default=False, dest='recursive',
+                                help='copy/remove directories and their contents recursively')
+            parser.add_argument('--args-from-stdin', '--stdin',
+                                action='store_true', default=False, dest='args_from_stdin',
+                                help='read arguments from stdin')
+            parser.add_argument('command', nargs='?', default='')
+            parser.add_argument('args', nargs='*', default=[])
+            namespace = parser.parse_args(args)
 
-            if options.list_cmds:
-                for name in dir(ShellCmd(options, args[1:])):
+            if namespace.list_cmds:
+                for name in dir(ShellCmd(namespace)):
                     if name.startswith('run__'):
                         print(name[5:])
                 return 0
 
             try:
-                return getattr(ShellCmd(options, args[1:]), 'run__' + args[0].replace('-', '_'))()
-            except IndexError:
-                print('Missing command', file=sys.stderr)
+                return getattr(ShellCmd(namespace),
+                               'run__' + namespace.command.replace('-', '_'))()
             except AttributeError:
-                print('Unrecognized command "{}"'.format(
-                    args[0]), file=sys.stderr)
+                if not namespace.command:
+                    print('Missing command', file=sys.stderr)
+                else:
+                    print('Unrecognized command "{}"'.format(
+                        namespace.command), file=sys.stderr)
             return ShellCmd.EINVAL
 
         except KeyboardInterrupt:

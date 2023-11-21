@@ -31,7 +31,7 @@ cmkabe_version_required = $(eval $(call _cmkabe_version_check_,$(1)))
 cmakeabe_version_required = $(call cmkabe_version_required,$(1))
 define _cmkabe_version_check_
     ifeq ($$(call version_compare,$(1),$$(CMKABE_VERSION)),+)
-        $$(error Please upgrade cmake-abe to >=$(1). Try: git submodule update --init))
+        $$(error Please upgrade cmake-abe to >=$(1). Try: git submodule update --init)
     endif
 endef
 
