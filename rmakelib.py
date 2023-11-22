@@ -555,7 +555,7 @@ class RsyncMake:
 
             def parse_args(args):
                 commands.clear()
-                namespace = parser.parse_args(args)
+                namespace = parser.parse_intermixed_args(args)
                 namespace.commands = commands
                 return namespace
             parser = ArgumentParser(prog=main_prog,
