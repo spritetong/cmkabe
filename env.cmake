@@ -161,20 +161,18 @@ function(cmkabe_set_cxx_standard cxx_standard)
 endfunction()
 
 # Function:
-#   cmkabe_rust_dll_libs(result dll1 dll2 ...)
+#   cmkabe_rust_dlls_for_linker(<result> [dll1 dll2 ...])
 #
 # On Windows, add a suffix ".dll.lib" to each item of the dll list and return the result list.
 # On other platforms, return the input list directly.
-function(cmkabe_rust_dll_libs)
-    set(args "${ARGN}")
-    if(args STREQUAL "")
-        message(FATAL_ERROR "The result variable is missing.")
+function(cmkabe_rust_dlls_for_linker)
+    list(POP_FRONT ARGN result)
+    if(NOT result)
+        message(FATAL_ERROR "<result> is missing.")
     endif()
-    list(GET args 0 result)
-    list(REMOVE_AT args 0)
 
     set(dlls)
-    foreach(item IN LISTS args)
+    foreach(item IN LISTS ARGN)
         if(WIN32)
             list(APPEND dlls "${item}.dll.lib")
         else()
@@ -185,7 +183,31 @@ function(cmkabe_rust_dll_libs)
 endfunction()
 
 # Function:
-#   cmkabe_install_rust_dlls(dll1 dll2 ... DIRECTORY dir)
+#   cmkabe_target_link_rust_dlls(<target> <INTERFACE|PUBLIC|PRIVATE> [items1...])
+#
+# Link the specified Rust DLLs to the <target>.
+function(cmkabe_target_link_rust_dlls)
+    list(POP_FRONT ARGN target)
+    if(NOT target)
+        message(FATAL_ERROR "<target> is missing.")
+    endif()
+    cmake_parse_arguments(args "INTERFACE;PUBLIC;PRIVATE" "" "" ${ARGN})
+
+    set(args ${target})
+    if(args_INTERFACE)
+        list(APPEND args "INTERFACE")
+    elseif(args_PUBLIC)
+        list(APPEND args "PUBLIC")
+    elseif(args_PRIVATE)
+        list(APPEND args "PRIVATE")
+    endif()
+    cmkabe_rust_dlls_for_linker(dlls ${args_UNPARSED_ARGUMENTS})
+    list(APPEND args ${dlls})
+    target_link_libraries(${args})
+endfunction()
+
+# Function:
+#   cmkabe_install_rust_dlls(dll1 dll2 ... [DIRECTORY dir])
 #
 # Install the specified DLL files.
 # <dir> is the source directory if specified.

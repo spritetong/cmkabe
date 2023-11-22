@@ -35,12 +35,13 @@ define _cmkabe_version_check_
     endif
 endef
 
-# not(value:bool)
-not = $(if $(filter $(ON_VALUES),$(1)),OFF,ON)
-
 # bool(value:bool,default:bool)
-bool = $(call either,$(call _bool_norm_,$(call upper,$(1)),),$(call _bool_norm_,$(call upper,$(2)),OFF))
-_bool_norm_ = $(if $(filter 1 TRUE ON,$(1)),ON,$(if $(filter 0 FALSE OFF,$(1)),OFF,$(2)))
+bool = $(call _bool_norm_,$(1),$(if $(2),$(2),OFF))
+_bool_upper_ = $(subst a,A,$(subst e,E,$(subst f,F,$(subst l,L,$(subst o,O,$(subst n,N,$(subst r,R,$(subst s,S,$(subst t,T,$(subst u,U,$(1)))))))))))
+_bool_norm_ = $(word 2,$(subst =, ,$(filter $(call _bool_upper_,$(1))=%,1=ON ON=ON TRUE=ON 0=OFF OFF=OFF FALSE=OFF)) OFF $(2))
+
+# not(value:bool)
+not = $(if $(filter ON,$(call bool,$(1))),OFF,ON)
 
 # either(value1:str,value2:str)
 either = $(if $(1),$(1),$(2))
@@ -49,7 +50,7 @@ either = $(if $(1),$(1),$(2))
 # e.g. $(call sel,A,A=1 B=2,0) == 1
 sel = $(if $(filter $(1)=%,$(2)),$(patsubst $(1)=%,%,$(filter $(1)=%,$(2))),$(3))
 
-# bsel(ON_or_OFF:bool,for_ON:str,for_OFF:str)
+# bsel(ON_or_OFF:bool,value_of_ON:str,value_of_OFF:str)
 #    e.g. $(call bsel,ON,A,B) == A
 bsel = $(if $(filter ON,$(1)),$(2),$(3))
 

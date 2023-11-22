@@ -263,6 +263,10 @@ cargo-upgrade:
 	@cargo update
 	@$(call cargo_upgrade)
 
+# Execute a shell command
+shell:
+	$(CMD)
+
 # Disable parallel execution
 .NOTPARALLEL:
 
