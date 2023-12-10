@@ -58,25 +58,11 @@ function(cmkabe_camel_case_to_upper_underscore str result)
 endfunction()
 
 # Get the full path of an executable.
+# There is no `NO_CACHE` option for `find_program` before CMake 3.21.
 function(cmkabe_get_exe_path executable result)
-    if(CMAKE_HOST_WIN32)
-        set(which "where")
-    else()
-        set(which "which")
-    endif()
-    execute_process(COMMAND "${which}" "${executable}"
-        RESULT_VARIABLE status
-        OUTPUT_VARIABLE output
-        ERROR_QUIET
-    )
-    if(status EQUAL 0)
-        # Only keep the first line.
-        string(REGEX MATCH "^([^\r\n]+)" _ "${output}")
-        set(output "${CMAKE_MATCH_1}")
-    else()
-        set(output "")
-    endif()
-    set(${result} "${output}" PARENT_SCOPE)
+    find_program(_cmkabe_get_exe_path "${executable}")
+    set(${result} "${_cmkabe_get_exe_path}" PARENT_SCOPE)
+    unset(_cmkabe_get_exe_path CACHE)
 endfunction()
 
 # Search in a directory and add all projects in its child directories.

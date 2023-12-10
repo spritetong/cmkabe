@@ -13,6 +13,8 @@
 
 if(NOT DEFINED _CMKABE_RULES_INITIALIZED)
 
+include("${CMAKE_CURRENT_LIST_DIR}/targets.cmake")
+
 if(NOT DEFINED CMAKE_BUILD_TYPE)
     # Build for Debug by default
     set(CMAKE_BUILD_TYPE "Debug")
