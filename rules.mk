@@ -343,9 +343,27 @@ define _cargo_build_lib_tpl_
 		@$$(call cargo_build_lib,-p $(2))
 endef
 
-# Download external libraries for CMake
-# cmake_update_libs_rule(target:str=update-libs,git_path_url:str,local_repo_dir:str=,git_sources:str,
-#    local_destination_dir:str,local_target_file:str=,tmp_dir:str=.libs,rebuild_flag:bool=)
+# Download external libraries for CMake.
+# cmake_update_libs_rule(
+# $(1) target name, defaults (an empty string) to "update-libs".
+#	 target:str=update-libs,
+# $(2) URL to the remote source repository.
+#    git_repo_url:str,
+# $(3) path to the local source repository which is used to rebuild the libraries,
+#      defaults (an empty string) to "../$(notdir $(basename $(git_repo_url)))".
+#    local_repo_dir:str=,
+# $(4) files and directories copied from the source repository to the destination directory.
+#    git_sources:list<str>,
+# $(5) the destination directory in the local workspace.
+#    local_destination_dir:str,
+# $(6) the local target file or directory for make, defaults (an empty string) to $(5).
+#    local_target_file:str=,
+# $(7) the temporary directory.
+#    tmp_dir:str=.libs,
+# $(8) The Make variable name to determine whether to rebuild the libraries in 
+#      the local source repository $(3), leave it empty if you don't want to rebuild.
+#    rebuild_var:str=,
+# )
 cmake_update_libs_rule = $(eval $(call _cmake_update_libs_rule_tpl_,$(1),$(2),$(3),$(4),$(5),$(6),$(7),$(8)))
 define _cmake_update_libs_rule_tpl_
     $(1)__target := $$(if $(1),$(1),update-libs)

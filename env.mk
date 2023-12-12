@@ -101,7 +101,7 @@ git_ls_ignored = git ls-files --others -i $(if $(2),$(addprefix -x ,$(2)),--excl
 git_remove_ignored = $(call git_ls_ignored,$(1),$(2)) | $(RM) -f --stdin && $(RMDIR) -e $(1)
 
 # Check existence of a file or a directory in command line.
-# exists(file_or_directory:str,patterns:List<str>)
+# exists(file_or_directory:str)
 exists = test -e $(1)
 
 # Set an environment variable in command line.
