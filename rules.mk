@@ -286,7 +286,11 @@ define _cargo_cmake_rules_tpl_
     .PHONY: build run lib clean clean-cmake upgrade help
 
     build: cmake-before-build
+    ifneq ($$(BIN),)
 		@$$(call cargo_build,$$(BIN))
+    else
+		@$$(call cargo_build_lib)
+    endif
 
     run: cmake-before-build
 		@$$(call cargo_run,$$(BIN))
