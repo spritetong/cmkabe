@@ -14,12 +14,46 @@
 if(NOT DEFINED CMKABE_HOME)
 set(CMKABE_HOME "${CMAKE_CURRENT_LIST_DIR}")
 
+# Windows ARCH -> Rust ARCH
+set(__WIN_ARCH_MAP "arm64=aarch64;amd64=x86_64;x64=x86_64;x86=i686;win32=i686")
+# Rust ARCH -> MSVC ARCH
+set(__MSVC_ARCH_MAP "aarch64=ARM64;x86_64=x64;i686=Win32")
+# Rust ARCH -> Android ARCH
+set(__ANDROID_ARCH_MAP "aarch64=aarch64;armv7=armv7a;thumbv7neon=armv7a;i686=i686;x86_64=x86_64")
+
+# CMAKE_HOST_SYSTEM_PROCESSOR
+if("${CMAKE_HOST_SYSTEM_PROCESSOR}" STREQUAL "")
+    if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Windows")
+        set(CMAKE_HOST_SYSTEM_PROCESSOR "$ENV{PROCESSOR_ARCHITECTURE}")
+    else()
+        execute_process(
+            COMMAND uname -m
+            OUTPUT_VARIABLE CMAKE_HOST_SYSTEM_PROCESSOR
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+        )
+    endif()
+endif()
+
 # The path separator: ";" on Windows, ":" on Linux
 if(WIN32)
     set(CMKABE_PS ";")
 else()
     set(CMKABE_PS ":")
 endif()
+
+# Find the value of a key in a key-value map string.
+function(cmkabe_value_from_map map_string key default result)
+    set(value "${default}")
+    foreach(kv ${map_string})
+        if("${kv}" MATCHES "^([^=]+)=(.*)$")
+            if(CMAKE_MATCH_1 STREQUAL "${key}")
+                set(value "${CMAKE_MATCH_2}")
+                break()
+            endif()
+        endif()
+    endforeach()
+    set(${result} "${value}" PARENT_SCOPE)
+endfunction()
 
 # Capitalize the initial fo a string.
 function(cmkabe_initial_capitalize str result)
@@ -61,7 +95,11 @@ endfunction()
 # There is no `NO_CACHE` option for `find_program` before CMake 3.21.
 function(cmkabe_get_exe_path executable result)
     find_program(_cmkabe_get_exe_path "${executable}")
-    set(${result} "${_cmkabe_get_exe_path}" PARENT_SCOPE)
+    if(_cmkabe_get_exe_path STREQUAL "_cmkabe_get_exe_path-NOTFOUND")
+        set(${result} "" PARENT_SCOPE)
+    else()
+        set(${result} "${_cmkabe_get_exe_path}" PARENT_SCOPE)
+    endif()
     unset(_cmkabe_get_exe_path CACHE)
 endfunction()
 
@@ -126,13 +164,7 @@ endfunction()
 function(cmkabe_target_arch system_name system_processor result)
     cmkabe_camel_case_to_lower_underscore("${system_processor}" arch)
     if(system_name STREQUAL "Windows")
-        if(arch STREQUAL "arm64")
-            set(arch "aarch64")
-        elseif(arch MATCHES "^(amd64|x64)$")
-            set(arch "x86_64")
-        elseif(arch MATCHES "^(x86|win32)$")
-            set(arch "i686")
-        endif()
+        cmkabe_value_from_map("${__WIN_ARCH_MAP}" "${arch}" "${arch}" arch)
     endif()
     set(${result} "${arch}" PARENT_SCOPE)
 endfunction()

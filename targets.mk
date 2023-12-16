@@ -17,12 +17,18 @@ __TARGETS_MK__ = $(abspath $(lastword $(MAKEFILE_LIST)))
 # ==============================================================================
 # = TARGET(triple), TARGET_TRIPLE(triple), WINDOWS(bool), UNIX(bool)
 
+# Windows ARCH -> Rust ARCH
 _win_arch_table = arm64=aarch64 amd64=x86_64 x64=x86_64 x86=i686 win32=i686
+# Rust ARCH -> MSVC ARCH
+_msvc_arch_table = aarch64=ARM64 x86_64=x64 i686=Win32
+# Rust ARCH -> Android ARCH
+_android_arch_table = aarch64=aarch64 armv7=armv7a thumbv7neon=armv7a i686=i686 x86_64=x86_64
+
 ifeq ($(HOST),Windows)
 	HOST_ARCH := $(call sel,$(call lower,$(PROCESSOR_ARCHITECTURE)),$(_win_arch_table))
 	HOST_TRIPLE := $(HOST_ARCH)-pc-windows-msvc
 else
-	HOST_ARCH := $(shell uname -p)
+	HOST_ARCH := $(shell uname -m)
 	ifeq ($(HOST),Darwin)
 		HOST_TRIPLE := $(HOST_ARCH)-apple-darwin
 	endif
@@ -73,10 +79,8 @@ override ANDROID := $(if $(findstring -android,$(TARGET_TRIPLE)),ON,OFF)
 override UNIX := $(call not,$(WINDOWS))
 
 override ARCH := $(firstword $(subst -, ,$(TARGET_TRIPLE)))
-override MSVC_ARCH := $(call bsel,$(WINDOWS),$(call sel,$(ARCH),\
-    aarch64=ARM64 x86_64=x64 i686=Win32),)
-override ANDROID_ARCH := $(call bsel,$(ANDROID),$(call sel,$(ARCH),\
-    aarch64=aarch64 armv7=armv7a thumbv7neon=armv7a i686=i686 x86_64=x86_64),)
+override MSVC_ARCH := $(call bsel,$(WINDOWS),$(call sel,$(ARCH),$(_msvc_arch_table)),)
+override ANDROID_ARCH := $(call bsel,$(ANDROID),$(call sel,$(ARCH),$(_android_arch_table)),)
 
 ifneq ($(filter ON,$(WINDOWS)$(MSVC_ARCH) $(ANDROID)$(ANDROID_ARCH)),)
     $(error Unknown ARCH: $(ARCH))
