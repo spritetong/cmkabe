@@ -35,7 +35,7 @@ if("${CMAKE_HOST_SYSTEM_PROCESSOR}" STREQUAL "")
 endif()
 
 # The path separator: ";" on Windows, ":" on Linux
-if(WIN32)
+if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Windows")
     set(CMKABE_PS ";")
 else()
     set(CMKABE_PS ":")
