@@ -1,3 +1,6 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 """The `rsync-make` library
 
 This file is the part of the cmake-abe library (https://github.com/spritetong/cmake-abe),
@@ -10,6 +13,8 @@ import os
 import re
 import sys
 import subprocess
+
+__all__ = ('RsyncMake', 'RmakeUserBase',)
 
 
 class RmakeUserBase:
@@ -91,14 +96,22 @@ class RmakeUserBase:
         return -1
 
 
+def rsync_times_ok():
+    try:
+        return os.geteuid() == 0
+    except AttributeError:
+        return False
+
+
 class RsyncMake:
     RMAKE_REMOTE_ROOT = '~/.rmake/githome'
     RMAKE_USER = '.rmake-user.py'
     RMAKE_USER_CLASS = 'RmakeUser'
     RMAKE_INCLUDES = '.rmake-includes'
     RMAKE_EXCLUDES = '.rmake-excludes'
-    # --recursive --links --perms --times
+    # (r)--recursive (l)--links (p)--perms (t)--times (c)--checksum
     RSYNC_ARGS = ['-v', '-rlpt', '--mkpath', '--delete', '--exclude=.git']
+    RSYNC_BACKWARD_ARGS = ['-v', '-rl{}'.format('t' if rsync_times_ok() == 0 else 'c'), '--mkpath']
     MAKE_TARGETS = ['cargo', 'cargo-*', 'clean',
                     'clean-*', 'cmake', 'cmake-*', 'update-libs']
 

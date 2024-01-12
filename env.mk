@@ -15,7 +15,7 @@ ifndef __ENV_MK__
 __ENV_MK__ = $(abspath $(lastword $(MAKEFILE_LIST)))
 CMKABE_HOME := $(abspath $(dir $(__ENV_MK__)))
 
-CMKABE_VERSION = 0.5.9
+CMKABE_VERSION = 0.5.10
 
 # ==============================================================================
 # = Environment Variables

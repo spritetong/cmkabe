@@ -1,3 +1,6 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 """Shell utility library
 
 This file is the part of the cmake-abe library (https://github.com/spritetong/cmake-abe),
@@ -8,6 +11,8 @@ Copyright (C) 2022 spritetong@gmail.com.
 
 import sys
 import os
+
+__all__ = ('ShellCmd',)
 
 
 class ShellCmd:
