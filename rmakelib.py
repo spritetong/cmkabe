@@ -96,7 +96,7 @@ class RmakeUserBase:
         return -1
 
 
-def rsync_times_ok():
+def _rsync_times_ok():
     try:
         return os.geteuid() == 0
     except AttributeError:
@@ -111,7 +111,7 @@ class RsyncMake:
     RMAKE_EXCLUDES = '.rmake-excludes'
     # (r)--recursive (l)--links (p)--perms (t)--times (c)--checksum
     RSYNC_ARGS = ['-v', '-rlpt', '--mkpath', '--delete', '--exclude=.git']
-    RSYNC_BACKWARD_ARGS = ['-v', '-rl{}'.format('t' if rsync_times_ok() == 0 else 'c'), '--mkpath']
+    RSYNC_BACKWARD_ARGS = ['-v', '-rl{}'.format('t' if _rsync_times_ok() else 'c'), '--mkpath']
     MAKE_TARGETS = ['cargo', 'cargo-*', 'clean',
                     'clean-*', 'cmake', 'cmake-*', 'update-libs']
 
