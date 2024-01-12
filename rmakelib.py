@@ -97,7 +97,8 @@ class RsyncMake:
     RMAKE_USER_CLASS = 'RmakeUser'
     RMAKE_INCLUDES = '.rmake-includes'
     RMAKE_EXCLUDES = '.rmake-excludes'
-    RSYNC_ARGS = ['-av', '--delete', '--mkpath', '--exclude=.git']
+    # --recursive --links --perms --times
+    RSYNC_ARGS = ['-v', '-rlpt', '--mkpath', '--delete', '--exclude=.git']
     MAKE_TARGETS = ['cargo', 'cargo-*', 'clean',
                     'clean-*', 'cmake', 'cmake-*', 'update-libs']
 
