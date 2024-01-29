@@ -351,7 +351,7 @@ endef
 # cmake_update_libs_rule(
 # $(1) target name, defaults (an empty string) to "update-libs".
 #	 target:str=update-libs,
-# $(2) URL to the remote source repository.
+# $(2) Either a URL to the remote source repository or a local path.
 #    git_repo_url:str,
 # $(3) path to the local source repository which is used to rebuild the libraries,
 #      defaults (an empty string) to "../$(notdir $(basename $(git_repo_url)))".
@@ -368,28 +368,32 @@ endef
 #      the local source repository $(3), leave it empty if you don't want to rebuild.
 #    rebuild_var:str=,
 # )
-cmake_update_libs_rule = $(eval $(call _cmake_update_libs_rule_tpl_,$(1),$(2),$(3),$(4),$(5),$(6),$(7),$(8)))
+cmake_update_libs_rule = $(eval $(call _cmake_update_libs_rule_tpl_,$(call either,$(1),update-libs),$(2),$(3),$(4),$(5),$(6),$(7),$(8)))
 define _cmake_update_libs_rule_tpl_
-    $(1)__target := $$(if $(1),$(1),update-libs)
-    $(1)__local_repo := $$(if $(3),$(3),../$$(notdir $$(basename $(2))))
-	$(1)__local_file := $$(if $(6),$(6),$(5))
-    $(1)__tmp_dir := $$(if $(7),$(7),.libs)
-    $(1)__rebuild := $$(if $(8),$$($(8)),OFF)
+    $(1)__target := $(1)
+    $(1)__local_repo := $$(call either,$(3),../$$(notdir $$(basename $(2))))
+	$(1)__local_file := $$(call either,$(6),$(5))
+    $(1)__tmp_dir := $$(call either,$(7),.libs)
+    $(1)__rebuild := $$(call bool,$$(if $(8),$$($(8)),))
 
     cmake-before-build: $$($(1)__local_file)
     .PHONY: $$($(1)__target)
     $$($(1)__target): cmake-clean-output
     $$($(1)__target) $$($(1)__local_file):
 		@$$(RM) -rf $$($(1)__tmp_dir)
-    ifeq ($$(call bool,$$($(1)__rebuild)),OFF)
+    ifeq ($$($(1)__rebuild),ON)
+		@$$(CD) $$($(1)__local_repo) && make DEBUG=0
+		@$$(MKDIR) $(5)
+		@$$(CP) -rfP $$(foreach I,$(4),$$($(1)__local_repo)/$$I) $(5)/ && $$(FIXLINK) $(5)/
+    else ifneq ($$(wildcard $(2)),)
+		@echo Copy from "$(2)" ...
+		@$$(MKDIR) $(5)
+		@$$(CP) -rfP $$(foreach I,$(4),$(2)/$$I) $(5)/ && $$(FIXLINK) $(5)/
+    else
 		@git clone --depth 1 --branch master $(2) $$($(1)__tmp_dir)
 		@$$(MKDIR) $(5)
 		@$$(CP) -rfP $$(foreach I,$(4),$$($(1)__tmp_dir)/$$I) $(5)/ && $$(FIXLINK) $(5)/
 		@$$(RM) -rf $$($(1)__tmp_dir)
-    else
-		@$$(CD) $$($(1)__local_repo) && make DEBUG=0 && $$(CD) $$(WORKSPACE_DIR)
-		@$$(MKDIR) $(5)
-		@$$(CP) -rfP $$(foreach I,$(4),$$($(1)__local_repo)/$$I) $(5)/ && $$(FIXLINK) $(5)/
     endif
 endef
 
