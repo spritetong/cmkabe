@@ -82,6 +82,10 @@ if(NOT DEFINED TARGET_MSVC_UNICODE)
     set(TARGET_MSVC_UNICODE ON)
 endif()
 
+if(NOT DEFINED TARGET_MSVC_UTF8)
+    set(TARGET_MSVC_UTF8 ON)
+endif()
+
 # ==============================================================================
 
 if(NOT "${PROJECT_NAME}" STREQUAL "")
@@ -136,12 +140,16 @@ if(TARGET_CC_NO_DELETE_NULL_POINTER_CHECKS AND CC_SUPPORT_NO_DELETE_NULL_POINTER
     add_compile_options("-fno-delete-null-pointer-checks")
 endif()
 
-if(TARGET_MSVC_AFXDLL AND WIN32)
+if(TARGET_MSVC_AFXDLL AND MSVC)
     add_compile_definitions("_AFXDLL")
 endif()
 
-if(TARGET_MSVC_UNICODE AND WIN32)
+if(TARGET_MSVC_UNICODE AND MSVC)
     add_compile_definitions("_UNICODE")
+endif()
+
+if(TARGET_MSVC_UTF8 AND MSVC)
+    add_compile_options("/utf-8")
 endif()
 
 if(NOT "${TARGET_COMMON_INCLUDE_DIR}" STREQUAL "")
