@@ -105,7 +105,7 @@ exists = test -e $(1)
 
 # Call rmake with options.
 # rmake(options:str)
-rmake = $(PY) "$(WORKSPACE_DIR)/rmake.py" $(1)
+rmake = $(PY) rmake.py $(1)
 # If RMAKE is on, call rmake; otherwise, call make directly.
 # try_rmake(options:str)
 try_rmake = $(call bsel,$(call bool,$(RMAKE)),$(call rmake,$(1)),$(call wsl_run,make $(1)))
