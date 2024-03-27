@@ -15,7 +15,7 @@ ifndef __ENV_MK__
 __ENV_MK__ = $(abspath $(lastword $(MAKEFILE_LIST)))
 CMKABE_HOME := $(abspath $(dir $(__ENV_MK__)))
 
-CMKABE_VERSION = 0.5.11
+CMKABE_VERSION = 0.5.12
 
 # ==============================================================================
 # = Environment Variables
@@ -102,6 +102,13 @@ git_remove_ignored = $(call git_ls_ignored,$(1),$(2)) | $(RM) -f --stdin && $(RM
 # Check existence of a file or a directory in command line.
 # exists(file_or_directory:str)
 exists = test -e $(1)
+
+# Call rmake with options.
+# rmake(options:str)
+rmake = $(PY) "$(WORKSPACE_DIR)/rmake.py" $(1)
+# If RMAKE is on, call rmake; otherwise, call make directly.
+# try_rmake(options:str)
+try_rmake = $(call bsel,$(call bool,$(RMAKE)),$(call rmake,$(1)),$(call wsl_run,make $(1)))
 
 # Set an environment variable in command line.
 # set_env(key:str,value:str)
