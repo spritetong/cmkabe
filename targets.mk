@@ -25,22 +25,30 @@ _msvc_arch_table = aarch64=ARM64 x86_64=x64 i686=Win32
 _android_arch_table = aarch64=aarch64 armv7=armv7a thumbv7neon=armv7a i686=i686 x86_64=x86_64
 
 ifeq ($(HOST),Windows)
-	HOST_ARCH := $(call sel,$(call lower,$(PROCESSOR_ARCHITECTURE)),$(_win_arch_table))
-	HOST_TRIPLE := $(HOST_ARCH)-pc-windows-msvc
+    _win_arch_ := $(PROCESSOR_ARCHITECTURE)
+    ifeq ($(_win_arch_),x86)
+        ifneq ($(ProgramW6432),$(ProgramFiles))
+            ifneq ($(ProgramW6432),)
+               _win_arch_ = x64
+            endif
+        endif
+    endif
+    HOST_ARCH := $(call sel,$(call lower,$(_win_arch_)),$(_win_arch_table))
+    HOST_TRIPLE := $(HOST_ARCH)-pc-windows-msvc
 else
-	HOST_ARCH := $(shell uname -m)
-	ifeq ($(HOST),Darwin)
-		HOST_TRIPLE := $(HOST_ARCH)-apple-darwin
-	endif
-	ifeq ($(HOST),Linux)
-		HOST_TRIPLE := $(HOST_ARCH)-unknown-linux-gnu
-	endif
+    HOST_ARCH := $(shell uname -m)
+    ifeq ($(HOST),Darwin)
+        HOST_TRIPLE := $(HOST_ARCH)-apple-darwin
+    endif
+    ifeq ($(HOST),Linux)
+        HOST_TRIPLE := $(HOST_ARCH)-unknown-linux-gnu
+    endif
 endif
 
 override TARGET := $(filter-out native,$(TARGET))
 ifeq ($(TARGET),)
     ifeq ($(HOST),Windows)
-        override ARCH := $(call sel,$(call lower,$(if $(ARCH),$(ARCH),$(PROCESSOR_ARCHITECTURE))),\
+        override ARCH := $(call sel,$(call lower,$(if $(ARCH),$(ARCH),$(_win_arch_))),\
             $(_win_arch_table),$(ARCH))
         override TARGET := $(ARCH)-pc-windows-msvc
         override TARGET_TRIPLE := $(TARGET)

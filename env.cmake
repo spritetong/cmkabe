@@ -25,6 +25,11 @@ set(__ANDROID_ARCH_MAP "aarch64=aarch64;armv7=armv7a;thumbv7neon=armv7a;i686=i68
 if("${CMAKE_HOST_SYSTEM_PROCESSOR}" STREQUAL "")
     if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Windows")
         set(CMAKE_HOST_SYSTEM_PROCESSOR "$ENV{PROCESSOR_ARCHITECTURE}")
+        if(("${CMAKE_HOST_SYSTEM_PROCESSOR}" STREQUAL "x86") AND
+                (NOT "$ENV{ProgramW6432}" STREQUAL "$ENV{ProgramFiles}") AND
+                (NOT "$ENV{ProgramW6432}" STREQUAL ""))
+            set(CMAKE_HOST_SYSTEM_PROCESSOR "x64")
+        endif()
     else()
         execute_process(
             COMMAND uname -m
