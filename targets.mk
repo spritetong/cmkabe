@@ -23,6 +23,8 @@ _win_arch_table = arm64=aarch64 amd64=x86_64 x64=x86_64 x86=i686 win32=i686
 _msvc_arch_table = aarch64=ARM64 x86_64=x64 i686=Win32
 # Rust ARCH -> Android ARCH
 _android_arch_table = aarch64=aarch64 armv7=armv7a thumbv7neon=armv7a i686=i686 x86_64=x86_64
+# Rust ARCH -> Zig ARCH
+_zig_arch_table = aarch64=aarch64 armv7=arm thumbv7neon=thumb i686=x86 x86_64=x86_64
 
 ifeq ($(HOST),Windows)
     _win_arch_ := $(PROCESSOR_ARCHITECTURE)
@@ -85,12 +87,14 @@ override TARGET_TRIPLE_UNDERSCORE_UPPER := $(call upper,$(TARGET_TRIPLE_UNDERSCO
 override WINDOWS := $(if $(findstring -windows,$(TARGET_TRIPLE)),ON,OFF)
 override ANDROID := $(if $(findstring -android,$(TARGET_TRIPLE)),ON,OFF)
 override UNIX := $(call not,$(WINDOWS))
+override ZIG := $(call bool,$(ZIG))
 
 override ARCH := $(firstword $(subst -, ,$(TARGET_TRIPLE)))
 override MSVC_ARCH := $(call bsel,$(WINDOWS),$(call sel,$(ARCH),$(_msvc_arch_table)),)
-override ANDROID_ARCH := $(call bsel,$(ANDROID),$(call sel,$(ARCH),$(_android_arch_table)),)
+override ANDROID_ARCH := $(call bsel,$(ANDROID),$(call sel,$(ARCH),$(_zig_arch_table)),)
+override ZIG_ARCH := $(call bsel,$(ZIG),$(call sel,$(ARCH),$(_zig_arch_table)),$(ARCH))
 
-ifneq ($(filter ON,$(WINDOWS)$(MSVC_ARCH) $(ANDROID)$(ANDROID_ARCH)),)
+ifneq ($(filter ON,$(WINDOWS)$(MSVC_ARCH) $(ANDROID)$(ANDROID_ARCH) $(ZIG)$(ZIG_ARCH)),)
     $(error Unknown ARCH: $(ARCH))
 endif
 

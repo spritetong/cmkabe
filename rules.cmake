@@ -30,15 +30,13 @@ if(NOT DEFINED TARGET_PREFIX)
     endif()
 endif()
 
-if(NOT DEFINED TARGET_COMMON_INCLUDE_DIR)
-    if(IS_DIRECTORY "${TARGET_PREFIX}/include")
-        set(TARGET_COMMON_INCLUDE_DIR "${TARGET_PREFIX}/include")
+if(NOT DEFINED TARGET_ANY_INCLUDE_DIR)
+    if(IS_DIRECTORY "${TARGET_PREFIX}/any/include")
+        set(TARGET_ANY_INCLUDE_DIR "${TARGET_PREFIX}/any/include")
+    elseif(IS_DIRECTORY "${TARGET_PREFIX}/noarch/include")
+        set(TARGET_ANY_INCLUDE_DIR "${TARGET_PREFIX}/noarch/include")
     elseif(IS_DIRECTORY "${TARGET_PREFIX}/common/include")
-        set(TARGET_COMMON_INCLUDE_DIR "${TARGET_PREFIX}/common/include")
-    elseif(IS_DIRECTORY "${TARGET_PREFIX}/public/include")
-        set(TARGET_COMMON_INCLUDE_DIR "${TARGET_PREFIX}/public/include")
-    elseif(IS_DIRECTORY "${TARGET_PREFIX}/share/include")
-        set(TARGET_COMMON_INCLUDE_DIR "${TARGET_PREFIX}/share/include")
+        set(TARGET_ANY_INCLUDE_DIR "${TARGET_PREFIX}/common/include")
     endif()
 endif()
 
@@ -86,10 +84,18 @@ if(NOT DEFINED TARGET_MSVC_UTF8)
     set(TARGET_MSVC_UTF8 ON)
 endif()
 
+if(NOT DEFINED TARGET_MSVC_NO_PDB_WARNING)
+    set(TARGET_MSVC_NO_PDB_WARNING ON)
+endif()
+
 # ==============================================================================
 
 if(NOT "${PROJECT_NAME}" STREQUAL "")
     message(FATAL_ERROR "Can not define any project before `include <cmake-abe>/rules.cmake`.")
+endif()
+if(CMAKE_GENERATOR STREQUAL "Ninja")
+    # Ninja does not support platform specification.
+    unset(CMAKE_GENERATOR_PLATFORM CACHE)
 endif()
 # Define a dummy project.
 project(CMKABE)
@@ -152,8 +158,13 @@ if(TARGET_MSVC_UTF8 AND MSVC)
     add_compile_options("/utf-8")
 endif()
 
-if(NOT "${TARGET_COMMON_INCLUDE_DIR}" STREQUAL "")
-    include_directories(BEFORE SYSTEM "${TARGET_COMMON_INCLUDE_DIR}")
+if(TARGET_MSVC_NO_PDB_WARNING AND MSVC)
+    # MSVC warning LNK4099: PDB 'vc80.pdb' was not found
+    add_link_options("/ignore:4099")
+endif()
+
+if(NOT "${TARGET_ANY_INCLUDE_DIR}" STREQUAL "")
+    include_directories(BEFORE SYSTEM "${TARGET_ANY_INCLUDE_DIR}")
 endif()
 include_directories(BEFORE SYSTEM "${TARGET_INCLUDE_DIR}")
 link_directories(BEFORE "${TARGET_LIB_DIR}")

@@ -15,7 +15,7 @@ ifndef __ENV_MK__
 __ENV_MK__ = $(abspath $(lastword $(MAKEFILE_LIST)))
 CMKABE_HOME := $(abspath $(dir $(__ENV_MK__)))
 
-CMKABE_VERSION = 0.5.12
+CMKABE_VERSION = 0.6.0
 
 # ==============================================================================
 # = Environment Variables
@@ -124,6 +124,7 @@ xargs_do = $(1) | xargs -I {} $(2)
 
 COMMA   = ,
 ESC    := $(strip \)# Shell's escape character
+EXE_EXT =
 PS      = :# PATH variable's separator
 SPACE  := $(subst :,,: :)
 
@@ -159,6 +160,7 @@ ifeq ($(HOST),Windows)
     wsl_run  = wsl --shell-type login$(if $(WSL_DISTRO), -d "$(WSL_DISTRO)",)$(if $(WSL_USER), -u "$(WSL_USER)",) $(1)
     xargs_do = (FOR /F "tokens=*" %%x IN ('$(1)') DO $(subst {},%%x,$(2)))
 
+    EXE_EXT  = .exe
     PS       = ;
 
     NULL     = NUL

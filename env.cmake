@@ -11,6 +11,8 @@
 # *             - Initial revision.
 # *
 
+cmake_minimum_required(VERSION 3.16)
+
 if(NOT DEFINED CMKABE_HOME)
 set(CMKABE_HOME "${CMAKE_CURRENT_LIST_DIR}")
 
@@ -39,11 +41,14 @@ if("${CMAKE_HOST_SYSTEM_PROCESSOR}" STREQUAL "")
     endif()
 endif()
 
-# The path separator: ";" on Windows, ":" on Linux
+# CMKABE_PS: the path separator, ";" on Windows, ":" on Linux
+# CMKABE_EXE_EXT: default extension for executables
 if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Windows")
     set(CMKABE_PS ";")
+    set(CMKABE_EXE_EXT ".exe")
 else()
     set(CMKABE_PS ":")
+    set(CMKABE_EXE_EXT "")
 endif()
 
 # Find the value of a key in a key-value map string.
@@ -230,26 +235,38 @@ function(cmkabe_target_link_rust_dlls)
 endfunction()
 
 # Function:
-#   cmkabe_install_rust_dlls(dll1 dll2 ... [DIRECTORY dir])
+#   cmkabe_install_rust_dlls(dll1 dll2 ... [DIRECTORY dir] EXCLUDE_FROM_ALL [COMPONENT component])
 #
 # Install the specified DLL files.
 # <dir> is the source directory if specified.
+# EXCLUDE_FROM_ALL Specify that the file is excluded from a full installation and
+#   only installed as part of a component-specific installation.
+# <component> is the install component if specified.
 function(cmkabe_install_rust_dlls)
-    cmake_parse_arguments(args "" "DIRECTORY" "" ${ARGN})
+    cmake_parse_arguments(args "EXCLUDE_FROM_ALL" "DIRECTORY;COMPONENT" "" ${ARGN})
+
+    set(component "")
+    if(args_COMPONENT)
+        set(component COMPONENT ${args_COMPONENT})
+    endif()
+    if(args_EXCLUDE_FROM_ALL)
+        list(INSERT component 0 EXCLUDE_FROM_ALL)
+    endif()
+
     foreach(item IN LISTS args_UNPARSED_ARGUMENTS)
         if(WIN32)
             if(args_DIRECTORY)
                 set(item "${args_DIRECTORY}/${item}")
             endif()
-            install(FILES "${item}.dll" DESTINATION bin)
+            install(FILES "${item}.dll" DESTINATION bin ${component})
             get_filename_component(name "${item}" NAME_WE)
-            install(FILES "${item}.dll.lib" DESTINATION lib RENAME "${name}.lib")
+            install(FILES "${item}.dll.lib" DESTINATION lib RENAME "${name}.lib" ${component})
         else()
             set(item "lib${item}")
             if(args_DIRECTORY)
                 set(item "${args_DIRECTORY}/${item}")
             endif()
-            install(FILES "${item}.so" DESTINATION lib)
+            install(FILES "${item}.so" DESTINATION lib ${component})
         endif()
     endforeach()
 endfunction()

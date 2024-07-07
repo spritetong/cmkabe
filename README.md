@@ -1,6 +1,6 @@
 # User Manual
 
-https://github.com/spritetong/cmake-abe
+<https://github.com/spritetong/cmake-abe>
 
 ## Usage
 
@@ -116,6 +116,6 @@ or other simple vendor/architecture string(s) defined by the project's Makefile.
 
 Default is `native`.
 
-e.g.  
+e.g.
 `make build BIN=app TARGET=native`  
 `make build BIN=app TARGET=aarch64-rockchip-linux-gnu`
