@@ -214,7 +214,7 @@ endif
 _k := PKG_CONFIG_PATH_$(TARGET_TRIPLE_UNDERSCORE)
 _v := $(CMAKE_TRPILE_DIR)/lib/pkgconfig
 ifeq ($(filter $(_v),$(subst $(PS), ,$($(_k)))),)
-    $(_k) := $(_v)$(PS)$($(_k))
+    export $(_k) := $(_v)$(PS)$($(_k))
 endif
 
 # Export environment variables.

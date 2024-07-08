@@ -46,7 +46,9 @@ fn zig_wrapper_run() !u8 {
     defer argv.deinit();
     try argv.append(zig_exe);
     try argv.append(zig_command);
-    if (zig_target.len > 0 and (std.mem.eql(u8, zig_command, "cc") or std.mem.eql(u8, zig_command, "c++"))) {
+    if ((zig_target.len > 0) and
+        (std.mem.eql(u8, zig_command, "cc") or std.mem.eql(u8, zig_command, "c++")))
+    {
         try argv.append("-target");
         try argv.append(zig_target);
     }

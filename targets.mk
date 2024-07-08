@@ -52,25 +52,33 @@ ifeq ($(TARGET),)
     ifeq ($(HOST),Windows)
         override ARCH := $(call sel,$(call lower,$(if $(ARCH),$(ARCH),$(_win_arch_))),\
             $(_win_arch_table),$(ARCH))
-        override TARGET := $(ARCH)-pc-windows-msvc
-        override TARGET_TRIPLE := $(TARGET)
+        override TARGET := $(ARCH)-windows-msvc
+        override TARGET_TRIPLE := $(ARCH)-pc-windows-msvc
     else
         ifeq ($(ARCH),)
             override ARCH := $(HOST_ARCH)
         endif
         ifeq ($(HOST),Darwin)
-            override TARGET := $(ARCH)-apple-darwin
-            override TARGET_TRIPLE := $(TARGET)
+            override TARGET := $(ARCH)-macos-none
+            override TARGET_TRIPLE := $(ARCH)-apple-darwin
         endif
         ifeq ($(HOST),Linux)
-            override TARGET := $(ARCH)-unknown-linux-gnu
-            override TARGET_TRIPLE := $(TARGET)
+            override TARGET := $(ARCH)-linux-gnu
+            override TARGET_TRIPLE := $(ARCH)-unknown-linux-gnu
         endif
     endif
 else
     override TARGET := $(call lower,$(TARGET))
     ifeq ($(TARGET_TRIPLE),)
-        override TARGET_TRIPLE := $(TARGET)
+        override ARCH := $(firstword $(subst -, ,$(TARGET)))
+        ifeq ($(filter $(ARCH)-pc-windows-% $(ARCH)-unknown-linux-%,$(TARGET)),$(TARGET))
+            override TARGET_TRIPLE := $(TARGET)
+            override TARGET := $(subst -pc-,-,$(subst -unknown-,-,$(TARGET)))
+        else ifeq ($(filter i686 x86_64 aarch64,$(ARCH)):$(filter $(ARCH)-windows-% $(ARCH)-linux-%,$(TARGET)),$(ARCH):$(TARGET))
+            override TARGET_TRIPLE := $(subst -windows-,-pc-windows-,$(subst -linux-,-unknown-linux-,$(TARGET)))
+        else
+            override TARGET_TRIPLE := $(TARGET)
+        endif
     endif
 endif
 
