@@ -71,10 +71,11 @@ else
     override TARGET := $(call lower,$(TARGET))
     ifeq ($(TARGET_TRIPLE),)
         override ARCH := $(firstword $(subst -, ,$(TARGET)))
-        ifeq ($(filter $(ARCH)-pc-windows-% $(ARCH)-unknown-linux-%,$(TARGET)),$(TARGET))
+        _env_ := $(lastword $(subst -, ,$(TARGET)))
+        ifeq ($(filter $(ARCH)-pc-windows-% $(ARCH)-unknown-linux-%,$(TARGET)):$(filter msvc gnu musl,$(_env_)),$(TARGET):$(_env_))
             override TARGET_TRIPLE := $(TARGET)
             override TARGET := $(subst -pc-,-,$(subst -unknown-,-,$(TARGET)))
-        else ifeq ($(filter i686 x86_64 aarch64,$(ARCH)):$(filter $(ARCH)-windows-% $(ARCH)-linux-%,$(TARGET)),$(ARCH):$(TARGET))
+        else ifeq ($(filter i686 x86_64 aarch64,$(ARCH)):$(filter $(ARCH)-windows-% $(ARCH)-linux-%,$(TARGET)):$(filter msvc gnu musl,$(_env_)),$(ARCH):$(TARGET):$(_env_))
             override TARGET_TRIPLE := $(subst -windows-,-pc-windows-,$(subst -linux-,-unknown-linux-,$(TARGET)))
         else
             override TARGET_TRIPLE := $(TARGET)
