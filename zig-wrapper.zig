@@ -51,6 +51,8 @@ fn zig_wrapper_run() !u8 {
     {
         try argv.append("-target");
         try argv.append(zig_target);
+        // https://github.com/ziglang/zig/wiki/FAQ#why-do-i-get-illegal-instruction-when-using-with-zig-cc-to-build-c-code
+        try argv.append("-fno-sanitize=undefined");
     }
     while (args.next()) |arg| {
         try argv.append(arg);

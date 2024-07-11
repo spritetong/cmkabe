@@ -153,6 +153,8 @@ ifeq ($(ANDROID),ON)
     _ndk_target_opt := --target=$(_ndk_triple)$(ANDROID_SDK_VERSION)
     # LINKER
     export CARGO_TARGET_$(TARGET_TRIPLE_UNDERSCORE_UPPER)_LINKER := $(_ndk_bin_dir)/clang$(EXE_EXT)
+    override CARGO_TARGET_$(TARGET_TRIPLE_UNDERSCORE_UPPER)_RUSTFLAGS += $(addprefix -C link-arg=,$(_ndk_target_opt))
+    export CARGO_TARGET_$(TARGET_TRIPLE_UNDERSCORE_UPPER)_RUSTFLAGS
     # AR, CC, CXX, RANLIB, STRIP
     export AR_$(TARGET_TRIPLE_UNDERSCORE) := $(_ndk_bin_dir)/llvm-ar$(EXE_EXT)
     export CC_$(TARGET_TRIPLE_UNDERSCORE) := $(_ndk_bin_dir)/clang$(EXE_EXT)
@@ -168,8 +170,6 @@ ifeq ($(ANDROID),ON)
     export CXXFLAGS_$(TARGET_TRIPLE_UNDERSCORE)
     override RANLIBFLAGS_$(TARGET_TRIPLE_UNDERSCORE) +=
     export RANLIBFLAGS_$(TARGET_TRIPLE_UNDERSCORE)
-    override CARGO_TARGET_$(TARGET_TRIPLE_UNDERSCORE_UPPER)_RUSTFLAGS += $(addprefix -C link-arg=,$(_ndk_target_opt))
-    export CARGO_TARGET_$(TARGET_TRIPLE_UNDERSCORE_UPPER)_RUSTFLAGS
     # Check if the NDK CC exists.
     ifeq ($(wildcard $(CC_$(TARGET_TRIPLE_UNDERSCORE))),)
         $(error "$(CC_$(TARGET_TRIPLE_UNDERSCORE))" does not exist)
@@ -185,6 +185,10 @@ else ifeq ($(ZIG),ON)
     ZIG_TARGET := $(ZIG_ARCH)-$(_zig_os)-$(_zig_abi)
     export ZIG_WRAPPER_TARGET = $(ZIG_TARGET)
     _zig_target_opt =
+    # LINKER
+    export CARGO_TARGET_$(TARGET_TRIPLE_UNDERSCORE_UPPER)_LINKER := $(ZIG_WRAPPER_DIR)/zig-cc$(EXE_EXT)
+    override CARGO_TARGET_$(TARGET_TRIPLE_UNDERSCORE_UPPER)_RUSTFLAGS += $(addprefix -C link-arg=,$(_zig_target_opt))
+    export CARGO_TARGET_$(TARGET_TRIPLE_UNDERSCORE_UPPER)_RUSTFLAGS
     # AR, CC, CXX, RANLIB, STRIP
     export AR_$(TARGET_TRIPLE_UNDERSCORE) := $(ZIG_WRAPPER_DIR)/zig-ar$(EXE_EXT)
     export CC_$(TARGET_TRIPLE_UNDERSCORE) := $(ZIG_WRAPPER_DIR)/zig-cc$(EXE_EXT)
@@ -200,8 +204,6 @@ else ifeq ($(ZIG),ON)
     export CXXFLAGS_$(TARGET_TRIPLE_UNDERSCORE)
     override RANLIBFLAGS_$(TARGET_TRIPLE_UNDERSCORE) +=
     export RANLIBFLAGS_$(TARGET_TRIPLE_UNDERSCORE)
-    override CARGO_TARGET_$(TARGET_TRIPLE_UNDERSCORE_UPPER)_RUSTFLAGS += $(addprefix -C link-arg=,$(_zig_target_opt))
-    export CARGO_TARGET_$(TARGET_TRIPLE_UNDERSCORE_UPPER)_RUSTFLAGS
 else ifeq ($(shell $(TARGET)-gcc -dumpversion >$(NULL) 2>&1 || echo 1),)
     # If the cross compile GCC exists, set the appropriate environment variables for Rust.
     $(call cargo_set_gcc_env_vars)
