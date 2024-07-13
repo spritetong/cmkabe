@@ -219,24 +219,24 @@ ifeq ($(filter $(_v),$(subst $(PS), ,$($(_k)))),)
     export $(_k) := $(_v)$(PS)$($(_k))
 endif
 
-# Export environment variables.
-export CMAKE_TARGET_PREFIX
-export CARGO_WORKSPACE_DIR = $(WORKSPACE_DIR)
-ifeq ($(call bool,$(CMAKE_SET_PATH)),ON)
-    ifeq ($(HOST):$(findstring windows,$(TARGET_TRIPLE)),Windows:windows)
-        export PATH := $(CMAKE_TRPILE_DIR)/bin;$(CMAKE_TRPILE_DIR)/lib;$(PATH)
-    else ifeq ($(HOST_TRIPLE),$(TARGET_TRIPLE))
-        export PATH := $(CMAKE_TRPILE_DIR)/bin:$(PATH)
-        export LD_LIBRARY_PATH := $(CMAKE_TRPILE_DIR)/lib:$(LD_LIBRARY_PATH)
-    endif
-endif
-
 # Directory of cargo output binaries, as "<workspace_dir>/target/<triple>/<debug|release>"
 CARGO_TARGET_OUT_DIR := $(WORKSPACE_DIR)/target/$(if $(filter $(TARGET_TRIPLE),$(HOST_TRIPLE)),,$(TARGET_TRIPLE)/)$(call bsel,$(DEBUG),debug,release)
 
 # Clean the $(CMAKE_TARGET_PREFIX) directory by default.
 ifeq ($(call bool,$(CMAKE_AUTO_CLEAN_TARGET)),ON)
     CMAKE_OUTPUT_DIRS += $(CMAKE_TARGET_PREFIX)
+endif
+
+# Export environment variables.
+export CMAKE_TARGET_PREFIX
+export CARGO_WORKSPACE_DIR = $(WORKSPACE_DIR)
+ifeq ($(call bool,$(CMAKE_SET_PATH)),ON)
+    ifeq ($(HOST):$(findstring windows,$(TARGET_TRIPLE)),Windows:windows)
+        export PATH := $(subst /,\,$(CMAKE_TRPILE_DIR)/bin;$(CMAKE_TRPILE_DIR)/lib;$(CARGO_TARGET_OUT_DIR));$(PATH)
+    else ifeq ($(HOST_TRIPLE),$(TARGET_TRIPLE))
+        export PATH := $(CMAKE_TRPILE_DIR)/bin:$(CARGO_TARGET_OUT_DIR):$(PATH)
+        export LD_LIBRARY_PATH := $(CMAKE_TRPILE_DIR)/lib:$(LD_LIBRARY_PATH)
+    endif
 endif
 
 # ==============================================================================
