@@ -12,7 +12,7 @@ Copyright (C) 2022 spritetong@gmail.com.
 import sys
 import os
 
-__all__ = ('ShellCmd',)
+__all__ = ('ShellCmd', 'TargetParser',)
 
 
 class ShellCmd:
@@ -321,13 +321,13 @@ class ShellCmd:
         return 0
 
     def run__win2wsl_path(self):
-        path = ShellCmd.win2wsl_path(
+        path = self.win2wsl_path(
             self.args[0] if self.args else os.getcwd())
         print(path, end='')
         return 0
 
     def run__wsl2win_path(self):
-        path = ShellCmd.wsl2win_path(
+        path = self.wsl2win_path(
             self.args[0] if self.args else os.getcwd())
         print(path, end='')
         return 0
@@ -423,7 +423,7 @@ class ShellCmd:
             return self.EFAIL
 
     def run__ndk_root(self):
-        ndk_root = ShellCmd.ndk_root()
+        ndk_root = self.ndk_root()
         if ndk_root:
             print(ndk_root, end='')
             return 0
@@ -545,8 +545,19 @@ class ShellCmd:
             ssh.close()
         return 0
 
-    @staticmethod
-    def win2wsl_path(path):
+    def run__build_target_deps(self):
+        import traceback
+        try:
+            args = {k.strip().lower(): v for (
+                k, v) in map(lambda x: x.split('=', 1), self.args)}
+            TargetParser(**args).parse().build()
+        except Exception:
+            traceback.print_exc(file=sys.stderr)
+            return 1
+        return 0
+
+    @classmethod
+    def win2wsl_path(Self, path):
         if os.path.isabs(path):
             path = os.path.abspath(path)
         path = path.replace('\\', '/')
@@ -556,8 +567,8 @@ class ShellCmd:
                                       drive_path[1]).rstrip('/')
         return path
 
-    @staticmethod
-    def wsl2win_path(path):
+    @classmethod
+    def wsl2win_path(Self, path):
         if os.path.isabs(path):
             path = os.path.abspath(path)
         path = path.replace('\\', '/')
@@ -568,8 +579,8 @@ class ShellCmd:
                 path = '{}:{}'.format(path[5].upper(), path[6:])
         return path
 
-    @staticmethod
-    def ndk_root(check_env=False):
+    @classmethod
+    def ndk_root(Self, check_env=False):
         if check_env:
             ndk_root = os.environ.get('ANDROID_NDK_ROOT', '')
             if ndk_root:
@@ -623,8 +634,8 @@ class ShellCmd:
             pass
         return ''
 
-    @staticmethod
-    def main(args=None):
+    @classmethod
+    def main(Self, args=None):
         args = args or sys.argv[1:]
         try:
             from argparse import ArgumentParser, RawTextHelpFormatter
@@ -658,13 +669,13 @@ class ShellCmd:
             namespace = parser.parse_intermixed_args(args)
 
             if namespace.list_cmds:
-                for name in dir(ShellCmd(namespace)):
+                for name in dir(Self(namespace)):
                     if name.startswith('run__'):
                         print(name[5:])
                 return 0
 
             try:
-                return getattr(ShellCmd(namespace),
+                return getattr(Self(namespace),
                                'run__' + namespace.command.replace('-', '_'))()
             except AttributeError:
                 if not namespace.command:
@@ -672,8 +683,821 @@ class ShellCmd:
                 else:
                     print('Unrecognized command "{}"'.format(
                         namespace.command), file=sys.stderr)
-            return ShellCmd.EINVAL
+            return Self.EINVAL
 
         except KeyboardInterrupt:
             print('^C', file=sys.stderr)
-            return ShellCmd.EINTERRUPT
+            return Self.EINTERRUPT
+
+
+class TargetParser:
+    HOST_SYSTEM_MAP = (
+        ('cygwin_nt', 'cygwin'),
+        ('msys_nt', 'mingw'),
+        ('mingw32_nt', 'mingw'),
+        ('mingw64_nt', 'mingw'),
+        ('darwin', 'macos'),
+    )
+    # Host ARCH -> Rust ARCH
+    HOST_ARCH_MAP = {
+        'x86': 'i686',
+        'i686': 'i686',
+        'amd64': 'x86_64',
+        'x64': 'x86_64',
+        'x86_64': 'x86_64',
+        'aarch64': 'aarch64',
+    }
+
+    VENDOR_LIST = ('pc', 'apple', 'sun', 'nvidia', 'unknown',)
+    OS_LIST = ('windows', 'linux', 'macos', 'darwin', 'ios', 'freebsd',
+               'netbsd', 'solaris', 'redox', 'fuchsia', 'cuda', 'uefi', 'none',)
+    OS_PREFIXES = ('wasi',)
+    ENV_LIST = ('msvc', 'android', 'gnu', 'musl', 'sgx', 'elf', 'ohos',)
+    ENV_PREFIXES = ('msvc', 'android', 'gnu', 'musl',)
+    ENV_SUFFIXES = ('eabi', 'eabihf', 'llvm',)
+
+    RUST_ARCH_MAP = {
+        'arm': 'armv7', # Upgrade arm to armv7
+        'armv7': 'armv7',
+        'armv7a': 'armv7',
+        'thumb': 'thumbv7neon',
+        'thumbv7neon': 'thumbv7neon',
+        'arm64': 'aarch64',
+        'aarch64': 'aarch64',
+        'x86': 'i686',
+        'i586': 'i686',  # Upgrade i586 to i686
+        'i686': 'i686',
+        'Win32': 'i686',
+        'x64': 'x86_64',
+        'x86_64': 'x86_64',
+    }
+    # Rust ARCH -> MSVC ARCH
+    MSVC_ARCH_MAP = {
+        'aarch64': 'ARM64',
+        'i586': 'Win32',
+        'i686': 'Win32',
+        'x86_64': 'x64',
+    }
+    # Rust ARCH -> Android ARCH
+    ANDROID_ARCH_MAP = {
+        'i686': 'i686',
+        'x86_64': 'x86_64',
+        'armv7': 'armv7a',
+        'thumbv7neon': 'armv7a',
+        'aarch64': 'aarch64',
+    }
+    # Rust ARCH -> Android ABI (JNI Directory Name)
+    ANRDOID_ABI_MAP = {
+        'i686': 'x86',
+        'x86_64': 'x86_64',
+        'armv7': 'armeabi-v7a',
+        'thumbv7neon': 'armeabi-v7a',
+        'aarch64': 'arm64-v8a',
+    }
+    # Rust ARCH -> Android ARCH
+    APPLE_ARCH_MAP = {
+        'x86_64': 'x86_64',
+        'aarch64': 'aarch64',
+    }
+    ZIG_ARCH_MAP = {
+        'i686': 'x86',
+        'x86_64': 'x86_64',
+        'armv7': 'arm',
+        'thumbv7neon': 'thumb',
+        'aarch64': 'aarch64',
+    }
+
+    def __init__(self,
+                 workspace_dir='',
+                 target='',
+                 target_dir='',
+                 target_cmake_dir='',
+                 cmake_target_prefix='',
+                 cargo_target='',
+                 zig_target='',
+                 target_cc='',):
+        host_target_info = self.host_target_info()
+
+        # Const variables
+        self.host_system = host_target_info['host_system']
+        self.host_arch = host_target_info['arch']
+        self.host_os = host_target_info['os']
+        self.host_vendor = host_target_info['vendor']
+        self.host_env = host_target_info['env']
+        self.host_target = host_target_info['triple']
+        self.script_dir = self.normpath(
+            os.path.abspath(os.path.dirname(__file__)))
+        self.exe_ext = '.exe' if host_target_info['family'] == 'windows' else ''
+
+        # Input parameters
+        self.workspace_dir = self.normpath(os.path.abspath(
+            workspace_dir or os.path.join(self.script_dir, '..')))
+        self.target = target
+        self.target_is_native = False
+        self.target_dir = self.normpath(os.path.abspath(
+            target_dir or os.path.join(self.workspace_dir, 'target')))
+        self.target_cmake_dir = self.normpath(os.path.abspath(
+            target_cmake_dir or (self.target_dir + '/cmake')))
+        self.cmake_target_prefix = self.normpath(os.path.abspath(
+            cmake_target_prefix or (self.target_cmake_dir + '/output')))
+        self.cmake_triple_dir = ''
+        self.cargo_target = cargo_target
+        self.zig_target = zig_target
+        self.target_cc = target_cc
+
+        # Parsed triple
+        self.arch = ''
+        self.vendor = ''
+        self.os = ''
+        self.env = ''
+
+        # Built-in variables in CMake
+        self.win32 = False
+        self.msvc = False
+        self.android = False
+        self.unix = False
+        self.apple = False
+        self.ios = False
+
+        # Cargo
+        self.cargo_target_dir = ''
+        # CMake
+        self.cmake_generator = ''
+        self.cmake_target_dir = ''
+
+        # Windows
+        self.msvc_arch = ''
+        # Android
+        self.android_ndk_root = ''
+        self.android_ndk_bin = ''
+        self.android_target = ''
+        self.android_arch = ''
+        self.android_abi = ''
+        # Zig
+        self.zig = False
+        self.zig_root = ''
+        self.zig_include_dirs = []
+        self.zig_cc_dir = ''
+
+    @ classmethod
+    def normpath(Self, path):
+        return os.path.normpath(path).replace('\\', '/')
+
+    @ classmethod
+    def need_update(Self, source_file, dest_file):
+        return not os.path.isfile(dest_file) or (
+            os.path.getmtime(dest_file) < os.path.getmtime(source_file))
+
+    @ classmethod
+    def host_target_info(Self):
+        import platform
+        # (not for Cargo) windows, linux, macos, cygwin, mingw
+        target_system = ''
+        # windows, unix, wasm
+        target_family = ''
+        # windows, linux, macos, android, ios ..., none
+        target_os = ''
+        # i686(i586, ???x86), x86_64, arm, aarch64, ...
+        target_arch = ''
+        # pc, apple, fortanix, unknown
+        target_vendor = ''
+        # msvc, gnu, musl, sgx, ...
+        target_env = ''
+        # 16, 32, 64
+        target_pointer_width = 64
+        # little, big
+        target_endian = sys.byteorder
+        # (separate by comma) mmx, sse, sse2, sse4.1, avx, avx2, rdrand, crt-static, ...
+        target_feature = ''
+        # arch-vendor-os-env
+        target_triple = ''
+
+        # target_system <- platform.system()
+        if os.environ.get("MSYSTEM") in ("MSYS", "MINGW32", "MINGW64"):
+            target_system = 'mingw'
+        else:
+            target_system = platform.system().lower()
+            for k, v in Self.HOST_SYSTEM_MAP:
+                if target_system.startswith(k):
+                    target_system = v
+                    break
+        # target_family, target_os
+        if target_system in ('windows', 'cygwin', 'mingw'):
+            target_family = 'windows'
+            target_os = 'windows'
+        else:
+            target_family = 'unix'
+            target_os = target_system
+        # target_pointer_width, target_arch
+        machine = platform.machine()
+        if '64' not in machine:
+            target_pointer_width = 32
+        target_arch = Self.HOST_ARCH_MAP.get(machine.lower())
+        if target_arch is None:
+            raise RuntimeError(
+                'Not supported machine architecture: {}'.format(machine))
+        # target_vendor
+        if target_os == 'windows':
+            target_vendor = 'pc'
+        elif target_system in 'macos':
+            target_vendor = 'apple'
+        else:
+            target_vendor = 'unknown'
+        # target_env
+        if target_os == 'windows':
+            target_env = 'msvc'
+        elif target_system in ('linux', 'cygwin', 'mingw'):
+            target_env = 'gnu'
+        # target_triple
+        target_triple = Self.join_triple(
+            target_arch, target_vendor, target_os, target_env
+        )
+
+        return {
+            # Compatible with Make & CMake
+            'host_system': 'Windows' if target_family == 'windows' else platform.uname()[0],
+            'system': target_system,
+            'family': target_family,
+            'os': target_os,
+            'arch': target_arch,
+            'vendor': target_vendor,
+            'env': target_env,
+            'pointer_width': target_pointer_width,
+            'endian': target_endian,
+            'feature': target_feature,
+            'triple': target_triple,
+        }
+
+    @ classmethod
+    def join_triple(Self, arch, vendor, os, env):
+        return '{}{}{}{}{}{}{}'.format(
+            arch,
+            '-' if vendor else '',
+            vendor or '',
+            '-' if os else '',
+            os or '',
+            '-' if env else '',
+            env or '',
+        )
+
+    @ classmethod
+    def parse_triple(Self, target_triple):
+        triple = target_triple.lower().split('-')
+
+        # Fix up '-ios-sim'
+        if len(triple) > 2 and triple[-1] == 'sim':
+            triple[-2] += '-' + triple[-1]
+            triple = triple[:-1]
+
+        (arch, vendor, os_str, env_str) = (triple[0], '', '', '')
+
+        def is_vendor_str(s):
+            return s in Self.VENDOR_LIST
+
+        def is_os_str(s):
+            return (s in Self.OS_LIST or
+                    any(map(lambda x: s.startswith(x), Self.OS_PREFIXES)))
+
+        def is_env_str(s):
+            return (s in Self.ENV_LIST or
+                    any(map(lambda x: s.startswith(x), Self.ENV_PREFIXES)) or
+                    any(map(lambda x: s.endswith(x), Self.ENV_SUFFIXES)))
+
+        if len(triple) == 1:
+            pass
+        elif len(triple) == 2:
+            os_str = triple[1]
+        elif len(triple) == 3:
+            if is_os_str(triple[1]):
+                os_str = triple[1]
+                env_str = triple[2]
+            elif is_os_str(triple[2]):
+                vendor = triple[1]
+                os_str = triple[2]
+            if is_vendor_str(triple[1]):
+                vendor = triple[1]
+                if is_env_str(triple[2]):
+                    env_str = triple[2]
+                elif not os_str:
+                    os_str = triple[2]
+            if is_env_str(triple[2]):
+                env_str = triple[2]
+                if not vendor and not os_str:
+                    os_str = triple[1]
+        else:
+            vendor = triple[1]
+            os_str = triple[2]
+            env_str = triple[3]
+
+        rust_arch = Self.RUST_ARCH_MAP.get(arch) or arch
+        if 'windows' in target_triple and (
+                os_str != 'windows' or rust_arch not in Self.MSVC_ARCH_MAP):
+            raise ValueError(
+                'Invalid ARCH for Windows: {}'.format(target_triple))
+        if 'android' in target_triple and (
+            not env_str.startswith('android') or
+                os_str != 'linux' or rust_arch not in Self.ANDROID_ARCH_MAP):
+            raise ValueError(
+                'Invalid ARCH for Android: {}'.format(target_triple))
+        if 'apple' in target_triple and (
+                vendor != 'apple' and rust_arch not in Self.APPLE_ARCH_MAP):
+            raise ValueError(
+                'Invalid ARCH for Apple: {}'.format(target_triple))
+
+        parsed_triple = Self.join_triple(arch, vendor, os_str, env_str)
+        if parsed_triple != target_triple:
+            raise ValueError('Invalid target triple: {}'.format(target_triple))
+
+        return (arch, vendor, os_str, env_str)
+
+    def parse(self):
+        self.target_is_native = self.target in ('', 'native')
+        if self.target_is_native:
+            self.target = self.host_target
+        self.cmake_triple_dir = '{}/{}'.format(
+            self.cmake_target_prefix, self.target)
+
+        (self.arch, self.vendor, self.os, self.env) = (
+            self.parse_triple(self.target))
+        self.arch = self.RUST_ARCH_MAP.get(self.arch) or self.arch
+
+        if self.os == 'windows':
+            self.win32 = True
+            if self.env == 'msvc':
+                self.msvc = True
+                self.msvc_arch = self.MSVC_ARCH_MAP[self.arch]
+            # Cargo
+            self.cargo_target = (self.cargo_target or self.join_triple(
+                self.arch, 'pc', 'windows', self.env))
+            # Zig
+            zig_target = self.join_triple(
+                self.ZIG_ARCH_MAP.get(self.arch) or self.arch, '', 'windows', self.env)
+        elif self.env.startswith('android'):
+            self.android = True
+            self.unix = True
+            # NDK
+            self.android_target = self.join_triple(
+                self.ANDROID_ARCH_MAP[self.arch], '', 'linux', self.env)
+            self.android_arch = self.ANDROID_ARCH_MAP[self.arch]
+            self.android_abi = self.ANRDOID_ABI_MAP[self.arch]
+            # Cargo
+            self.cargo_target = (self.cargo_target or self.join_triple(
+                self.arch, '', 'linux', self.env))
+            # Zig
+            zig_target = self.join_triple(
+                self.ZIG_ARCH_MAP.get(self.arch) or self.arch, '', 'linux', self.env)
+            # CMake
+            self.cmake_generator = 'Ninja'
+        elif self.vendor == 'apple':
+            self.apple = True
+            self.unix = True
+            self.ios = 'ios' in self.os
+            # Cargo
+            self.cargo_target = (self.cargo_target or self.join_triple(
+                self.arch, 'apple', self.os, ''))
+            # Zig
+            zig_target = self.join_triple(
+                self.ZIG_ARCH_MAP.get(self.arch) or self.arch, '', self.os, 'none')
+        elif self.os == 'linux':
+            self.unix = True
+            # Cargo
+            self.cargo_target = (self.cargo_target or self.join_triple(
+                self.arch, 'unknown', 'linux', self.env))
+            # Zig
+            zig_target = self.join_triple(
+                self.ZIG_ARCH_MAP.get(self.arch) or self.arch, '', 'linux', self.env)
+        else:
+            self.unix = True
+            # Cargo
+            self.cargo_target = (self.cargo_target or self.join_triple(
+                self.arch, self.vendor, self.os, self.env))
+            # Zig
+            zig_target = self.join_triple(
+                self.ZIG_ARCH_MAP.get(self.arch) or self.arch, '', self.os, self.env)
+
+        # Cross compile.
+        self.zig = bool(self.zig_target) or (os.path.splitext(
+            os.path.basename(self.target_cc))[0] in ('zig', 'zig-cc',))
+        if (not self.target_is_native and not self.zig and not self.target_cc and
+                self.cargo_target != self.host_target):
+            import shutil
+            # Find gcc cross-compiler.
+            target_cc = shutil.which(
+                self.target + '-gcc') or shutil.which(self.target + '-cc')
+            if target_cc:
+                self.target_cc = self.normpath(target_cc)
+            elif self.vendor != self.host_vendor or self.os != self.host_os or self.env != self.host_env:
+                # Find Zig cross-compiler.
+                zig = shutil.which('zig')
+                if zig:
+                    self.zig = True
+
+        # Zig
+        if self.zig:
+            if not self.zig_target:
+                self.zig_target = zig_target
+            self.cmake_generator = 'Ninja' if self.host_system == 'Windows' else 'Unix Makefiles'
+
+        if self.target == self.cargo_target:
+            self.cargo_target_dir = self.target_dir
+        else:
+            self.cargo_target_dir = '{}/{}'.format(
+                self.target_dir, self.target)
+
+        return self
+
+    def _cmake_init(self):
+        self.cmake_target_dir = '{}/{}{}'.format(
+            self.target_cmake_dir, self.target, '.native' if self.target_is_native else '')
+        if not os.path.isdir(self.cmake_target_dir):
+            os.makedirs(self.cmake_target_dir)
+
+    def _zig_init(self):
+        import subprocess
+        import shutil
+        import glob
+
+        # Zig root path and include directories.
+        zig_path = shutil.which('zig')
+        if not zig_path:
+            raise FileNotFoundError('`zig` is not found')
+        self.zig_root = self.normpath(
+            os.path.abspath(os.path.dirname(zig_path)))
+        self.zig_include_dirs.clear()
+        zig_os_family = 'windows' if self.win32 else (
+            'macos' if self.apple else 'linux')
+        for include in ['/lib/libc/include/any-{}-any'.format(zig_os_family),
+                        '/lib/libc/include/{}'.format(self.zig_target),
+                        '/lib/include',]:
+            self.zig_include_dirs.append(self.zig_root + include)
+
+        self.zig_cc_dir = self.normpath(os.path.join(
+            self.target_dir, 'zig', self.host_target))
+        src = self.script_dir + '/zig-wrapper.zig'
+        exe = self.zig_cc_dir + '/zig-wrapper' + self.exe_ext
+        dir = self.zig_cc_dir
+
+        if not os.path.isdir(dir):
+            os.makedirs(dir)
+        if self.need_update(src, exe):
+            # Compile wrapper
+            subprocess.run(['zig', 'cc', '-s', '-Os', '-o',
+                           exe, src], shell=True, check=True)
+            for file in glob.glob(os.path.join(dir, exe + '.*')):
+                os.remove(file)
+            for name in ['ar', 'cc', 'c++', 'dlltool', 'lib', 'ranlib', 'objcopy', 'rc']:
+                shutil.copy2(exe, os.path.join(
+                    dir, 'zig-' + name + self.exe_ext))
+
+    def _cc_init(self):
+        if not os.path.isfile(self.target_cc):
+            import shutil
+            target_cc = shutil.which(self.target_cc)
+            if not target_cc:
+                raise FileNotFoundError(
+                    "Target CC is not found: {}".format(self.target_cc))
+            self.target_cc = self.normpath(target_cc)
+
+    def _android_init(self):
+        self.android_ndk_root = self.normpath(
+            ShellCmd.ndk_root(check_env=True))
+        self.android_ndk_bin = self.android_ndk_root + \
+            '/toolchains/llvm/prebuilt/{}-{}/bin'.format(
+                self.host_system.lower(), self.host_arch.lower())
+        if not self.android_ndk_root or not os.path.isdir(self.android_ndk_root):
+            raise FileNotFoundError('Android NDK is not found')
+        if not self.android_ndk_bin or not os.path.isdir(self.android_ndk_bin):
+            raise FileNotFoundError('Android NDK Clang compiler is not found')
+
+    def build(self):
+        if self.android:
+            self._android_init()
+        if self.zig:
+            self._zig_init()
+        elif self.target_cc:
+            self._cc_init()
+        self._cmake_init()
+
+        def fwrite(f, s):
+            f.write(s.encode('utf-8'))
+
+        def onoff(b):
+            return 'ON' if b else 'OFF'
+
+        with open(os.path.join(self.target_cmake_dir, '{}.host.mk'.format(self.host_system)), 'wb') as f:
+            fwrite(f, 'override HOST_SYSTEM = {}\n'.format(self.host_system))
+            fwrite(f, 'override HOST_TARGET = {}\n'.format(self.host_target))
+
+        with open(os.path.join(self.target_cmake_dir, '{}.host.cmake'.format(self.host_system)), 'wb') as f:
+            fwrite(f, 'set(HOST_SYSTEM "{}")\n'.format(self.host_system))
+            fwrite(f, 'set(HOST_TARGET "{}")\n'.format(self.host_target))
+
+        with open(os.path.join(self.cmake_target_dir, '{}.target.mk'.format(self.host_system)), 'wb') as f:
+            fwrite(f, '# Host\n')
+            fwrite(f, 'override HOST_SYSTEM = {}\n'.format(self.host_system))
+            fwrite(f, 'override HOST_TARGET = {}\n'.format(self.host_target))
+            fwrite(f, '\n')
+
+            fwrite(f, '# Constant directories\n')
+            fwrite(f, 'override WORKSPACE_DIR = {}\n'.format(self.workspace_dir))
+            fwrite(f, 'override TARGET_DIR = {}\n'.format(self.target_dir))
+            fwrite(f, 'override TARGET_CMAKE_DIR = {}\n'.format(
+                self.target_cmake_dir))
+            fwrite(f, 'override CMAKE_TARGET_PREFIX = {}\n'.format(
+                self.cmake_target_prefix))
+            fwrite(f, 'override CMAKE_TRIPLE_DIR = {}\n'.format(
+                self.cmake_triple_dir))
+            fwrite(f, '\n')
+
+            fwrite(f, '# Cargo\n')
+            fwrite(f, 'override TARGET = {}\n'.format(self.target))
+            fwrite(f, 'override TARGET_ARCH = {}\n'.format(self.arch))
+            fwrite(f, 'override TARGET_VENDOR = {}\n'.format(self.vendor))
+            fwrite(f, 'override TARGET_OS = {}\n'.format(self.os))
+            fwrite(f, 'override TARGET_ENV = {}\n'.format(self.env))
+            fwrite(f, 'override TARGET_CC = {}\n'.format(self.target_cc))
+            fwrite(f, 'override CARGO_TARGET = {}\n'.format(self.cargo_target))
+            fwrite(f, 'override CARGO_TARGET_UNDERSCORE = {}\n'.format(
+                self.cargo_target.replace('-', '_')))
+            fwrite(f, 'override CARGO_TARGET_UNDERSCORE_UPPER = {}\n'.format(
+                self.cargo_target.replace('-', '_').upper()))
+            fwrite(f, 'override CARGO_TARGET_DIR = {}\n'.format(
+                self.cargo_target_dir))
+            _cargo_target_out_dir = '{}/{}'.format(
+                self.cargo_target_dir, '' if self.target_is_native else (self.cargo_target + '/'))
+            fwrite(f, 'override CARGO_TARGET_OUT_DIR = {}$(call bsel,$(DEBUG),debug,release)\n'.format(
+                _cargo_target_out_dir))
+            fwrite(f, '\n')
+
+            fwrite(f, '# CMake\n')
+            fwrite(f, 'override CMAKE_GENERATOR = {}\n'.format(
+                self.cmake_generator))
+            fwrite(f, 'override CMAKE_TARGET_DIR = {}\n'.format(
+                self.cmake_target_dir))
+            fwrite(f, '\n')
+
+            fwrite(f, '# MSVC\n')
+            fwrite(f, 'override MSVC_ARCH = {}\n'.format(self.msvc_arch))
+            fwrite(f, '\n')
+
+            fwrite(f, '# Android\n')
+            fwrite(f, 'override ANDROID_TARGET = {}{}\n'.format(
+                self.android_target, '$(ANDROID_SDK_VERSION)' if self.android_target else ''))
+            fwrite(f, 'override ANDROID_ARCH = {}\n'.format(
+                self.android_arch))
+            fwrite(f, 'override ANDROID_ABI = {}\n'.format(
+                self.android_abi))
+            fwrite(f, 'override ANDROID_NDK_ROOT = {}\n'.format(
+                self.android_ndk_root))
+            fwrite(f, 'override ANDROID_NDK_BIN = {}\n'.format(
+                self.android_ndk_bin))
+            if self.android:
+                fwrite(f, 'override CMAKE_SYSTEM_VERSION = $(ANDROID_SDK_VERSION)\n')
+            fwrite(f, '\n')
+
+            fwrite(f, '# Zig\n')
+            fwrite(f, 'override ZIG = {}\n'.format(onoff(self.zig)))
+            fwrite(f, 'override ZIG_TARGET = {}\n'.format(self.zig_target))
+            fwrite(f, 'override ZIG_CC_DIR = {}\n'.format(self.zig_cc_dir))
+            fwrite(f, 'override ZIG_ROOT = {}\n'.format(self.zig_root))
+            fwrite(f, 'override ZIG_INCLUDE_DIRS = {}\n'.format(
+                os.pathsep.join(self.zig_include_dirs)))
+            fwrite(f, '\n')
+
+            fwrite(f, '# Target related conditions\n')
+            fwrite(f, 'override TARGET_IS_NATIVE = {}\n'.format(
+                onoff(self.target_is_native)))
+            fwrite(f, 'override TARGET_IS_WIN32 = {}\n'.format(onoff(self.win32)))
+            fwrite(f, 'override TARGET_IS_MSVC = {}\n'.format(onoff(self.msvc)))
+            fwrite(f, 'override TARGET_IS_ANDROID = {}\n'.format(
+                onoff(self.android)))
+            fwrite(f, 'override TARGET_IS_UNIX = {}\n'.format(onoff(self.unix)))
+            fwrite(f, 'override TARGET_IS_APPLE = {}\n'.format(onoff(self.apple)))
+            fwrite(f, 'override TARGET_IS_IOS = {}\n'.format(onoff(self.ios)))
+            fwrite(f, '\n')
+
+        with open(os.path.join(self.cmake_target_dir, '{}.target.cmake'.format(self.host_system)), 'wb') as f:
+            fwrite(f, '# Host\n')
+            fwrite(f, 'set(HOST_SYSTEM "{}")\n'.format(self.host_system))
+            fwrite(f, 'set(HOST_TARGET "{}")\n'.format(self.host_target))
+            fwrite(f, '\n')
+
+            fwrite(f, '# Constant directories\n')
+            fwrite(f, 'set(WORKSPACE_DIR "{}")\n'.format(self.workspace_dir))
+            fwrite(f, 'set(TARGET_DIR "{}")\n'.format(self.target_dir))
+            fwrite(f, 'set(TARGET_CMAKE_DIR "{}")\n'.format(
+                self.target_cmake_dir))
+            fwrite(f, 'set(TARGET_PREFIX "{}")\n'.format(
+                self.cmake_target_prefix))
+            fwrite(f, 'set(TARGET_PREFIX_TRIPLE "{}")\n'.format(
+                self.cmake_triple_dir))
+            fwrite(f, '\n')
+
+            fwrite(f, '# Cargo\n')
+            fwrite(f, 'set(TARGET "{}")\n'.format(self.target))
+            fwrite(f, 'set(TARGET_ARCH "{}")\n'.format(self.arch))
+            fwrite(f, 'set(TARGET_VENDOR "{}")\n'.format(self.vendor))
+            fwrite(f, 'set(TARGET_OS "{}")\n'.format(self.os))
+            fwrite(f, 'set(TARGET_ENV "{}")\n'.format(self.env))
+            fwrite(f, 'set(TARGET_CC "{}")\n'.format(self.target_cc))
+            fwrite(f, 'set(CARGO_TARGET "{}")\n'.format(self.cargo_target))
+            fwrite(f, 'set(CARGO_TARGET_UNDERSCORE "{}")\n'.format(
+                self.cargo_target.replace('-', '_')))
+            fwrite(f, 'set(CARGO_TARGET_UNDERSCORE_UPPER "{}")\n'.format(
+                self.cargo_target.replace('-', '_').upper()))
+            fwrite(f, 'set(CARGO_TARGET_DIR "{}")\n'.format(
+                self.cargo_target_dir))
+            fwrite(f, 'if(CMAKE_BUILD_TYPE MATCHES "^(Debug|debug)$")\n')
+            fwrite(f, '    set(CARGO_TARGET_OUT_DIR "{}debug")\n'.format(
+                _cargo_target_out_dir))
+            fwrite(f, 'else()\n')
+            fwrite(f, '    set(CARGO_TARGET_OUT_DIR "{}release")\n'.format(
+                _cargo_target_out_dir))
+            fwrite(f, 'endif()\n')
+            fwrite(f, '\n')
+
+            fwrite(f, '# MSVC\n')
+            fwrite(f, 'set(MSVC_ARCH "{}")\n'.format(self.msvc_arch))
+            fwrite(f, '\n')
+
+            fwrite(f, '# Android\n')
+            fwrite(f, 'set(ANDROID_TARGET "{}{}")\n'.format(
+                self.android_target, '${ANDROID_SDK_VERSION}' if self.android_target else ''))
+            fwrite(f, 'set(ANDROID_ARCH "{}")\n'.format(
+                self.android_arch))
+            fwrite(f, 'set(ANDROID_ABI "{}")\n'.format(
+                self.android_abi))
+            fwrite(f, 'set(ANDROID_NDK_ROOT "{}")\n'.format(
+                self.android_ndk_root))
+            fwrite(f, 'set(ANDROID_NDK_BIN "{}")\n'.format(self.android_ndk_bin))
+            if self.android:
+                fwrite(
+                    f, 'set(CMAKE_SYSTEM_VERSION "${ANDROID_SDK_VERSION}")\n')
+            fwrite(f, '\n')
+
+            fwrite(f, '# Zig\n')
+            fwrite(f, 'set(ZIG {})\n'.format(onoff(self.zig)))
+            fwrite(f, 'set(ZIG_TARGET "{}")\n'.format(self.zig_target))
+            fwrite(f, 'set(ZIG_CC_DIR "{}")\n'.format(self.zig_cc_dir))
+            fwrite(f, 'set(ZIG_ROOT "{}")\n'.format(self.zig_root))
+            fwrite(f, 'set(ZIG_INCLUDE_DIRS {})\n'.format(
+                ' '.join(map(lambda x: '"{}"'.format(x), self.zig_include_dirs or [""]))))
+            fwrite(f, '\n')
+
+            fwrite(f, '# Target related conditions\n')
+            fwrite(f, 'set(TARGET_IS_NATIVE {})\n'.format(
+                onoff(self.target_is_native)))
+            fwrite(f, 'set(TARGET_IS_WIN32 {})\n'.format(onoff(self.win32)))
+            fwrite(f, 'set(TARGET_IS_MSVC {})\n'.format(onoff(self.msvc)))
+            fwrite(f, 'set(TARGET_IS_ANDROID {})\n'.format(onoff(self.android)))
+            fwrite(f, 'set(TARGET_IS_UNIX {})\n'.format(onoff(self.unix)))
+            fwrite(f, 'set(TARGET_IS_APPLE {})\n'.format(onoff(self.apple)))
+            fwrite(f, 'set(TARGET_IS_IOS {})\n'.format(onoff(self.ios)))
+            fwrite(f, '\n')
+
+        cc_options = []
+        cc_exports = []
+        (linker, ar, cc, cxx, ranlib, strip, rc) = ('', '', '', '', '', '', '')
+        if self.android:
+            cc_options.append(
+                '--target={}$(ANDROID_SDK_VERSION)'.format(self.android_target))
+            linker = '{}/clang{}'.format(self.android_ndk_bin, self.exe_ext)
+            ar = '{}/llvm-ar{}'.format(self.android_ndk_bin, self.exe_ext)
+            cc = '{}/clang{}'.format(self.android_ndk_bin, self.exe_ext)
+            cxx = '{}/clang++{}'.format(self.android_ndk_bin, self.exe_ext)
+            ranlib = '{}/llvm-ranlib{}'.format(
+                self.android_ndk_bin, self.exe_ext)
+            strip = '{}/llvm-strip{}'.format(
+                self.android_ndk_bin, self.exe_ext)
+        elif self.zig:
+            cc_exports.append(
+                'ZIG_WRAPPER_TARGET = {}'.format(self.zig_target))
+            linker = '{}/zig-cc{}'.format(self.zig_cc_dir, self.exe_ext)
+            ar = '{}/zig-ar{}'.format(self.zig_cc_dir, self.exe_ext)
+            cc = '{}/zig-cc{}'.format(self.zig_cc_dir, self.exe_ext)
+            cxx = '{}/zig-c++{}'.format(self.zig_cc_dir, self.exe_ext)
+            ranlib = '{}/zig-ranlib{}'.format(self.zig_cc_dir, self.exe_ext)
+            strip = '{}/zig-strip{}'.format(self.zig_cc_dir, self.exe_ext)
+            rc = '{}/zig-rc{}'.format(self.zig_cc_dir, self.exe_ext)
+        elif self.target_cc:
+            (target_cc, cc_ext) = os.path.splitext(self.target_cc)
+            target_cc = self.normpath(os.path.abspath(target_cc))
+            if self.host_system == 'Windows':
+                cc_ext = cc_ext.lower()
+            if target_cc.endswith('-gcc'):
+                cc_prefix = target_cc[:-4]
+                cxx = cc_prefix + '-g++' + cc_ext
+            elif target_cc.endswith('-cc'):
+                cc_prefix = target_cc[:-3]
+                cxx = cc_prefix + '-c++' + cc_ext
+            else:
+                raise ValueError(
+                    "Unrecognized target CC: {}".format(target_cc))
+            linker = target_cc + cc_ext
+            cc = target_cc + cc_ext
+            ar = cc_prefix + '-ar' + cc_ext
+            ranlib = cc_prefix + '-ranlib' + cc_ext
+            strip = cc_prefix + '-strip' + cc_ext
+
+        with open(os.path.join(self.cmake_target_dir, '{}.toolchain.mk'.format(self.host_system)), 'wb') as f:
+            if cc_exports:
+                for line in cc_exports:
+                    fwrite(f, 'export {}\n'.format(line))
+                fwrite(f, '\n')
+
+            cargo_target = 'CARGO_TARGET_' + self.cargo_target.upper().replace('-', '_')
+            if cc:
+                fwrite(f, '# LINKER\n')
+                fwrite(f, 'export {}_LINKER = {}\n'.format(cargo_target, linker))
+                fwrite(f, 'override {}_RUSTFLAGS += {}\n'.format(cargo_target,
+                                                                 ' '.join(map(lambda x: '-C link-arg=' + x, cc_options))))
+                fwrite(f, 'export {}_RUSTFLAGS\n'.format(cargo_target))
+                fwrite(f, '\n')
+
+            cargo_target = self.cargo_target.replace('-', '_')
+            if cc:
+                fwrite(f, '# AR, CC, CXX, RANLIB, STRIP\n')
+                fwrite(f, 'export AR_{} = {}\n'.format(cargo_target, ar))
+                fwrite(f, 'export CC_{} = {}\n'.format(cargo_target, cc))
+                fwrite(f, 'export CXX_{} = {}\n'.format(cargo_target, cxx))
+                fwrite(f, 'export RANLIB_{} = {}\n'.format(cargo_target, ranlib))
+                fwrite(f, 'export STRIP_{} = {}\n'.format(cargo_target, strip))
+                fwrite(f, '\n')
+
+                fwrite(f, '# ARFLAGS, CFLAGS, CXXFLAGS, RANLIBFLAGS, RUSTFLAGS\n')
+                fwrite(f, 'override ARFLAGS_{} += \n'.format(cargo_target))
+                fwrite(f, 'export ARFLAGS_{}\n'.format(cargo_target))
+                fwrite(f, 'override CFLAGS_{} += {}\n'.format(cargo_target,
+                                                              ' '.join(cc_options)))
+                fwrite(f, 'export CFLAGS_{}\n'.format(cargo_target))
+                fwrite(f, 'override CXXFLAGS_{} += {}\n'.format(
+                    cargo_target, ' '.join(cc_options)))
+                fwrite(f, 'export CXXFLAGS_{}\n'.format(cargo_target))
+                fwrite(f, 'override RANLIBFLAGS_{} += \n'.format(cargo_target))
+                fwrite(f, 'export RANLIBFLAGS_{}\n'.format(cargo_target))
+                fwrite(f, '\n')
+
+            fwrite(f, '# Configure the cross compile pkg-config.\n')
+            fwrite(f, 'export PKG_CONFIG_ALLOW_CROSS = {}\n'.format(
+                   1 if self.host_target != self.cargo_target else 0))
+            pkg_config_key = 'PKG_CONFIG_PATH_' + cargo_target
+            pkg_config_path = os.pathsep + \
+                '$(CMAKE_TRIPLE_DIR)/lib/pkgconfig' + os.pathsep
+            fwrite(f, 'ifeq ($(findstring {},$({})),)\n'.format(
+                pkg_config_path, pkg_config_key))
+            fwrite(f, '    export {} := {}$({})\n'.format(
+                pkg_config_key, pkg_config_path, pkg_config_key))
+            fwrite(f, 'endif\n')
+            fwrite(f, '\n')
+
+            fwrite(f, '# Export variables for Cargo build.rs and CMake\n')
+            fwrite(f, 'export CARGO_WORKSPACE_DIR = {}\n'.format(
+                self.workspace_dir))
+            fwrite(f, 'export CMAKE_TARGET_PREFIX = {}\n'.format(
+                self.cmake_target_prefix))
+            fwrite(f, 'export CMKABE_TARGET = {}\n'.format(
+                'native' if self.target_is_native else self.target))
+            fwrite(f, 'export CMKABE_TARGET_CC = {}\n'.format(self.target_cc))
+            fwrite(f, '\n')
+
+        with open(os.path.join(self.cmake_target_dir, '{}.toolchain.cmake'.format(self.host_system)), 'wb') as f:
+            if cc_exports:
+                for line in cc_exports:
+                    kv = list(map(lambda x: x.strip(), line.split('=', 1)))
+                    fwrite(f, 'set(ENV{{{}}} "{}")\n'.format(kv[0], kv[1]))
+                fwrite(f, '\n')
+
+            fwrite(f, '# AR, CC, CXX, RANLIB, STRIP, RC\n')
+            fwrite(f, 'set(TARGET_AR "{}")\n'.format(ar))
+            fwrite(f, 'set(TARGET_CC "{}")\n'.format(cc))
+            fwrite(f, 'set(TARGET_CXX "{}")\n'.format(cxx))
+            fwrite(f, 'set(TARGET_RANLIB "{}")\n'.format(ranlib))
+            fwrite(f, 'set(TARGET_STRIP "{}")\n'.format(strip))
+            fwrite(f, 'set(TARGET_RC "{}")\n'.format(rc))
+            fwrite(f, '\n')
+
+            fwrite(f, '# Configure the cross compile pkg-config.\n')
+            fwrite(f, 'set(ENV{{PKG_CONFIG_ALLOW_CROSS}} "{}")\n'.format(
+                   1 if self.host_target != self.cargo_target else 0))
+            pkg_config_key = 'ENV{PKG_CONFIG_PATH}'
+            pkg_config_path = os.pathsep + \
+                '${TARGET_PREFIX_TRIPLE}/lib/pkgconfig' + os.pathsep
+            fwrite(f, 'string(FIND "${}" "{}" _n)\n'.format(
+                pkg_config_key, pkg_config_path))
+            fwrite(f, 'if(_n EQUAL -1)\n')
+            fwrite(f, '    set({} "{}${}")\n'.format(
+                pkg_config_key, pkg_config_path, pkg_config_key))
+            fwrite(f, 'endif()\n')
+            fwrite(f, '\n')
+
+            fwrite(f, '# Export variables for Cargo build.rs and CMake\n')
+            fwrite(f, 'set(ENV{{CARGO_WORKSPACE_DIR}} "{}")\n'.format(
+                self.workspace_dir))
+            fwrite(f, 'set(ENV{{CMAKE_TARGET_PREFIX}} "{}")\n'.format(
+                self.cmake_target_prefix))
+            fwrite(f, 'set(ENV{{CMKABE_TARGET}} "{}")\n'.format(
+                'native' if self.target_is_native else self.target))
+            fwrite(f, 'set(ENV{{CMKABE_TARGET_CC}} "{}")\n'.format(
+                self.target_cc))
+            fwrite(f, '\n')
+        return self

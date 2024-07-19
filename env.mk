@@ -15,13 +15,13 @@ ifndef __ENV_MK__
 __ENV_MK__ = $(abspath $(lastword $(MAKEFILE_LIST)))
 CMKABE_HOME := $(abspath $(dir $(__ENV_MK__)))
 
-CMKABE_VERSION = 0.6.0
+CMKABE_VERSION = 0.7.0
 
 # ==============================================================================
 # = Environment Variables
 
-# HOST: Windows, Linux, Darwin
-override HOST := $(if $(filter Windows_NT,$(OS)),Windows,$(shell uname -s))
+# HOST_SYSTEM: Windows, Linux, Darwin
+override HOST_SYSTEM := $(if $(filter Windows_NT,$(OS)),Windows,$(shell uname -s))
 
 # ==============================================================================
 # = Utilities
@@ -154,7 +154,7 @@ WHICH   = which
 WIN2WSL = $(SHLUTIL) win2wsl_path
 WSL2WIN = $(SHLUTIL) wsl2win_path
 
-ifeq ($(HOST),Windows)
+ifeq ($(HOST_SYSTEM),Windows)
     exists   = (IF NOT EXIST $(subst /,\,$(1)) $(ERR))
     set_env  = set $(1)=$(2)
     wsl_run  = wsl --shell-type login$(if $(WSL_DISTRO), -d "$(WSL_DISTRO)",)$(if $(WSL_USER), -u "$(WSL_USER)",) $(1)

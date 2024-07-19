@@ -18,13 +18,9 @@ set(CMKABE_HOME "${CMAKE_CURRENT_LIST_DIR}")
 
 # Windows ARCH -> Rust ARCH
 set(__WIN_ARCH_MAP "arm64=aarch64;amd64=x86_64;x64=x86_64;x86=i686;win32=i686")
-# Rust ARCH -> MSVC ARCH
-set(__MSVC_ARCH_MAP "aarch64=ARM64;x86_64=x64;i686=Win32")
-# Rust ARCH -> Android ARCH
-set(__ANDROID_ARCH_MAP "aarch64=aarch64;armv7=armv7a;thumbv7neon=armv7a;i686=i686;x86_64=x86_64")
 
 # CMAKE_HOST_SYSTEM_PROCESSOR
-if("${CMAKE_HOST_SYSTEM_PROCESSOR}" STREQUAL "")
+if(NOT CMAKE_HOST_SYSTEM_PROCESSOR)
     if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Windows")
         set(CMAKE_HOST_SYSTEM_PROCESSOR "$ENV{PROCESSOR_ARCHITECTURE}")
         if(("${CMAKE_HOST_SYSTEM_PROCESSOR}" STREQUAL "x86") AND
@@ -39,6 +35,11 @@ if("${CMAKE_HOST_SYSTEM_PROCESSOR}" STREQUAL "")
             OUTPUT_STRIP_TRAILING_WHITESPACE
         )
     endif()
+endif()
+
+# CMAKE_BUILD_TYPE
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE "Debug")
 endif()
 
 # CMKABE_PS: the path separator, ";" on Windows, ":" on Linux
@@ -269,6 +270,32 @@ function(cmkabe_install_rust_dlls)
             install(FILES "${item}.so" DESTINATION lib ${component})
         endif()
     endforeach()
+endfunction()
+
+function(_cmkabe_build_make_deps)
+    if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Windows")
+        set(python "python")
+    else()
+        set(python "python3")
+    endif()
+    if(TARGET_IS_NATIVE)
+        set(_target "native")
+    else()
+        set(_target "${TARGET}")
+    endif()
+    execute_process(
+        COMMAND ${python} ${CMAKE_CURRENT_LIST_DIR}/shlutil.py build_target_deps
+            WORKSPACE_DIR=${WORKSPACE_DIR}
+            TARGET=${_target}
+            TARGET_DIR=${TARGET_DIR}
+            TARGET_CMAKE_DIR=${TARGET_CMAKE_DIR}
+            TARGET_CC=${TARGET_CC}
+            CMAKE_TARGET_PREFIX=${TARGET_PREFIX}
+            CARGO_TARGET=${CARGO_TARGET}
+            ZIG_TARGET=${ZIG_TARGET}
+        OUTPUT_VARIABLE output
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
 endfunction()
 
 endif()

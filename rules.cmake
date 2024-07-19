@@ -12,23 +12,9 @@
 # *
 
 if(NOT DEFINED _CMKABE_RULES_INITIALIZED)
+set(_CMKABE_RULES_INITIALIZED ON)
 
-include("${CMAKE_CURRENT_LIST_DIR}/targets.cmake")
-
-if(NOT DEFINED CMAKE_BUILD_TYPE)
-    # Build for Debug by default
-    set(CMAKE_BUILD_TYPE "Debug")
-endif()
-set(CMAKE_BUILD_TYPE "${CMAKE_BUILD_TYPE}" CACHE STRING
-    "The build type, typical values defined in CMAKE_CONFIGURATION_TYPES." FORCE)
-
-if(NOT DEFINED TARGET_PREFIX)
-    if(NOT "$ENV{CMAKE_TARGET_PREFIX}" STREQUAL "")
-        set(TARGET_PREFIX "$ENV{CMAKE_TARGET_PREFIX}")
-    else()
-        set(TARGET_PREFIX "${CMAKE_SOURCE_DIR}/build/output")
-    endif()
-endif()
+include("${CMAKE_CURRENT_LIST_DIR}/toolchain.cmake")
 
 if(NOT DEFINED TARGET_ANY_INCLUDE_DIR)
     if(IS_DIRECTORY "${TARGET_PREFIX}/any/include")
@@ -41,15 +27,15 @@ if(NOT DEFINED TARGET_ANY_INCLUDE_DIR)
 endif()
 
 if(NOT DEFINED TARGET_INCLUDE_DIR)
-    set(TARGET_INCLUDE_DIR "${TARGET_PREFIX}/${TARGET_TRIPLE}/include")
+    set(TARGET_INCLUDE_DIR "${TARGET_PREFIX_TRIPLE}/include")
 endif()
 
 if(NOT DEFINED TARGET_LIB_DIR)
-    set(TARGET_LIB_DIR "${TARGET_PREFIX}/${TARGET_TRIPLE}/lib")
+    set(TARGET_LIB_DIR "${TARGET_PREFIX_TRIPLE}/lib")
 endif()
 
 if(NOT DEFINED TARGET_BIN_DIR)
-    set(TARGET_BIN_DIR "${TARGET_PREFIX}/${TARGET_TRIPLE}/bin")
+    set(TARGET_BIN_DIR "${TARGET_PREFIX_TRIPLE}/bin")
 endif()
 
 if(NOT DEFINED TARGET_OUTPUT_REDIRECT)
@@ -92,10 +78,6 @@ endif()
 
 if(NOT "${PROJECT_NAME}" STREQUAL "")
     message(FATAL_ERROR "Can not define any project before `include <cmake-abe>/rules.cmake`.")
-endif()
-if(CMAKE_GENERATOR STREQUAL "Ninja")
-    # Ninja does not support platform specification.
-    unset(CMAKE_GENERATOR_PLATFORM CACHE)
 endif()
 # Define a dummy project.
 project(CMKABE)
@@ -169,43 +151,4 @@ endif()
 include_directories(BEFORE SYSTEM "${TARGET_INCLUDE_DIR}")
 link_directories(BEFORE "${TARGET_LIB_DIR}")
 
-# pkg-config
-string(REGEX MATCHALL "[^${CMKABE_PS}]+" _l "$ENV{PKG_CONFIG_PATH_${TARGET_TRIPLE}}${CMKABE_PS}$ENV{PKG_CONFIG_PATH_${TARGET_TRIPLE_UNDERSCORE}}${CMKABE_PS}$ENV{PKG_CONFIG_PATH}")
-list(REMOVE_ITEM _l "")
-set(_s "${TARGET_PREFIX}/${TARGET_TRIPLE}/lib/pkgconfig")
-if (NOT _s IN_LIST _l)
-    list(INSERT _l 0 "${_s}")
-endif()
-string(JOIN "${CMKABE_PS}" _s ${_l})
-set(ENV{PKG_CONFIG_PATH} "${_s}")
-
-# CARGO_WORKSPACE_DIR
-if(NOT DEFINED CARGO_WORKSPACE_DIR)
-    if (NOT "$ENV{CARGO_WORKSPACE_DIR}" STREQUAL "")
-        set(_s "$ENV{CARGO_WORKSPACE_DIR}")
-    else()
-        cmkabe_find_in_ancesters("${CMAKE_SOURCE_DIR}" "cargo.toml" _s)
-        if(_s)
-            get_filename_component(_s "${_s}" DIRECTORY)
-        else()
-            set(_s "${CMAKE_SOURCE_DIR}")
-        endif()
-    endif()
-    set(CARGO_WORKSPACE_DIR "${_s}" CACHE INTERNAL "" FORCE)
-endif()
-
-# CARGO_TARGET_OUT_DIR
-if(TARGET_TRIPLE STREQUAL "${HOST_TRIPLE}")
-    set(_s "")
-else()
-    set(_s "${TARGET_TRIPLE}/")
-endif()
-if(CMAKE_BUILD_TYPE MATCHES "^(Debug|debug)$")
-    set(_s "${_s}debug") 
-else()
-    set(_s "${_s}release")
-endif()
-set(CARGO_TARGET_OUT_DIR "${CARGO_WORKSPACE_DIR}/target/${_s}")
-
-set(_CMKABE_RULES_INITIALIZED ON)
 endif()

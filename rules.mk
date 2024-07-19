@@ -13,10 +13,10 @@
 
 ifndef __RULES_MK__
 __RULES_MK__ = $(abspath $(lastword $(MAKEFILE_LIST)))
+
 ifeq ($(CMKABE_HOME),)
     include $(dir $(__RULES_MK__))env.mk
 endif
-include $(CMKABE_HOME)/targets.mk
 
 ifndef WORKSPACE_DIR
     $(warning Please insert to the head of `Makefile` in the workspace directory:)
@@ -24,33 +24,88 @@ ifndef WORKSPACE_DIR
     $(error WORKSPACE_DIR is not defined)
 endif
 
-# ==============================================================================
-# = Android NDK
+_saved_default_goal := $(.DEFAULT_GOAL)
 
-#! Android SDK version (API level), defaults to 21.
-override ANDROID_SDK_VERSION := \
-    $(call either,$(ANDROID_SDK_VERSION),$(call either,$(CMAKE_SYSTEM_VERSION),21))
-#! NDK STL: c++_shared, c++_static (default), none, system
-ANDROID_STL ?=
+# ==============================================================================
+# Target directories
+
+#! Default value of `CARGO_TARGET_DIR`
+TARGET_DIR ?= $(WORKSPACE_DIR)/target
+#! The root of CMake build directories.
+TARGET_CMAKE_DIR ?= $(TARGET_DIR)/cmake
+
+# ==============================================================================
+# Build target dependencies and apply.
+cmake_build_target_deps = $(SHLUTIL) build_target_deps \
+    WORKSPACE_DIR=$(WORKSPACE_DIR) \
+    TARGET=$(call bsel,$(TARGET_IS_NATIVE),native,$(TARGET)) \
+    TARGET_DIR=$(TARGET_DIR) \
+    TARGET_CMAKE_DIR=$(TARGET_CMAKE_DIR) \
+	CMAKE_TARGET_PREFIX=$(CMAKE_TARGET_PREFIX) \
+    CARGO_TARGET=$(CARGO_TARGET) \
+    ZIG_TARGET=$(ZIG_TARGET) \
+    TARGET_CC=$(TARGET_CC) \
+
+# include $(HOST_SYSTEM).host.mk
+DOT_HOST_MK = $(TARGET_CMAKE_DIR)/$(HOST_SYSTEM).host.mk
+ifneq ($(filter cmake-init,$(if $(wildcard $(DOT_HOST_MK)),,cmake-init) $(MAKECMDGOALS)),)
+    ifneq ($(shell $(cmake_build_target_deps) >$(NULL) || echo 1),)
+        $(error Failed to build target: $(TARGET))
+    endif
+endif
+include $(DOT_HOST_MK)
+
+DOT_TARGET_DIR := $(TARGET_CMAKE_DIR)/$(if $(filter-out native,$(TARGET)),$(TARGET),$(HOST_TARGET).native)
+DOT_TARGET_MK = $(DOT_TARGET_DIR)/$(HOST_SYSTEM).target.mk
+DOT_TOOLCHAIN_MK = $(DOT_TARGET_DIR)/$(HOST_SYSTEM).toolchain.mk
+
+# Auto rebuild dependencies.
+$(DOT_TARGET_MK): $(addprefix $(CMKABE_HOME)/,shlutilib.py zig-wrapper.zig)
+	@$(cmake_build_target_deps)
+
+# include $(HOST_SYSTEM).target.mk
+ifeq ($(wildcard $(DOT_TARGET_MK)),)
+    ifneq ($(shell $(cmake_build_target_deps) >$(NULL) || echo 1),)
+        $(error Failed to build target: $(TARGET))
+    endif
+endif
+include $(DOT_TARGET_MK)
+ifeq ($(CMAKE_TARGET_DIR),)
+    $(error Can not parse target: $(TARGET))
+endif
 
 # ==============================================================================
 # = CMake
 
+#! Debug mode
 override DEBUG := $(call bool,$(DEBUG),ON)
+#! Generate with minimum size
+override MINSIZE := $(call bool,$(MINSIZE),OFF)
+#! Generate debug information
+override DBGINFO := $(call bool,$(DBGINFO),$(call bsel,$(DEBUG),ON,OFF))
+#! Show verbose output
 override VERBOSE := $(call bool,$(VERBOSE),OFF)
 
-#! The current configuration of CMake build: Debug, Release
-CMAKE_BUILD_TYPE ?= $(call bsel,$(DEBUG),Debug,Release)
+# The current configuration of CMake build: Debug, Release, RelWithDebInfo or MinSizeRel.
+ifeq ($(DEBUG),ON)
+    override CMAKE_BUILD_TYPE = Debug
+else ifeq ($(MINSIZE),ON)
+    override CMAKE_BUILD_TYPE = MinSizeRel
+else ifeq ($(DBGINFO),ON)
+    override CMAKE_BUILD_TYPE = RelWithDebInfo
+else
+    override CMAKE_BUILD_TYPE = Release
+endif
+
+# The CMake output directory include the tailing triple.
+CMAKE_TRIPLE_DIR ?= $(CMAKE_TARGET_PREFIX)/$(TARGET)
+# The CMake build directory for the current configuration.
+CMAKE_BUILD_DIR ?= $(CMAKE_TARGET_DIR)/$(CMAKE_BUILD_TYPE)
+
 #! The CMake system version
 CMAKE_SYSTEM_VERSION ?=
-#! The root of CMake build directories.
-CMAKE_BUILD_ROOT ?= $(WORKSPACE_DIR)/target/cmake
-#! The CMake build directory for the current configuration.
-CMAKE_BUILD_DIR ?= $(CMAKE_BUILD_ROOT)/$(TARGET_TRIPLE)/$(CMAKE_BUILD_TYPE)
 #! The CMake output directory exclude the tailing triple.
-CMAKE_TARGET_PREFIX ?= $(CMAKE_BUILD_ROOT)/output
-#! The CMake output directory include the tailing triple.
-CMAKE_TRPILE_DIR = $(CMAKE_TARGET_PREFIX)/$(TARGET_TRIPLE)
+CMAKE_TARGET_PREFIX ?= $(TARGET_CMAKE_DIR)/output
 #! The CMake components to be installed.
 CMAKE_COMPONENTS ?=
 #! The CMake targets (libraries and executables) to be built.
@@ -65,38 +120,24 @@ CMAKE_DEFS ?=
 CMAKE_OPTS ?=
 #! If automatically clean the $(CMAKE_TARGET_PREFIX) directory
 CMAKE_AUTO_CLEAN_TARGET ?= ON
-#! If set the system path to run output executables 
-CMAKE_SET_PATH ?= ON
 
 CMAKE_INIT = cmake -B "$(CMAKE_BUILD_DIR)"
+CMAKE_INIT += $(if $(CMAKE_GENERATOR),-G$(CMAKE_GENERATOR),)
 CMAKE_INIT += $(if $(MSVC_ARCH),-A $(MSVC_ARCH),)
-CMAKE_INIT += -D "TARGET:STRING=$(TARGET)" -D "TARGET_TRIPLE:STRING=$(TARGET_TRIPLE)"
+CMAKE_INIT += -D "TARGET:STRING=$(call bsel,$(TARGET_IS_NATIVE),native,$(TARGET))"
+CMAKE_INIT += -D "TARGET_DIR:FILEPATH=$(TARGET_DIR)"
+CMAKE_INIT += -D "TARGET_CMAKE_DIR:FILEPATH=$(TARGET_CMAKE_DIR)"
+CMAKE_INIT += -D "TARGET_PREFIX:FILEPATH=$(CMAKE_TARGET_PREFIX)"
+CMAKE_INIT += -D "TARGET_CC:STRING=$(TARGET_CC)"
+CMAKE_INIT += -D "CARGO_TARGET:STRING=$(CARGO_TARGET)"
+CMAKE_INIT += -D "ZIG_TARGET:STRING=$(ZIG_TARGET)"
 CMAKE_INIT += -D "CMAKE_BUILD_TYPE:STRING=$(CMAKE_BUILD_TYPE)"
+CMAKE_INIT += -D "CMAKE_VERBOSE_MAKEFILE:BOOL=$(VERBOSE)"
 CMAKE_INIT += $(if $(CMAKE_SYSTEM_VERSION),-D "CMAKE_SYSTEM_VERSION:STRING=$(CMAKE_SYSTEM_VERSION)",)
-# For Android NDK
-ifeq ($(ANDROID),ON)
-    ifndef ANDROID_NDK_ROOT
-        ANDROID_NDK_ROOT := $(shell $(SHLUTIL) ndk-root)
-	else
-        override ANDROID_NDK_ROOT := $(subst \,/,$(ANDROID_NDK_ROOT))
-    endif
-    ifeq ($(ANDROID_NDK_ROOT),)
-        $(error `ANDROID_NDK_ROOT` is not defined)
-    endif
-    export ANDROID_NDK_ROOT
-    override CMAKE_SYSTEM_VERSION := $(ANDROID_SDK_VERSION)
-    CMAKE_INIT += -GNinja
+CMAKE_INIT += $(if $(TARGET_CC),-D "TARGET_CC:STRING=$(TARGET_CC)",)
+ifeq ($(TARGET_IS_ANDROID),ON)
     CMAKE_INIT += -D "ANDROID_SDK_VERSION:STRING=$(ANDROID_SDK_VERSION)"
-    ifneq ($(ANDROID_STL),)
-        CMAKE_INIT += -D "ANDROID_STL:STRING=$(ANDROID_STL)"
-    endif
-else ifeq ($(ZIG),ON)
-    ZIG_WRAPPER_DIR ?= $(WORKSPACE_DIR)/target/zig/$(HOST_TRIPLE)
-    ZIG_WRAPPER_COMMANDS = $(foreach I,ar cc c++ rc ranlib strip,$(ZIG_WRAPPER_DIR)/zig-$(I)$(EXE_EXT))
-    CMAKE_INIT += -GNinja
-    CMAKE_INIT += -D "TARGET_C_COMPILER:STRING=$(filter %-cc$(EXE_EXT),$(ZIG_WRAPPER_COMMANDS))"
-else
-    CMAKE_INIT += -D "CMAKE_VERBOSE_MAKEFILE:BOOL=$(VERBOSE)"
+    CMAKE_INIT += $(if $(ANDROID_STL),-D "ANDROID_STL:STRING=$(ANDROID_STL)",)
 endif
 CMAKE_INIT += $(addprefix -D,$(CMAKE_DEFS))
 
@@ -104,9 +145,17 @@ cmake_init = $(CMAKE_INIT) $(CMAKE_INIT_OPTS)
 cmake_build = cmake --build "$(CMAKE_BUILD_DIR)" $(addprefix --target ,$(CMAKE_TARGETS)) --config $(CMAKE_BUILD_TYPE) --parallel $(CMAKE_OPTS)
 cmake_install = cmake --install "$(CMAKE_BUILD_DIR)" $(addprefix --component ,$(CMAKE_COMPONENTS)) --config $(CMAKE_BUILD_TYPE) $(CMAKE_OPTS)
 ifeq ($(if $(filter --prefix,$(CMAKE_OPTS)),1,)$(if $(CMAKE_INSTALL_TARGET_PREFIX),,1),)
-    cmake_install += --prefix "$(CMAKE_INSTALL_TARGET_PREFIX)/$(TARGET_TRIPLE)"
+    cmake_install += --prefix "$(CMAKE_INSTALL_TARGET_PREFIX)/$(TARGET)"
 endif
 cmake_clean = $(call cmake_build) --target clean
+
+# ==============================================================================
+# = Android NDK
+
+#! Android SDK version (API level), defaults to 21.
+ANDROID_SDK_VERSION ?= 21
+#! NDK STL: c++_shared, c++_static (default), none, system
+ANDROID_STL ?=
 
 # ==============================================================================
 # = Cargo
@@ -114,8 +163,9 @@ cmake_clean = $(call cmake_build) --target clean
 #! Cargo toolchain
 CARGO_TOOLCHAIN +=
 #! Extra options passed to "cargo build" or "cargo run"
-CARGO_OPTS += $(if $(filter $(TARGET_TRIPLE),$(HOST_TRIPLE)),,--target $(TARGET_TRIPLE))
+CARGO_OPTS += $(call bsel,$(TARGET_IS_NATIVE),,--target $(CARGO_TARGET))
 CARGO_OPTS += $(call bsel,$(DEBUG),,--release)
+CARGO_OPTS += --target-dir $(CARGO_TARGET_DIR)
 #! Cargo binary crates
 CARGO_EXECUTABLES +=
 #! Cargo library crates
@@ -137,112 +187,27 @@ cargo_run = cargo $(CARGO_TOOLCHAIN) run --bin $(1) $(CARGO_OPTS) $(2)
 cargo_upgrade = cargo upgrade --incompatible $(1)
 
 # Set crosss compile tools for Rust
-# cargo_set_gcc_env_vars()
-cargo_set_gcc_env_vars = $(eval $(_cargo_set_gcc_env_vars_tpl_))
-define _cargo_set_gcc_env_vars_tpl_
-    export CARGO_TARGET_$$(TARGET_TRIPLE_UNDERSCORE_UPPER)_LINKER=$$(TARGET)-gcc
-    $$(foreach I,AR=ar CC=gcc CXX=g++ RANLIB=ranlib STRIP=strip,\
-        $$(eval export $$(call kv_key,$$I)_$$(TARGET_TRIPLE_UNDERSCORE)=$$(TARGET)-$$(call kv_value,$$I)))
-endef
+# include .targetcc.mk
+include $(DOT_TOOLCHAIN_MK)
 
-ifeq ($(ANDROID),ON)
-    # Set Android NDK environment variables for Rust.
-    _exe := $(if $(filter Windows,$(HOST)),.exe,)
-    _ndk_bin_dir := $(ANDROID_NDK_ROOT)/toolchains/llvm/prebuilt/$(call lower,$(HOST))-$(HOST_ARCH)/bin
-    _ndk_triple := $(ANDROID_ARCH)-linux-$(if $(filter armv7a,$(ANDROID_ARCH)),androideabi,android)
-    _ndk_target_opt := --target=$(_ndk_triple)$(ANDROID_SDK_VERSION)
-    # LINKER
-    export CARGO_TARGET_$(TARGET_TRIPLE_UNDERSCORE_UPPER)_LINKER := $(_ndk_bin_dir)/clang$(EXE_EXT)
-    override CARGO_TARGET_$(TARGET_TRIPLE_UNDERSCORE_UPPER)_RUSTFLAGS += $(addprefix -C link-arg=,$(_ndk_target_opt))
-    export CARGO_TARGET_$(TARGET_TRIPLE_UNDERSCORE_UPPER)_RUSTFLAGS
-    # AR, CC, CXX, RANLIB, STRIP
-    export AR_$(TARGET_TRIPLE_UNDERSCORE) := $(_ndk_bin_dir)/llvm-ar$(EXE_EXT)
-    export CC_$(TARGET_TRIPLE_UNDERSCORE) := $(_ndk_bin_dir)/clang$(EXE_EXT)
-    export CXX_$(TARGET_TRIPLE_UNDERSCORE) := $(_ndk_bin_dir)/clang++$(EXE_EXT)
-    export RANLIB_$(TARGET_TRIPLE_UNDERSCORE) := $(_ndk_bin_dir)/llvm-ranlib$(EXE_EXT)
-    export STRIP_$(TARGET_TRIPLE_UNDERSCORE) := $(_ndk_bin_dir)/llvm-strip$(EXE_EXT)
-    # ARFLAGS, CFLAGS, CXXFLAGS, RANLIBFLAGS, RUSTFLAGS
-    override ARFLAGS_$(TARGET_TRIPLE_UNDERSCORE) +=
-    export ARFLAGS_$(TARGET_TRIPLE_UNDERSCORE)
-    override CFLAGS_$(TARGET_TRIPLE_UNDERSCORE) += $(_ndk_target_opt)
-    export CFLAGS_$(TARGET_TRIPLE_UNDERSCORE)
-    override CXXFLAGS_$(TARGET_TRIPLE_UNDERSCORE) += $(_ndk_target_opt)
-    export CXXFLAGS_$(TARGET_TRIPLE_UNDERSCORE)
-    override RANLIBFLAGS_$(TARGET_TRIPLE_UNDERSCORE) +=
-    export RANLIBFLAGS_$(TARGET_TRIPLE_UNDERSCORE)
-    # Check if the NDK CC exists.
-    ifeq ($(wildcard $(CC_$(TARGET_TRIPLE_UNDERSCORE))),)
-        $(error "$(CC_$(TARGET_TRIPLE_UNDERSCORE))" does not exist)
-    endif
-else ifeq ($(ZIG),ON)
-    # Set Zig environment variables for Rust.
-    _zig_abi := $(lastword $(subst -, ,$(TARGET_TRIPLE)))
-    _zig_os := $(lastword $(filter-out $(_zig_abi),$(subst -, ,$(TARGET_TRIPLE))))
-    ifneq ($(findstring -apple,$(TARGET_TRIPLE)),)
-        _zig_os := $(call sel,$(_zig_abi),darwin=macos ios=ios sim=ios,$(_zig_abi))
-        _zig_abi = none
-    endif
-    ZIG_TARGET := $(ZIG_ARCH)-$(_zig_os)-$(_zig_abi)
-    export ZIG_WRAPPER_TARGET = $(ZIG_TARGET)
-    _zig_target_opt =
-    # LINKER
-    export CARGO_TARGET_$(TARGET_TRIPLE_UNDERSCORE_UPPER)_LINKER := $(ZIG_WRAPPER_DIR)/zig-cc$(EXE_EXT)
-    override CARGO_TARGET_$(TARGET_TRIPLE_UNDERSCORE_UPPER)_RUSTFLAGS += $(addprefix -C link-arg=,$(_zig_target_opt))
-    export CARGO_TARGET_$(TARGET_TRIPLE_UNDERSCORE_UPPER)_RUSTFLAGS
-    # AR, CC, CXX, RANLIB, STRIP
-    export AR_$(TARGET_TRIPLE_UNDERSCORE) := $(ZIG_WRAPPER_DIR)/zig-ar$(EXE_EXT)
-    export CC_$(TARGET_TRIPLE_UNDERSCORE) := $(ZIG_WRAPPER_DIR)/zig-cc$(EXE_EXT)
-    export CXX_$(TARGET_TRIPLE_UNDERSCORE) := $(ZIG_WRAPPER_DIR)/zig-c++$(EXE_EXT)
-    export RANLIB_$(TARGET_TRIPLE_UNDERSCORE) := $(ZIG_WRAPPER_DIR)/zig-ranlib$(EXE_EXT)
-    export STRIP_$(TARGET_TRIPLE_UNDERSCORE) := $(ZIG_WRAPPER_DIR)/zig-strip$(EXE_EXT)
-    # ARFLAGS, CFLAGS, CXXFLAGS, RANLIBFLAGS, RUSTFLAGS
-    override ARFLAGS_$(TARGET_TRIPLE_UNDERSCORE) +=
-    export ARFLAGS_$(TARGET_TRIPLE_UNDERSCORE)
-    override CFLAGS_$(TARGET_TRIPLE_UNDERSCORE) += $(_zig_target_opt)
-    export CFLAGS_$(TARGET_TRIPLE_UNDERSCORE)
-    override CXXFLAGS_$(TARGET_TRIPLE_UNDERSCORE) += $(_zig_target_opt)
-    export CXXFLAGS_$(TARGET_TRIPLE_UNDERSCORE)
-    override RANLIBFLAGS_$(TARGET_TRIPLE_UNDERSCORE) +=
-    export RANLIBFLAGS_$(TARGET_TRIPLE_UNDERSCORE)
-else ifeq ($(shell $(TARGET)-gcc -dumpversion >$(NULL) 2>&1 || echo 1),)
-    # If the cross compile GCC exists, set the appropriate environment variables for Rust.
-    $(call cargo_set_gcc_env_vars)
-endif
-
-# Configure the cross compile pkg-config.
-ifneq ($(HOST_TRIPLE),$(TARGET_TRIPLE))
-    export PKG_CONFIG_ALLOW_CROSS = 1
-endif
-_k := PKG_CONFIG_PATH_$(TARGET_TRIPLE_UNDERSCORE)
-_v := $(CMAKE_TRPILE_DIR)/lib/pkgconfig
-ifeq ($(filter $(_v),$(subst $(PS), ,$($(_k)))),)
-    export $(_k) := $(_v)$(PS)$($(_k))
-endif
-
-# Directory of cargo output binaries, as "<workspace_dir>/target/<triple>/<debug|release>"
-CARGO_TARGET_OUT_DIR := $(WORKSPACE_DIR)/target/$(if $(filter $(TARGET_TRIPLE),$(HOST_TRIPLE)),,$(TARGET_TRIPLE)/)$(call bsel,$(DEBUG),debug,release)
+# Directory of Cargo output binaries, normally is "<workspace_dir>/target/<triple>/<debug|release>"
+CARGO_TARGET_OUT_DIR ?=
 
 # Clean the $(CMAKE_TARGET_PREFIX) directory by default.
 ifeq ($(call bool,$(CMAKE_AUTO_CLEAN_TARGET)),ON)
     CMAKE_OUTPUT_DIRS += $(CMAKE_TARGET_PREFIX)
 endif
 
-# Export environment variables.
-export CMAKE_TARGET_PREFIX
-export CARGO_WORKSPACE_DIR = $(WORKSPACE_DIR)
-ifeq ($(call bool,$(CMAKE_SET_PATH)),ON)
-    ifeq ($(HOST):$(findstring windows,$(TARGET_TRIPLE)),Windows:windows)
-        export PATH := $(subst /,\,$(CMAKE_TRPILE_DIR)/bin;$(CMAKE_TRPILE_DIR)/lib;$(CARGO_TARGET_OUT_DIR));$(PATH)
-    else ifeq ($(HOST_TRIPLE),$(TARGET_TRIPLE))
-        export PATH := $(CMAKE_TRPILE_DIR)/bin:$(CARGO_TARGET_OUT_DIR):$(PATH)
-        export LD_LIBRARY_PATH := $(CMAKE_TRPILE_DIR)/lib:$(LD_LIBRARY_PATH)
-    endif
+# Set system paths.
+ifeq ($(HOST_SYSTEM):$(WIN32),Windows:ON)
+    export PATH := $(subst /,\,$(CMAKE_TRIPLE_DIR)/bin;$(CMAKE_TRIPLE_DIR)/lib;$(CARGO_TARGET_OUT_DIR));$(PATH)
+else ifeq ($(HOST_TARGET),$(CARGO_TARGET))
+    export PATH := $(CMAKE_TRIPLE_DIR)/bin:$(CARGO_TARGET_OUT_DIR):$(PATH)
+    export LD_LIBRARY_PATH := $(CMAKE_TRIPLE_DIR)/lib:$(LD_LIBRARY_PATH)
 endif
 
 # ==============================================================================
 # = Rules
-
-_saved_default_goal := $(.DEFAULT_GOAL)
 
 .PHONY: cmake-before-build \
         cmake cmake-init cmake-build cmake-rebuild cmake-install \
@@ -279,7 +244,7 @@ cmake-distclean: cmake-clean-output
 
 # Clean the root directory of all targets.
 cmake-clean-root: cmake-clean-output
-	@$(RM) -rf "$(CMAKE_BUILD_ROOT)" || $(OK)
+	@$(RM) -rf "$(TARGET_CMAKE_DIR)" || $(OK)
 
 # Clean extra output files.
 cmake-clean-output:
@@ -328,18 +293,6 @@ cargo-upgrade:
 shell:
 	$(CMD)
 
-ifeq ($(ZIG),ON)
-    .PHONY: zig-init
-    cmake-before-build: zig-init
-    zig-init: $(ZIG_WRAPPER_COMMANDS)
-    $(ZIG_WRAPPER_DIR):
-		@$(MKDIR) $(ZIG_WRAPPER_DIR)
-    $(ZIG_WRAPPER_DIR)/zig-wrapper$(EXE_EXT): $(CMKABE_HOME)/zig-wrapper.zig $(ZIG_WRAPPER_DIR)
-		@zig cc -s -Os -o $@ $<
-    $(ZIG_WRAPPER_COMMANDS): $(ZIG_WRAPPER_DIR)/zig-wrapper$(EXE_EXT)
-		@$(CP) $< $@
-endif
-
 # Disable parallel execution
 .NOTPARALLEL:
 
@@ -377,7 +330,7 @@ define _cargo_cmake_rules_tpl_
     upgrade: cargo-upgrade
 
     help:
-    ifeq ($$(HOST),Windows)
+    ifeq ($$(HOST_SYSTEM),Windows)
 		@cmd /c "$$(CMKABE_HOME)/README.md"
     else
 		@$(call less,"$$(CMKABE_HOME)/README.md")
