@@ -15,7 +15,7 @@ ifndef __ENV_MK__
 __ENV_MK__ = $(abspath $(lastword $(MAKEFILE_LIST)))
 CMKABE_HOME := $(abspath $(dir $(__ENV_MK__)))
 
-CMKABE_VERSION = 0.7.0
+CMKABE_VERSION = 0.7.1
 
 # ==============================================================================
 # = Environment Variables
@@ -103,6 +103,10 @@ git_remove_ignored = $(call git_ls_ignored,$(1),$(2)) | $(RM) -f --stdin && $(RM
 # exists(file_or_directory:str)
 exists = test -e $(1)
 
+# Join paths with $(PATHSEP).
+# join_paths(paths:str,subdirs:str)
+join_paths = $(subst /,$(SEP),$(subst $(SPACE)$(PATHSEP),$(PATHSEP),$(foreach I,$(1),$(foreach J,$(2),$(PATHSEP)$I$(SEP)$J))))
+
 # Call rmake with options.
 # rmake(options:str)
 rmake = $(PY) rmake.py $(1)
@@ -125,7 +129,8 @@ xargs_do = $(1) | xargs -I {} $(2)
 COMMA   = ,
 ESC    := $(strip \)# Shell's escape character
 EXE_EXT =
-PS      = :# PATH variable's separator
+SEP    := $(if $(filter Windows,$(HOST_SYSTEM)),\,/)# Directory Separator
+PATHSEP:= $(if $(filter Windows,$(HOST_SYSTEM)),;,:)# Path Separator
 SPACE  := $(subst :,,: :)
 
 NULL    = /dev/null

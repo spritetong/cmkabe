@@ -21,8 +21,6 @@ if(NOT DEFINED TARGET_ANY_INCLUDE_DIR)
         set(TARGET_ANY_INCLUDE_DIR "${TARGET_PREFIX}/any/include")
     elseif(IS_DIRECTORY "${TARGET_PREFIX}/noarch/include")
         set(TARGET_ANY_INCLUDE_DIR "${TARGET_PREFIX}/noarch/include")
-    elseif(IS_DIRECTORY "${TARGET_PREFIX}/common/include")
-        set(TARGET_ANY_INCLUDE_DIR "${TARGET_PREFIX}/common/include")
     endif()
 endif()
 
@@ -82,6 +80,12 @@ endif()
 # Define a dummy project.
 project(CMKABE)
 
+if(MSVC)
+    set(CC_DEFINE_OPT "/D")
+else()
+    set(CC_DEFINE_OPT "-D")
+endif()
+
 include(CheckCCompilerFlag)
 check_c_compiler_flag("-s" CC_SUPPORT_STRIP)
 check_c_compiler_flag("-fPIC" CC_SUPPORT_PIC)
@@ -109,10 +113,10 @@ if(TARGET_STRIP_ON_RELEASE AND CC_SUPPORT_STRIP)
     endif()
 endif()
 
-if(NOT CMAKE_C_FLAGS_DEBUG MATCHES " -D_DEBUG( |$)")
-    set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -D_DEBUG" CACHE STRING
+if(NOT CMAKE_C_FLAGS_DEBUG MATCHES " ${CC_DEFINE_OPT}_DEBUG( |$)")
+    set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} ${CC_DEFINE_OPT}_DEBUG" CACHE STRING
         "Flags used by the C compiler during DEBUG builds." FORCE)
-    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -D_DEBUG" CACHE STRING
+    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} ${CC_DEFINE_OPT}_DEBUG" CACHE STRING
         "Flags used by the CXX compiler during DEBUG builds." FORCE)
 endif()
 
@@ -145,10 +149,22 @@ if(TARGET_MSVC_NO_PDB_WARNING AND MSVC)
     add_link_options("/ignore:4099")
 endif()
 
-if(NOT "${TARGET_ANY_INCLUDE_DIR}" STREQUAL "")
+if(TARGET_ANY_INCLUDE_DIR)
     include_directories(BEFORE SYSTEM "${TARGET_ANY_INCLUDE_DIR}")
 endif()
-include_directories(BEFORE SYSTEM "${TARGET_INCLUDE_DIR}")
-link_directories(BEFORE "${TARGET_LIB_DIR}")
+
+if(TARGET_PREFIX_INCLUDES)
+    include_directories(BEFORE SYSTEM ${TARGET_PREFIX_INCLUDES})
+endif()
+if (NOT "${TARGET_INCLUDE_DIR}" IN_LIST TARGET_PREFIX_INCLUDES)
+    include_directories(BEFORE SYSTEM "${TARGET_INCLUDE_DIR}")
+endif()
+
+if(TARGET_PREFIX_LIBS)
+    link_directories(BEFORE SYSTEM ${TARGET_PREFIX_LIBS})
+endif()
+if (NOT "${TARGET_LIB_DIR}" IN_LIST TARGET_PREFIX_LIBS)
+    link_directories(BEFORE SYSTEM "${TARGET_LIB_DIR}")
+endif()
 
 endif()

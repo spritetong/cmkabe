@@ -86,6 +86,13 @@ override DBGINFO := $(call bool,$(DBGINFO),$(call bsel,$(DEBUG),ON,OFF))
 #! Show verbose output
 override VERBOSE := $(call bool,$(VERBOSE),OFF)
 
+#! Triple of Zig target
+ZIG_TARGET ?=
+#! `<workspace directory>/target`
+TARGET_DIR ?=
+#! CC compiler for the target
+TARGET_CC ?=
+
 # The current configuration of CMake build: Debug, Release, RelWithDebInfo or MinSizeRel.
 ifeq ($(DEBUG),ON)
     override CMAKE_BUILD_TYPE = Debug
@@ -98,7 +105,8 @@ else
 endif
 
 # The CMake output directory include the tailing triple.
-CMAKE_TRIPLE_DIR ?= $(CMAKE_TARGET_PREFIX)/$(TARGET)
+CMAKE_PREFIX_TRIPLE ?= $(CMAKE_TARGET_PREFIX)/$(TARGET)
+CMAKE_PREFIX_SUBDIRS ?= $(CMAKE_PREFIX_TRIPLE)
 # The CMake build directory for the current configuration.
 CMAKE_BUILD_DIR ?= $(CMAKE_TARGET_DIR)/$(CMAKE_BUILD_TYPE)
 
@@ -137,6 +145,8 @@ CMAKE_INIT += $(if $(CMAKE_SYSTEM_VERSION),-D "CMAKE_SYSTEM_VERSION:STRING=$(CMA
 CMAKE_INIT += $(if $(TARGET_CC),-D "TARGET_CC:STRING=$(TARGET_CC)",)
 ifeq ($(TARGET_IS_ANDROID),ON)
     CMAKE_INIT += -D "ANDROID_SDK_VERSION:STRING=$(ANDROID_SDK_VERSION)"
+    CMAKE_INIT += $(if $(ANDROID_ARM_MODE),-D "ANDROID_ARM_MODE:STRING=$(call bool,$(ANDROID_ARM_MODE))",)
+    CMAKE_INIT += $(if $(ANDROID_ARM_NEON),-D "ANDROID_ARM_NEON:BOOL=$(ANDROID_ARM_NEON)",)
     CMAKE_INIT += $(if $(ANDROID_STL),-D "ANDROID_STL:STRING=$(ANDROID_STL)",)
 endif
 CMAKE_INIT += $(addprefix -D,$(CMAKE_DEFS))
@@ -154,12 +164,18 @@ cmake_clean = $(call cmake_build) --target clean
 
 #! Android SDK version (API level), defaults to 21.
 ANDROID_SDK_VERSION ?= 21
+#! Specifies whether to generate arm or thumb instructions for armeabi-v7a: arm, thumb
+ANDROID_ARM_MODE ?=
+#! Enables or disables NEON for armeabi-v7a: ON, OFF
+ANDROID_ARM_NEON ?=
 #! NDK STL: c++_shared, c++_static (default), none, system
 ANDROID_STL ?=
 
 # ==============================================================================
 # = Cargo
 
+#! Triple of Cargo target
+CARGO_TARGET ?=
 #! Cargo toolchain
 CARGO_TOOLCHAIN +=
 #! Extra options passed to "cargo build" or "cargo run"
@@ -200,10 +216,16 @@ endif
 
 # Set system paths.
 ifeq ($(HOST_SYSTEM):$(WIN32),Windows:ON)
-    export PATH := $(subst /,\,$(CMAKE_TRIPLE_DIR)/bin;$(CMAKE_TRIPLE_DIR)/lib;$(CARGO_TARGET_OUT_DIR));$(PATH)
+    _s := $(call join_paths,$(CMAKE_PREFIX_SUBDIRS),bin lib)$(PATHSEP)
+    ifeq ($(findstring $(_s),$(PATH)),)
+        export PATH := $(_s)$(PATH)
+    endif
 else ifeq ($(HOST_TARGET),$(CARGO_TARGET))
-    export PATH := $(CMAKE_TRIPLE_DIR)/bin:$(CARGO_TARGET_OUT_DIR):$(PATH)
-    export LD_LIBRARY_PATH := $(CMAKE_TRIPLE_DIR)/lib:$(LD_LIBRARY_PATH)
+    _s := $(call join_paths,$(CMAKE_PREFIX_SUBDIRS),bin)$(PATHSEP)
+    ifeq ($(findstring $(_s),$(PATH)),)
+        export PATH := $(_s)$(PATH)
+        export LD_LIBRARY_PATH := $(call join_paths,$(CMAKE_PREFIX_SUBDIRS),lib/pkgconfig)$(PATHSEP)$(LD_LIBRARY_PATH)
+    endif
 endif
 
 # ==============================================================================

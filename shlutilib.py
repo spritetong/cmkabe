@@ -717,7 +717,7 @@ class TargetParser:
     ENV_SUFFIXES = ('eabi', 'eabihf', 'llvm',)
 
     RUST_ARCH_MAP = {
-        'arm': 'armv7', # Upgrade arm to armv7
+        'arm': 'armv7',  # Upgrade arm to armv7
         'armv7': 'armv7',
         'armv7a': 'armv7',
         'thumb': 'thumbv7neon',
@@ -800,7 +800,8 @@ class TargetParser:
             target_cmake_dir or (self.target_dir + '/cmake')))
         self.cmake_target_prefix = self.normpath(os.path.abspath(
             cmake_target_prefix or (self.target_cmake_dir + '/output')))
-        self.cmake_triple_dir = ''
+        self.cmake_prefix_triple = ''
+        self.cmake_prefix_subdirs = []
         self.cargo_target = cargo_target
         self.zig_target = zig_target
         self.target_cc = target_cc
@@ -836,7 +837,7 @@ class TargetParser:
         # Zig
         self.zig = False
         self.zig_root = ''
-        self.zig_include_dirs = []
+        self.zig_libc_includes = []
         self.zig_cc_dir = ''
 
     @ classmethod
@@ -1014,8 +1015,6 @@ class TargetParser:
         self.target_is_native = self.target in ('', 'native')
         if self.target_is_native:
             self.target = self.host_target
-        self.cmake_triple_dir = '{}/{}'.format(
-            self.cmake_target_prefix, self.target)
 
         (self.arch, self.vendor, self.os, self.env) = (
             self.parse_triple(self.target))
@@ -1104,6 +1103,15 @@ class TargetParser:
             self.cargo_target_dir = '{}/{}'.format(
                 self.target_dir, self.target)
 
+        self.cmake_prefix_triple = '{}/{}'.format(
+            self.cmake_target_prefix, self.target)
+        # Add the CMake target as a subdirectory.
+        self.cmake_prefix_subdirs.clear()
+        self.cmake_prefix_subdirs.append(self.cmake_prefix_triple)
+        # If the Cargo target is not equal to the CMake target, add it as a subdirectory.
+        if self.target != self.cargo_target:
+            self.cmake_prefix_subdirs.append(
+                '{}/{}'.format(self.cmake_target_prefix, self.cargo_target))
         return self
 
     def _cmake_init(self):
@@ -1123,13 +1131,13 @@ class TargetParser:
             raise FileNotFoundError('`zig` is not found')
         self.zig_root = self.normpath(
             os.path.abspath(os.path.dirname(zig_path)))
-        self.zig_include_dirs.clear()
+        self.zig_libc_includes.clear()
         zig_os_family = 'windows' if self.win32 else (
             'macos' if self.apple else 'linux')
         for include in ['/lib/libc/include/any-{}-any'.format(zig_os_family),
                         '/lib/libc/include/{}'.format(self.zig_target),
                         '/lib/include',]:
-            self.zig_include_dirs.append(self.zig_root + include)
+            self.zig_libc_includes.append(self.zig_root + include)
 
         self.zig_cc_dir = self.normpath(os.path.join(
             self.target_dir, 'zig', self.host_target))
@@ -1143,11 +1151,14 @@ class TargetParser:
             # Compile wrapper
             subprocess.run(['zig', 'cc', '-s', '-Os', '-o',
                            exe, src], shell=True, check=True)
+            os.chmod(exe, 0o755)
             for file in glob.glob(os.path.join(dir, exe + '.*')):
                 os.remove(file)
             for name in ['ar', 'cc', 'c++', 'dlltool', 'lib', 'ranlib', 'objcopy', 'rc']:
-                shutil.copy2(exe, os.path.join(
-                    dir, 'zig-' + name + self.exe_ext))
+                dst = os.path.join(
+                    dir, 'zig-' + name + self.exe_ext)
+                shutil.copy2(exe, dst)
+                os.chmod(dst, 0o755)
 
     def _cc_init(self):
         if not os.path.isfile(self.target_cc):
@@ -1205,8 +1216,17 @@ class TargetParser:
                 self.target_cmake_dir))
             fwrite(f, 'override CMAKE_TARGET_PREFIX = {}\n'.format(
                 self.cmake_target_prefix))
-            fwrite(f, 'override CMAKE_TRIPLE_DIR = {}\n'.format(
-                self.cmake_triple_dir))
+            fwrite(f, 'override CMAKE_PREFIX_TRIPLE = {}\n'.format(
+                self.cmake_prefix_triple))
+            fwrite(f, 'override CMAKE_PREFIX_SUBDIRS = {}\n'.format(
+                ' '.join(self.cmake_prefix_subdirs)))
+            fwrite(f, 'override CMAKE_PREFIX_BINS = {}\n'.format(
+                ' '.join(map(lambda x: x + '/bin', self.cmake_prefix_subdirs))))
+            fwrite(f, 'override CMAKE_PREFIX_LIBS = {}\n'.format(
+                ' '.join(map(lambda x: x + '/lib', self.cmake_prefix_subdirs))))
+            fwrite(f, 'override CMAKE_PREFIX_INCLUDES = {}\n'.format(
+                ' '.join(map(lambda x: x + '/include', self.cmake_prefix_subdirs))))
+
             fwrite(f, '\n')
 
             fwrite(f, '# Cargo\n')
@@ -1260,8 +1280,6 @@ class TargetParser:
             fwrite(f, 'override ZIG_TARGET = {}\n'.format(self.zig_target))
             fwrite(f, 'override ZIG_CC_DIR = {}\n'.format(self.zig_cc_dir))
             fwrite(f, 'override ZIG_ROOT = {}\n'.format(self.zig_root))
-            fwrite(f, 'override ZIG_INCLUDE_DIRS = {}\n'.format(
-                os.pathsep.join(self.zig_include_dirs)))
             fwrite(f, '\n')
 
             fwrite(f, '# Target related conditions\n')
@@ -1290,7 +1308,15 @@ class TargetParser:
             fwrite(f, 'set(TARGET_PREFIX "{}")\n'.format(
                 self.cmake_target_prefix))
             fwrite(f, 'set(TARGET_PREFIX_TRIPLE "{}")\n'.format(
-                self.cmake_triple_dir))
+                self.cmake_prefix_triple))
+            fwrite(f, 'set(TARGET_PREFIX_SUBDIRS {})\n'.format(
+                ' '.join(map(lambda x: '"{}"'.format(x), self.cmake_prefix_subdirs))))
+            fwrite(f, 'set(TARGET_PREFIX_BINS {})\n'.format(
+                ' '.join(map(lambda x: '"{}/bin"'.format(x), self.cmake_prefix_subdirs))))
+            fwrite(f, 'set(TARGET_PREFIX_LIBS {})\n'.format(
+                ' '.join(map(lambda x: '"{}/lib"'.format(x), self.cmake_prefix_subdirs))))
+            fwrite(f, 'set(TARGET_PREFIX_INCLUDES {})\n'.format(
+                ' '.join(map(lambda x: '"{}/include"'.format(x), self.cmake_prefix_subdirs))))
             fwrite(f, '\n')
 
             fwrite(f, '# Cargo\n')
@@ -1340,8 +1366,6 @@ class TargetParser:
             fwrite(f, 'set(ZIG_TARGET "{}")\n'.format(self.zig_target))
             fwrite(f, 'set(ZIG_CC_DIR "{}")\n'.format(self.zig_cc_dir))
             fwrite(f, 'set(ZIG_ROOT "{}")\n'.format(self.zig_root))
-            fwrite(f, 'set(ZIG_INCLUDE_DIRS {})\n'.format(
-                ' '.join(map(lambda x: '"{}"'.format(x), self.zig_include_dirs or [""]))))
             fwrite(f, '\n')
 
             fwrite(f, '# Target related conditions\n')
@@ -1372,6 +1396,8 @@ class TargetParser:
         elif self.zig:
             cc_exports.append(
                 'ZIG_WRAPPER_TARGET = {}'.format(self.zig_target))
+            cc_exports.append(
+                'ZIG_LIBC_INCLUDES = {}'.format(os.pathsep.join(self.zig_libc_includes)))
             linker = '{}/zig-cc{}'.format(self.zig_cc_dir, self.exe_ext)
             ar = '{}/zig-ar{}'.format(self.zig_cc_dir, self.exe_ext)
             cc = '{}/zig-cc{}'.format(self.zig_cc_dir, self.exe_ext)
@@ -1441,23 +1467,35 @@ class TargetParser:
             fwrite(f, 'export PKG_CONFIG_ALLOW_CROSS = {}\n'.format(
                    1 if self.host_target != self.cargo_target else 0))
             pkg_config_key = 'PKG_CONFIG_PATH_' + cargo_target
-            pkg_config_path = os.pathsep + \
-                '$(CMAKE_TRIPLE_DIR)/lib/pkgconfig' + os.pathsep
-            fwrite(f, 'ifeq ($(findstring {},$({})),)\n'.format(
-                pkg_config_path, pkg_config_key))
-            fwrite(f, '    export {} := {}$({})\n'.format(
-                pkg_config_key, pkg_config_path, pkg_config_key))
+            pkg_config_path = os.pathsep + os.pathsep.join(map(
+                lambda x: '{}/lib/pkgconfig'.format(x), self.cmake_prefix_subdirs)) + os.pathsep
+            fwrite(f, '_s = {}\n'.format(pkg_config_path))
+            fwrite(f, 'ifeq ($(findstring $(_s),$({})),)\n'.format(pkg_config_key))
+            fwrite(f, '    export {} := $(_s)$({})\n'.format(
+                pkg_config_key, pkg_config_key))
             fwrite(f, 'endif\n')
             fwrite(f, '\n')
 
             fwrite(f, '# Export variables for Cargo build.rs and CMake\n')
             fwrite(f, 'export CARGO_WORKSPACE_DIR = {}\n'.format(
                 self.workspace_dir))
-            fwrite(f, 'export CMAKE_TARGET_PREFIX = {}\n'.format(
-                self.cmake_target_prefix))
             fwrite(f, 'export CMKABE_TARGET = {}\n'.format(
                 'native' if self.target_is_native else self.target))
-            fwrite(f, 'export CMKABE_TARGET_CC = {}\n'.format(self.target_cc))
+            fwrite(f, 'export CMKABE_TARGET_DIR = {}\n'.format(
+                self.target_dir))
+            fwrite(f, 'export CMKABE_TARGET_CMAKE_DIR = {}\n'.format(
+                self.target_cmake_dir))
+            fwrite(f, 'export CMKABE_TARGET_PREFIX = {}\n'.format(
+                self.cmake_target_prefix))
+            fwrite(f, 'export CMKABE_TARGET_CC = {}\n'.format(
+                self.target_cc))
+            fwrite(f, 'export CMKABE_CARGO_TARGET = {}\n'.format(
+                self.cargo_target))
+            fwrite(f, 'export CMKABE_ZIG_TARGET = {}\n'.format(
+                self.zig_target))
+            fwrite(f, 'export CMKABE_DEBUG := $(DEBUG)\n')
+            fwrite(f, 'export CMKABE_MINSIZE := $(MINSIZE)\n')
+            fwrite(f, 'export CMKABE_DBGINFO := $(DBGINFO)\n')
             fwrite(f, '\n')
 
         with open(os.path.join(self.cmake_target_dir, '{}.toolchain.cmake'.format(self.host_system)), 'wb') as f:
@@ -1480,24 +1518,47 @@ class TargetParser:
             fwrite(f, 'set(ENV{{PKG_CONFIG_ALLOW_CROSS}} "{}")\n'.format(
                    1 if self.host_target != self.cargo_target else 0))
             pkg_config_key = 'ENV{PKG_CONFIG_PATH}'
-            pkg_config_path = os.pathsep + \
-                '${TARGET_PREFIX_TRIPLE}/lib/pkgconfig' + os.pathsep
-            fwrite(f, 'string(FIND "${}" "{}" _n)\n'.format(
-                pkg_config_key, pkg_config_path))
+            fwrite(f, 'set(_s "{}")\n'.format(pkg_config_path))
+            fwrite(f, 'string(FIND "${}" "${{_s}}" _n)\n'.format(pkg_config_key))
             fwrite(f, 'if(_n EQUAL -1)\n')
-            fwrite(f, '    set({} "{}${}")\n'.format(
-                pkg_config_key, pkg_config_path, pkg_config_key))
+            fwrite(f, '    set({} "${{_s}}${}")\n'.format(
+                pkg_config_key, pkg_config_key))
             fwrite(f, 'endif()\n')
             fwrite(f, '\n')
 
             fwrite(f, '# Export variables for Cargo build.rs and CMake\n')
             fwrite(f, 'set(ENV{{CARGO_WORKSPACE_DIR}} "{}")\n'.format(
                 self.workspace_dir))
-            fwrite(f, 'set(ENV{{CMAKE_TARGET_PREFIX}} "{}")\n'.format(
-                self.cmake_target_prefix))
             fwrite(f, 'set(ENV{{CMKABE_TARGET}} "{}")\n'.format(
                 'native' if self.target_is_native else self.target))
+            fwrite(f, 'set(ENV{{CMKABE_TARGET_DIR}} "{}")\n'.format(
+                self.target_dir))
+            fwrite(f, 'set(ENV{{CMKABE_TARGET_CMAKE_DIR}} "{}")\n'.format(
+                self.target_cmake_dir))
+            fwrite(f, 'set(ENV{{CMKABE_TARGET_PREFIX}} "{}")\n'.format(
+                self.cmake_target_prefix))
             fwrite(f, 'set(ENV{{CMKABE_TARGET_CC}} "{}")\n'.format(
                 self.target_cc))
+            fwrite(f, 'set(ENV{{CMKABE_CARGO_TARGET}} "{}")\n'.format(
+                self.cargo_target))
+            fwrite(f, 'set(ENV{{CMKABE_ZIG_TARGET}} "{}")\n'.format(
+                self.zig_target))
+            fwrite(f, 'if(CMAKE_BUILD_TYPE STREQUAL "Release")\n')
+            fwrite(f, '    set(ENV{CMKABE_DEBUG} OFF)\n')
+            fwrite(f, '    set(ENV{CMKABE_MINSIZE} OFF)\n')
+            fwrite(f, '    set(ENV{CMKABE_DBGINFO} OFF)\n')
+            fwrite(f, 'elseif(CMAKE_BUILD_TYPE STREQUAL "MinSizeRel")\n')
+            fwrite(f, '    set(ENV{CMKABE_DEBUG} OFF)\n')
+            fwrite(f, '    set(ENV{CMKABE_MINSIZE} ON)\n')
+            fwrite(f, '    set(ENV{CMKABE_DBGINFO} OFF)\n')
+            fwrite(f, 'elseif(CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")\n')
+            fwrite(f, '    set(ENV{CMKABE_DEBUG} OFF)\n')
+            fwrite(f, '    set(ENV{CMKABE_MINSIZE} OFF)\n')
+            fwrite(f, '    set(ENV{CMKABE_DBGINFO} ON)\n')
+            fwrite(f, 'else()\n')
+            fwrite(f, '    set(ENV{CMKABE_DEBUG} ON)\n')
+            fwrite(f, '    set(ENV{CMKABE_MINSIZE} OFF)\n')
+            fwrite(f, '    set(ENV{CMKABE_DBGINFO} ON)\n')
+            fwrite(f, 'endif()\n')
             fwrite(f, '\n')
         return self
