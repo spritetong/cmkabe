@@ -16,8 +16,13 @@ cmake_minimum_required(VERSION 3.16)
 if(NOT DEFINED CMKABE_HOME)
 set(CMKABE_HOME "${CMAKE_CURRENT_LIST_DIR}")
 
-# Windows ARCH -> Rust ARCH
-set(__WIN_ARCH_MAP "arm64=aarch64;amd64=x86_64;x64=x86_64;x86=i686;win32=i686")
+# if `TARGET_IS_NATIVE` is `ON`, return `native`; otherwise, return `${TARGET}`.
+set(CMKABE_TARGET "native")
+
+# `CMAKE_BUILD_TYPE`
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE "Debug")
+endif()
 
 # CMAKE_HOST_SYSTEM_PROCESSOR
 if(NOT CMAKE_HOST_SYSTEM_PROCESSOR)
@@ -35,21 +40,6 @@ if(NOT CMAKE_HOST_SYSTEM_PROCESSOR)
             OUTPUT_STRIP_TRAILING_WHITESPACE
         )
     endif()
-endif()
-
-# CMAKE_BUILD_TYPE
-if(NOT CMAKE_BUILD_TYPE)
-    set(CMAKE_BUILD_TYPE "Debug")
-endif()
-
-# CMKABE_PS: the path separator, ";" on Windows, ":" on Linux
-# CMKABE_EXE_EXT: default extension for executables
-if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Windows")
-    set(CMKABE_PS ";")
-    set(CMKABE_EXE_EXT ".exe")
-else()
-    set(CMKABE_PS ":")
-    set(CMKABE_EXE_EXT "")
 endif()
 
 # Find the value of a key in a key-value map string.
@@ -171,15 +161,6 @@ function(cmkabe_find_in_ancesters directory name result)
     set(${result} "" PARENT_SCOPE)
 endfunction()
 
-# Get the target architecture from the system processor.
-function(cmkabe_target_arch system_name system_processor result)
-    cmkabe_camel_case_to_lower_underscore("${system_processor}" arch)
-    if(system_name STREQUAL "Windows")
-        cmkabe_value_from_map("${__WIN_ARCH_MAP}" "${arch}" "${arch}" arch)
-    endif()
-    set(${result} "${arch}" PARENT_SCOPE)
-endfunction()
-
 # Set C++ standard (11, 14, or 17 ...)
 function(cmkabe_set_cxx_standard cxx_standard)
     set(CMAKE_CXX_STANDARD ${cxx_standard} CACHE STRING "C++ stardard version." FORCE)
@@ -272,27 +253,36 @@ function(cmkabe_install_rust_dlls)
     endforeach()
 endfunction()
 
+# Function:
+# cmkabe_make_options(result)
+#
+# Returns the common options to pass to the `make` command.
+function(cmkabe_make_options result)
+    set(${result}
+        TARGET=${CMKABE_TARGET}
+        TARGET_DIR=${TARGET_DIR}
+        TARGET_CMAKE_DIR=${TARGET_CMAKE_DIR}
+        CMAKE_TARGET_PREFIX=${TARGET_PREFIX}
+        TARGET_CC=${TARGET_CC}
+        CARGO_TARGET=${CARGO_TARGET}
+        ZIG_TARGET=${ZIG_TARGET}
+        # The following three options are not used to build dependency scripts.
+        DEBUG=$ENV{CMKABE_DEBUG}
+        MINSIZE=$ENV{CMKABE_MINSIZE}
+        DBGINFO=$ENV{CMKABE_DBGINFO}
+        PARENT_SCOPE
+    )
+endfunction()
+
 function(_cmkabe_build_make_deps)
     if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Windows")
-        set(python "python")
+        set(python "python.exe")
     else()
         set(python "python3")
     endif()
-    if(TARGET_IS_NATIVE)
-        set(_target "native")
-    else()
-        set(_target "${TARGET}")
-    endif()
+    cmkabe_make_options(options)
     execute_process(
-        COMMAND ${python} ${CMAKE_CURRENT_LIST_DIR}/shlutil.py build_target_deps
-            WORKSPACE_DIR=${WORKSPACE_DIR}
-            TARGET=${_target}
-            TARGET_DIR=${TARGET_DIR}
-            TARGET_CMAKE_DIR=${TARGET_CMAKE_DIR}
-            TARGET_CC=${TARGET_CC}
-            CMAKE_TARGET_PREFIX=${TARGET_PREFIX}
-            CARGO_TARGET=${CARGO_TARGET}
-            ZIG_TARGET=${ZIG_TARGET}
+        COMMAND ${python} ${CMAKE_CURRENT_LIST_DIR}/shlutil.py build_target_deps ${options}
         OUTPUT_VARIABLE output
         OUTPUT_STRIP_TRAILING_WHITESPACE
     )

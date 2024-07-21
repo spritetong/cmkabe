@@ -775,7 +775,8 @@ class TargetParser:
                  cmake_target_prefix='',
                  cargo_target='',
                  zig_target='',
-                 target_cc='',):
+                 target_cc='',
+                 **_args):
         host_target_info = self.host_target_info()
 
         # Const variables
@@ -1206,15 +1207,32 @@ class TargetParser:
         with open(os.path.join(self.target_cmake_dir, '{}.host.mk'.format(self.host_system)), 'wb') as f:
             fwrite(f, 'override HOST_SYSTEM = {}\n'.format(self.host_system))
             fwrite(f, 'override HOST_TARGET = {}\n'.format(self.host_target))
+            fwrite(f, '\n')
+            fwrite(f, '# Constants for the host platform\n')
+            fwrite(f, 'override HOST_SEP := $(strip {})\n'.format(os.sep))
+            fwrite(f, 'override HOST_PATHSEP = {}\n'.format(os.pathsep))
+            fwrite(f, 'override HOST_EXE_EXT = {}\n'.format(
+                '.exe' if self.host_system == 'Windows' else ''))
 
         with open(os.path.join(self.target_cmake_dir, '{}.host.cmake'.format(self.host_system)), 'wb') as f:
             fwrite(f, 'set(HOST_SYSTEM "{}")\n'.format(self.host_system))
             fwrite(f, 'set(HOST_TARGET "{}")\n'.format(self.host_target))
+            fwrite(f, '\n')
+            fwrite(f, '# Constants for the host platform\n')
+            fwrite(f, 'set(HOST_SEP "{}")\n'.format(
+                os.sep.replace('\\', '\\\\')))
+            fwrite(f, 'set(HOST_PATHSEP "{}")\n'.format(os.pathsep))
+            fwrite(f, 'set(HOST_EXE_EXT "{}")\n'.format(
+                '.exe' if self.host_system == 'Windows' else ''))
 
         with open(os.path.join(self.cmake_target_dir, '{}.vars.mk'.format(self.host_system)), 'wb') as f:
-            fwrite(f, '# Host\n')
-            fwrite(f, 'override HOST_SYSTEM = {}\n'.format(self.host_system))
-            fwrite(f, 'override HOST_TARGET = {}\n'.format(self.host_target))
+            fwrite(f, '# Constants for the target platform\n')
+            fwrite(f, 'override TARGET_SEP := $(strip {})\n'.format(
+                '\\' if self.win32 else '/'))
+            fwrite(f, 'override TARGET_PATHSEP = {}\n'.format(
+                ';' if self.win32 else ':'))
+            fwrite(f, 'override TARGET_EXE_EXT = {}\n'.format(
+                '.exe' if self.win32 else ''))
             fwrite(f, '\n')
 
             fwrite(f, '# Constant directories\n')
@@ -1234,7 +1252,6 @@ class TargetParser:
                 ' '.join(map(lambda x: x + '/lib', self.cmake_prefix_subdirs))))
             fwrite(f, 'override CMAKE_PREFIX_INCLUDES = {}\n'.format(
                 ' '.join(map(lambda x: x + '/include', self.cmake_prefix_subdirs))))
-
             fwrite(f, '\n')
 
             fwrite(f, '# Cargo\n')
@@ -1300,12 +1317,15 @@ class TargetParser:
             fwrite(f, 'override TARGET_IS_UNIX = {}\n'.format(onoff(self.unix)))
             fwrite(f, 'override TARGET_IS_APPLE = {}\n'.format(onoff(self.apple)))
             fwrite(f, 'override TARGET_IS_IOS = {}\n'.format(onoff(self.ios)))
-            fwrite(f, '\n')
 
         with open(os.path.join(self.cmake_target_dir, '{}.vars.cmake'.format(self.host_system)), 'wb') as f:
-            fwrite(f, '# Host\n')
-            fwrite(f, 'set(HOST_SYSTEM "{}")\n'.format(self.host_system))
-            fwrite(f, 'set(HOST_TARGET "{}")\n'.format(self.host_target))
+            fwrite(f, '# Constants for the target platform\n')
+            fwrite(f, 'set(TARGET_SEP "{}")\n'.format(
+                '\\\\' if self.win32 else '/'))
+            fwrite(f, 'set(TARGET_PATHSEP "{}")\n'.format(
+                ';' if self.win32 else ':'))
+            fwrite(f, 'set(TARGET_EXE_EXT "{}")\n'.format(
+                '.exe' if self.win32 else ''))
             fwrite(f, '\n')
 
             fwrite(f, '# Constant directories\n')
@@ -1388,7 +1408,6 @@ class TargetParser:
             fwrite(f, '\n')
             fwrite(f, '# Suppress warnings\n')
             fwrite(f, 'set(ignoreMe "${CMAKE_VERBOSE_MAKEFILE}")\n')
-            fwrite(f, '\n')
 
         cc_options = []
         cc_exports = []
@@ -1527,7 +1546,6 @@ class TargetParser:
             fwrite(f, 'export CMKABE_DEBUG := $(DEBUG)\n')
             fwrite(f, 'export CMKABE_MINSIZE := $(MINSIZE)\n')
             fwrite(f, 'export CMKABE_DBGINFO := $(DBGINFO)\n')
-            fwrite(f, '\n')
 
         with open(os.path.join(self.cmake_target_dir, '{}.toolchain.cmake'.format(self.host_system)), 'wb') as f:
             if cc_exports:
@@ -1591,5 +1609,5 @@ class TargetParser:
             fwrite(f, '    set(ENV{CMKABE_MINSIZE} OFF)\n')
             fwrite(f, '    set(ENV{CMKABE_DBGINFO} ON)\n')
             fwrite(f, 'endif()\n')
-            fwrite(f, '\n')
+
         return self

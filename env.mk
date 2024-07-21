@@ -34,6 +34,9 @@ define _cmkabe_version_check_
     endif
 endef
 
+# If `$(TARGET_IS_NATIVE)` is true, return `native`; otherwise, return `$(TARGET)`.
+CMKABE_TARGET = $(call bsel,$(TARGET_IS_NATIVE),native,$(TARGET))
+
 # bool(value:bool,default:bool)
 bool = $(call _bool_norm_,$(1),$(if $(2),$(2),OFF))
 _bool_upper_ = $(subst a,A,$(subst e,E,$(subst f,F,$(subst l,L,$(subst o,O,$(subst n,N,$(subst r,R,$(subst s,S,$(subst t,T,$(subst u,U,$(1)))))))))))

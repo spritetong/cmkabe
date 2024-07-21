@@ -44,6 +44,11 @@ endif()
 include("${DOT_TARGET_DIR}/${CMAKE_HOST_SYSTEM_NAME}.vars.cmake")
 include("${DOT_TARGET_DIR}/${CMAKE_HOST_SYSTEM_NAME}.toolchain.cmake")
 
+# Update `CMKABE_TARGET` 
+if(NOT TARGET_IS_NATIVE)
+    set(CMKABE_TARGET "${TARGET}")
+endif()
+
 if(TARGET_IS_ANDROID)
     # Android
 
