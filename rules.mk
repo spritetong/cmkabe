@@ -46,6 +46,9 @@ cmake_build_target_deps = $(SHLUTIL) build_target_deps \
     ZIG_TARGET=$(ZIG_TARGET) \
     TARGET_CC=$(TARGET_CC) \
 
+# Strip the target triple
+override TARGET := $(strip $(TARGET))
+
 # include $(HOST_SYSTEM).host.mk
 DOT_HOST_MK = $(TARGET_CMAKE_DIR)/$(HOST_SYSTEM).host.mk
 ifneq ($(filter cmake-init,$(if $(wildcard $(DOT_HOST_MK)),,cmake-init) $(MAKECMDGOALS)),)

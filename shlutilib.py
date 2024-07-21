@@ -1077,8 +1077,8 @@ class TargetParser:
         # Cross compile.
         self.zig = bool(self.zig_target) or (os.path.splitext(
             os.path.basename(self.target_cc))[0] in ('zig', 'zig-cc',))
-        if (not self.target_is_native and not self.zig and not self.target_cc and
-                self.cargo_target != self.host_target):
+        if (not self.target_is_native and not self.android and not self.zig and
+                not self.target_cc and self.cargo_target != self.host_target):
             import shutil
             # Find gcc cross-compiler.
             target_cc = shutil.which(
@@ -1159,9 +1159,10 @@ class TargetParser:
                     dir, 'zig-' + name + self.exe_ext)
                 shutil.copy2(exe, dst)
                 os.chmod(dst, 0o755)
-        
+
         # Override the target CC for Zig.
-        self.target_cc = self.normpath(self.zig_cc_dir + '/zig-cc' + self.exe_ext)
+        self.target_cc = self.normpath(
+            self.zig_cc_dir + '/zig-cc' + self.exe_ext)
 
     def _cc_init(self):
         if not os.path.isfile(self.target_cc):
@@ -1186,7 +1187,7 @@ class TargetParser:
     def build(self):
         if self.android:
             self._android_init()
-        if self.zig:
+        elif self.zig:
             self._zig_init()
         elif self.target_cc:
             self._cc_init()

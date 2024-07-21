@@ -161,7 +161,7 @@ WSL2WIN = $(SHLUTIL) wsl2win_path
 
 ifeq ($(HOST_SYSTEM),Windows)
     exists   = (IF NOT EXIST $(subst /,\,$(1)) $(ERR))
-    set_env  = set $(1)=$(2)
+    set_env  = (set $(1)=$(2))
     wsl_run  = wsl --shell-type login$(if $(WSL_DISTRO), -d "$(WSL_DISTRO)",)$(if $(WSL_USER), -u "$(WSL_USER)",) $(1)
     xargs_do = (FOR /F "tokens=*" %%x IN ('$(1)') DO $(subst {},%%x,$(2)))
 
