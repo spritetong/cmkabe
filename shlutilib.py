@@ -1159,6 +1159,9 @@ class TargetParser:
                     dir, 'zig-' + name + self.exe_ext)
                 shutil.copy2(exe, dst)
                 os.chmod(dst, 0o755)
+        
+        # Override the target CC for Zig.
+        self.target_cc = self.normpath(self.zig_cc_dir + '/zig-cc' + self.exe_ext)
 
     def _cc_init(self):
         if not os.path.isfile(self.target_cc):
@@ -1195,6 +1198,10 @@ class TargetParser:
         def onoff(b):
             return 'ON' if b else 'OFF'
 
+        def join_paths(paths, subdirs):
+            return os.pathsep.join(map(lambda x: os.pathsep.join(
+                map(lambda y: '{}/{}'.format(x, y), subdirs)), paths))
+
         with open(os.path.join(self.target_cmake_dir, '{}.host.mk'.format(self.host_system)), 'wb') as f:
             fwrite(f, 'override HOST_SYSTEM = {}\n'.format(self.host_system))
             fwrite(f, 'override HOST_TARGET = {}\n'.format(self.host_target))
@@ -1203,7 +1210,7 @@ class TargetParser:
             fwrite(f, 'set(HOST_SYSTEM "{}")\n'.format(self.host_system))
             fwrite(f, 'set(HOST_TARGET "{}")\n'.format(self.host_target))
 
-        with open(os.path.join(self.cmake_target_dir, '{}.target.mk'.format(self.host_system)), 'wb') as f:
+        with open(os.path.join(self.cmake_target_dir, '{}.vars.mk'.format(self.host_system)), 'wb') as f:
             fwrite(f, '# Host\n')
             fwrite(f, 'override HOST_SYSTEM = {}\n'.format(self.host_system))
             fwrite(f, 'override HOST_TARGET = {}\n'.format(self.host_target))
@@ -1294,7 +1301,7 @@ class TargetParser:
             fwrite(f, 'override TARGET_IS_IOS = {}\n'.format(onoff(self.ios)))
             fwrite(f, '\n')
 
-        with open(os.path.join(self.cmake_target_dir, '{}.target.cmake'.format(self.host_system)), 'wb') as f:
+        with open(os.path.join(self.cmake_target_dir, '{}.vars.cmake'.format(self.host_system)), 'wb') as f:
             fwrite(f, '# Host\n')
             fwrite(f, 'set(HOST_SYSTEM "{}")\n'.format(self.host_system))
             fwrite(f, 'set(HOST_TARGET "{}")\n'.format(self.host_target))
@@ -1377,6 +1384,9 @@ class TargetParser:
             fwrite(f, 'set(TARGET_IS_UNIX {})\n'.format(onoff(self.unix)))
             fwrite(f, 'set(TARGET_IS_APPLE {})\n'.format(onoff(self.apple)))
             fwrite(f, 'set(TARGET_IS_IOS {})\n'.format(onoff(self.ios)))
+            fwrite(f, '\n')
+            fwrite(f, '# Suppress warnings\n')
+            fwrite(f, 'set(ignoreMe "${CMAKE_VERBOSE_MAKEFILE}")\n')
             fwrite(f, '\n')
 
         cc_options = []
@@ -1467,14 +1477,34 @@ class TargetParser:
             fwrite(f, 'export PKG_CONFIG_ALLOW_CROSS = {}\n'.format(
                    1 if self.host_target != self.cargo_target else 0))
             pkg_config_key = 'PKG_CONFIG_PATH_' + cargo_target
-            pkg_config_path = os.pathsep + os.pathsep.join(map(
-                lambda x: '{}/lib/pkgconfig'.format(x), self.cmake_prefix_subdirs)) + os.pathsep
+            pkg_config_path = os.pathsep + join_paths(
+                self.cmake_prefix_subdirs, ['lib/pkgconfig']) + os.pathsep
             fwrite(f, '_s = {}\n'.format(pkg_config_path))
             fwrite(f, 'ifeq ($(findstring $(_s),$({})),)\n'.format(pkg_config_key))
             fwrite(f, '    export {} := $(_s)$({})\n'.format(
                 pkg_config_key, pkg_config_key))
             fwrite(f, 'endif\n')
             fwrite(f, '\n')
+
+            fwrite(f, '# Set system paths.\n')
+            if self.host_system == 'Windows' and self.win32:
+                system_path = os.pathsep + join_paths(
+                    self.cmake_prefix_subdirs, ['bin', 'lib']) + os.pathsep
+                fwrite(f, '_s = {}\n'.format(system_path))
+                fwrite(f, 'ifeq ($(findstring $(_s),$(PATH)),)\n')
+                fwrite(f, '    export PATH := $(_s)$(PATH)\n')
+                fwrite(f, 'endif\n')
+                fwrite(f, '\n')
+            elif self.host_target == self.cargo_target:
+                system_path = os.pathsep + join_paths(
+                    self.cmake_prefix_subdirs, ['lib']) + os.pathsep
+                fwrite(f, '_s = {}\n'.format(system_path))
+                fwrite(f, 'ifeq ($(findstring $(_s),$(PATH)),)\n')
+                fwrite(f, '    export PATH := $(_s)$(PATH)\n')
+                fwrite(f, '    export LD_LIBRARY_PATH := {}{}$(LD_LIBRARY_PATH)\n'.format(
+                    join_paths(self.cmake_prefix_subdirs, ['lib']), os.pathsep))
+                fwrite(f, 'endif\n')
+                fwrite(f, '\n')
 
             fwrite(f, '# Export variables for Cargo build.rs and CMake\n')
             fwrite(f, 'export CARGO_WORKSPACE_DIR = {}\n'.format(

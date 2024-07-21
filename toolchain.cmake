@@ -27,7 +27,6 @@ endif()
 
 # `HOST_TARGET`
 set(DOT_HOST_CMAKE "${TARGET_CMAKE_DIR}/${CMAKE_HOST_SYSTEM_NAME}.host.cmake")
-
 if(NOT EXISTS "${DOT_HOST_CMAKE}")
     _cmkabe_build_make_deps()
 endif()
@@ -39,11 +38,10 @@ if("${TARGET}" MATCHES "^(|native)$")
 else()
     set(DOT_TARGET_DIR "${TARGET_CMAKE_DIR}/${TARGET}")
 endif()
-
-if(NOT EXISTS "${DOT_TARGET_DIR}/${CMAKE_HOST_SYSTEM_NAME}.target.cmake")
+if(NOT EXISTS "${DOT_TARGET_DIR}/${CMAKE_HOST_SYSTEM_NAME}.vars.cmake")
     _cmkabe_build_make_deps()
 endif()
-include("${DOT_TARGET_DIR}/${CMAKE_HOST_SYSTEM_NAME}.target.cmake")
+include("${DOT_TARGET_DIR}/${CMAKE_HOST_SYSTEM_NAME}.vars.cmake")
 include("${DOT_TARGET_DIR}/${CMAKE_HOST_SYSTEM_NAME}.toolchain.cmake")
 
 if(TARGET_IS_ANDROID)

@@ -55,21 +55,21 @@ ifneq ($(filter cmake-init,$(if $(wildcard $(DOT_HOST_MK)),,cmake-init) $(MAKECM
 endif
 include $(DOT_HOST_MK)
 
-DOT_TARGET_DIR := $(TARGET_CMAKE_DIR)/$(if $(filter-out native,$(TARGET)),$(TARGET),$(HOST_TARGET).native)
-DOT_TARGET_MK = $(DOT_TARGET_DIR)/$(HOST_SYSTEM).target.mk
-DOT_TOOLCHAIN_MK = $(DOT_TARGET_DIR)/$(HOST_SYSTEM).toolchain.mk
+DOT_VARS_DIR := $(TARGET_CMAKE_DIR)/$(if $(filter-out native,$(TARGET)),$(TARGET),$(HOST_TARGET).native)
+DOT_VARS_MK = $(DOT_VARS_DIR)/$(HOST_SYSTEM).vars.mk
+DOT_TOOLCHAIN_MK = $(DOT_VARS_DIR)/$(HOST_SYSTEM).toolchain.mk
 
 # Auto rebuild dependencies.
-$(DOT_TARGET_MK): $(addprefix $(CMKABE_HOME)/,shlutilib.py zig-wrapper.zig)
+$(DOT_VARS_MK): $(addprefix $(CMKABE_HOME)/,shlutilib.py zig-wrapper.zig)
 	@$(cmake_build_target_deps)
 
-# include $(HOST_SYSTEM).target.mk
-ifeq ($(wildcard $(DOT_TARGET_MK)),)
+# include $(HOST_SYSTEM).vars.mk
+ifeq ($(wildcard $(DOT_VARS_MK)),)
     ifneq ($(shell $(cmake_build_target_deps) >$(NULL) || echo 1),)
         $(error Failed to build target: $(TARGET))
     endif
 endif
-include $(DOT_TARGET_MK)
+include $(DOT_VARS_MK)
 ifeq ($(CMAKE_TARGET_DIR),)
     $(error Can not parse target: $(TARGET))
 endif
@@ -212,20 +212,6 @@ CARGO_TARGET_OUT_DIR ?=
 # Clean the $(CMAKE_TARGET_PREFIX) directory by default.
 ifeq ($(call bool,$(CMAKE_AUTO_CLEAN_TARGET)),ON)
     CMAKE_OUTPUT_DIRS += $(CMAKE_TARGET_PREFIX)
-endif
-
-# Set system paths.
-ifeq ($(HOST_SYSTEM):$(WIN32),Windows:ON)
-    _s := $(call join_paths,$(CMAKE_PREFIX_SUBDIRS),bin lib)$(PATHSEP)
-    ifeq ($(findstring $(_s),$(PATH)),)
-        export PATH := $(_s)$(PATH)
-    endif
-else ifeq ($(HOST_TARGET),$(CARGO_TARGET))
-    _s := $(call join_paths,$(CMAKE_PREFIX_SUBDIRS),bin)$(PATHSEP)
-    ifeq ($(findstring $(_s),$(PATH)),)
-        export PATH := $(_s)$(PATH)
-        export LD_LIBRARY_PATH := $(call join_paths,$(CMAKE_PREFIX_SUBDIRS),lib/pkgconfig)$(PATHSEP)$(LD_LIBRARY_PATH)
-    endif
 endif
 
 # ==============================================================================
