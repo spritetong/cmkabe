@@ -1510,19 +1510,21 @@ class TargetParser:
             if self.host_system == 'Windows' and self.win32:
                 system_path = os.pathsep + join_paths(
                     self.cmake_prefix_subdirs, ['bin', 'lib']) + os.pathsep
-                fwrite(f, '_s = {}\n'.format(system_path))
+                fwrite(f, '_s := {}$(CARGO_TARGET_OUT_DIR){}\n'.format(
+                    os.pathsep, system_path.replace('/', os.sep)))
                 fwrite(f, 'ifeq ($(findstring $(_s),$(PATH)),)\n')
                 fwrite(f, '    export PATH := $(_s)$(PATH)\n')
                 fwrite(f, 'endif\n')
                 fwrite(f, '\n')
             elif self.host_target == self.cargo_target:
                 system_path = os.pathsep + join_paths(
-                    self.cmake_prefix_subdirs, ['lib']) + os.pathsep
-                fwrite(f, '_s = {}\n'.format(system_path))
+                    self.cmake_prefix_subdirs, ['bin']) + os.pathsep
+                fwrite(f, '_s := {}$(CARGO_TARGET_OUT_DIR){}\n'.format(
+                    os.pathsep, system_path))
                 fwrite(f, 'ifeq ($(findstring $(_s),$(PATH)),)\n')
                 fwrite(f, '    export PATH := $(_s)$(PATH)\n')
-                fwrite(f, '    export LD_LIBRARY_PATH := {}{}$(LD_LIBRARY_PATH)\n'.format(
-                    join_paths(self.cmake_prefix_subdirs, ['lib']), os.pathsep))
+                fwrite(f, '    export LD_LIBRARY_PATH := $(CARGO_TARGET_OUT_DIR){}{}{}$(LD_LIBRARY_PATH)\n'.
+                       format(os.pathsep, join_paths(self.cmake_prefix_subdirs, ['lib']), os.pathsep))
                 fwrite(f, 'endif\n')
                 fwrite(f, '\n')
 
