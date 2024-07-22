@@ -4,6 +4,14 @@ pub fn main() noreturn {
     std.process.exit(zig_wrapper_run() catch 1);
 }
 
+/// Check if `haystack` starts with `needle`.
+fn strStartsWith(haystack: []const u8, needle: []const u8) bool {
+    if (needle.len > haystack.len) {
+        return false;
+    }
+    return std.mem.eql(u8, haystack[0..needle.len], needle);
+}
+
 /// Check if `haystack` ends with `needle`.
 fn strEndsWith(haystack: []const u8, needle: []const u8) bool {
     if (needle.len > haystack.len) {
@@ -46,6 +54,7 @@ fn zig_wrapper_run() !u8 {
     defer argv.deinit();
     try argv.append(zig_exe);
     try argv.append(zig_command);
+
     if ((zig_target.len > 0) and
         (std.mem.eql(u8, zig_command, "cc") or std.mem.eql(u8, zig_command, "c++")))
     {
@@ -54,8 +63,17 @@ fn zig_wrapper_run() !u8 {
         // https://github.com/ziglang/zig/wiki/FAQ#why-do-i-get-illegal-instruction-when-using-with-zig-cc-to-build-c-code
         try argv.append("-fno-sanitize=undefined");
     }
+
+    // Skip the `--target` argument for Clang.
+    var skip = false;
     while (args.next()) |arg| {
-        try argv.append(arg);
+        if (skip) {
+            skip = false;
+        } else if (std.mem.eql(u8, arg, "--target")) {
+            skip = true;
+        } else if (!strStartsWith(arg, "--target=")) {
+            try argv.append(arg);
+        }
     }
 
     // Execute the command.
