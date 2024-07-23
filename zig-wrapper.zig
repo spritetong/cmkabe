@@ -69,9 +69,13 @@ fn zig_wrapper_run() !u8 {
     while (args.next()) |arg| {
         if (skip) {
             skip = false;
-        } else if (std.mem.eql(u8, arg, "--target")) {
+        } else if (std.mem.eql(u8, arg, "--target") or
+            std.mem.eql(u8, arg, "\"--target\""))
+        {
             skip = true;
-        } else if (!strStartsWith(arg, "--target=")) {
+        } else if (!strStartsWith(arg, "--target=") and
+            !strEndsWith(arg, "\"--target="))
+        {
             try argv.append(arg);
         }
     }

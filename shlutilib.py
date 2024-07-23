@@ -766,6 +766,10 @@ class TargetParser:
         'thumbv7neon': 'thumb',
         'aarch64': 'aarch64',
     }
+    ZIG_OS_MAP = {
+        'darwin': 'macos',
+        'ios-sim': 'ios',
+    }
 
     def __init__(self,
                  workspace_dir='',
@@ -1048,6 +1052,14 @@ class TargetParser:
                 self.ZIG_ARCH_MAP.get(self.arch) or self.arch, '', 'linux', self.env)
             # CMake
             self.cmake_generator = 'Ninja'
+        elif self.os == 'linux':
+            self.unix = True
+            # Cargo
+            self.cargo_target = (self.cargo_target or self.join_triple(
+                self.arch, 'unknown', 'linux', self.env))
+            # Zig
+            zig_target = self.join_triple(
+                self.ZIG_ARCH_MAP.get(self.arch) or self.arch, '', 'linux', self.env)
         elif self.vendor == 'apple':
             self.apple = True
             self.unix = True
@@ -1057,15 +1069,8 @@ class TargetParser:
                 self.arch, 'apple', self.os, ''))
             # Zig
             zig_target = self.join_triple(
-                self.ZIG_ARCH_MAP.get(self.arch) or self.arch, '', self.os, 'none')
-        elif self.os == 'linux':
-            self.unix = True
-            # Cargo
-            self.cargo_target = (self.cargo_target or self.join_triple(
-                self.arch, 'unknown', 'linux', self.env))
-            # Zig
-            zig_target = self.join_triple(
-                self.ZIG_ARCH_MAP.get(self.arch) or self.arch, '', 'linux', self.env)
+                self.ZIG_ARCH_MAP.get(self.arch) or self.arch, '',
+                self.ZIG_OS_MAP.get(self.os) or self.os, 'none')
         else:
             self.unix = True
             # Cargo
@@ -1409,12 +1414,14 @@ class TargetParser:
             fwrite(f, '# Suppress warnings\n')
             fwrite(f, 'set(ignoreMe "${CMAKE_VERBOSE_MAKEFILE}")\n')
 
-        cc_options = []
         cc_exports = []
+        cc_options = []
+        linker_options = []
         (linker, ar, cc, cxx, ranlib, strip, rc) = ('', '', '', '', '', '', '')
         if self.android:
             cc_options.append(
                 '--target={}$(ANDROID_SDK_VERSION)'.format(self.android_target))
+            linker_options.extend(map(lambda x: '-C link-arg=' + x, cc_options))
             linker = '{}/clang{}'.format(self.android_ndk_bin, self.exe_ext)
             ar = '{}/llvm-ar{}'.format(self.android_ndk_bin, self.exe_ext)
             cc = '{}/clang{}'.format(self.android_ndk_bin, self.exe_ext)
@@ -1428,6 +1435,14 @@ class TargetParser:
                 'ZIG_WRAPPER_TARGET = {}'.format(self.zig_target))
             cc_exports.append(
                 'ZIG_LIBC_INCLUDES = {}'.format(os.pathsep.join(self.zig_libc_includes)))
+            # `linker-flavor` = gcc: use the cc executable,
+            #     which is typically gcc or clang on many systems.
+            linker_options.append('-C linker-flavor=gcc')
+            # On windows-gnu, linux-musl, and wasi targets:
+            #     https://doc.rust-lang.org/rustc/codegen-options/index.html
+            if ((self.os == 'windows' and self.env == 'gnu') or
+                (self.os == 'linux' and self.env == 'musl') or self.os.startswith('wasi')):
+                linker_options.append('-C link-self-contained=no')
             linker = '{}/zig-cc{}'.format(self.zig_cc_dir, self.exe_ext)
             ar = '{}/zig-ar{}'.format(self.zig_cc_dir, self.exe_ext)
             cc = '{}/zig-cc{}'.format(self.zig_cc_dir, self.exe_ext)
@@ -1465,8 +1480,8 @@ class TargetParser:
             if cc:
                 fwrite(f, '# LINKER\n')
                 fwrite(f, 'export {}_LINKER = {}\n'.format(cargo_target, linker))
-                fwrite(f, 'override {}_RUSTFLAGS += {}\n'.format(cargo_target,
-                                                                 ' '.join(map(lambda x: '-C link-arg=' + x, cc_options))))
+                fwrite(f, 'override {}_RUSTFLAGS += {}\n'.format(
+                    cargo_target, ' '.join(linker_options)))
                 fwrite(f, 'export {}_RUSTFLAGS\n'.format(cargo_target))
                 fwrite(f, '\n')
 
@@ -1480,7 +1495,7 @@ class TargetParser:
                 fwrite(f, 'export STRIP_{} = {}\n'.format(cargo_target, strip))
                 fwrite(f, '\n')
 
-                fwrite(f, '# ARFLAGS, CFLAGS, CXXFLAGS, RANLIBFLAGS, RUSTFLAGS\n')
+                fwrite(f, '# ARFLAGS, CFLAGS, CXXFLAGS, RANLIBFLAGS\n')
                 fwrite(f, 'override ARFLAGS_{} += \n'.format(cargo_target))
                 fwrite(f, 'export ARFLAGS_{}\n'.format(cargo_target))
                 fwrite(f, 'override CFLAGS_{} += {}\n'.format(cargo_target,
@@ -1510,8 +1525,8 @@ class TargetParser:
             if self.host_system == 'Windows' and self.win32:
                 system_path = os.pathsep + join_paths(
                     self.cmake_prefix_subdirs, ['bin', 'lib']) + os.pathsep
-                fwrite(f, '_s := {}$(CARGO_TARGET_OUT_DIR){}\n'.format(
-                    os.pathsep, system_path.replace('/', os.sep)))
+                fwrite(f, '_s := $(subst /,$(SEP),{}$(CARGO_TARGET_OUT_DIR){})\n'.format(
+                    os.pathsep, system_path))
                 fwrite(f, 'ifeq ($(findstring $(_s),$(PATH)),)\n')
                 fwrite(f, '    export PATH := $(_s)$(PATH)\n')
                 fwrite(f, 'endif\n')

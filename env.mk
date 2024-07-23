@@ -108,7 +108,7 @@ exists = test -e $(1)
 
 # Join paths with $(PATHSEP).
 # join_paths(paths:str,subdirs:str)
-join_paths = $(subst /,$(SEP),$(subst $(SPACE)$(PATHSEP),$(PATHSEP),$(foreach I,$(1),$(foreach J,$(2),$(PATHSEP)$I$(SEP)$J))))
+join_paths = $(subst $(SPACE)$(PATHSEP),$(PATHSEP),$(foreach I,$(1),$(foreach J,$(2),$(PATHSEP)$I/$J)))
 
 # Call rmake with options.
 # rmake(options:str)
@@ -119,7 +119,7 @@ try_rmake = $(call bsel,$(call bool,$(RMAKE)),$(call rmake,$(1)),$(call wsl_run,
 
 # Set an environment variable in command line.
 # set_env(key:str,value:str)
-set_env = export $(1)=$(2)
+set_env = export $(1)="$(2)"
 
 # Run a command on WSL Linux.
 # wsl_run(cmd:str)
@@ -163,8 +163,8 @@ WIN2WSL = $(SHLUTIL) win2wsl_path
 WSL2WIN = $(SHLUTIL) wsl2win_path
 
 ifeq ($(HOST_SYSTEM),Windows)
-    exists   = (IF NOT EXIST $(subst /,\,$(1)) $(ERR))
-    set_env  = (set $(1)=$(2))
+    exists   = (IF NOT EXIST $(subst /,$(SEP),$(1)) $(ERR))
+    set_env  = (SET $(1)=$(2))
     wsl_run  = wsl --shell-type login$(if $(WSL_DISTRO), -d "$(WSL_DISTRO)",)$(if $(WSL_USER), -u "$(WSL_USER)",) $(1)
     xargs_do = (FOR /F "tokens=*" %%x IN ('$(1)') DO $(subst {},%%x,$(2)))
 
@@ -175,9 +175,9 @@ ifeq ($(HOST_SYSTEM),Windows)
     OK       = SET _=
     ERR      = cmd.exe /C EXIT 1
 
-    CD       = cd /d
+    CD       = CD /D
     CP       = $(SHLUTIL) cp
-    less     = more $(subst /,\,$(1))
+    less     = more $(subst /,$(SEP),$(1))
     MV       = $(SHLUTIL) mv
     PY       = python.exe
     TOUCH    = $(SHLUTIL) touch
