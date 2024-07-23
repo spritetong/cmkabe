@@ -1143,7 +1143,9 @@ class TargetParser:
         for include in ['/lib/libc/include/any-{}-any'.format(zig_os_family),
                         '/lib/libc/include/{}'.format(self.zig_target),
                         '/lib/include',]:
-            self.zig_libc_includes.append(self.zig_root + include)
+            dir = self.zig_root + include
+            if os.path.isdir(dir):
+                self.zig_libc_includes.append(dir)
 
         self.zig_cc_dir = self.normpath(os.path.join(
             self.target_dir, 'zig', self.host_target))
@@ -1205,9 +1207,38 @@ class TargetParser:
         def onoff(b):
             return 'ON' if b else 'OFF'
 
-        def join_paths(paths, subdirs):
-            return os.pathsep.join(map(lambda x: os.pathsep.join(
-                map(lambda y: '{}/{}'.format(x, y), subdirs)), paths))
+        def join_paths(paths, subdirs=None):
+            return ['/'.join([p, s]) for p in paths for s in subdirs] if subdirs else paths
+
+        def make_export_paths(name, paths, subdirs=None):
+            value = os.pathsep + \
+                os.pathsep.join(join_paths(paths, subdirs)) + os.pathsep
+            export_only = False
+            if name == 'PATH':
+                value = '$(subst /,$(SEP),{})'.format(value)
+                export_only = True
+            return ''.join([
+                '# Environment variable `{}`\n'.format(name),
+                '_s := {}\n'.format(value),
+                'ifeq ($(findstring $(_s),$({})),)\n'.format(name),
+                '    {} {} := $(_s)$({})\n'.format(
+                    'export' if export_only else 'override', name, name),
+                '    export {}\n'.format(name) if not export_only else '',
+                'endif\n',
+            ])
+
+        def cmake_export_paths(name, paths, subdirs=None):
+            env_name = 'ENV{{{}}}'.format(name)
+            value = os.pathsep + \
+                os.pathsep.join(join_paths(paths, subdirs)) + os.pathsep
+            return ''.join([
+                '# Environment variable `{}`\n'.format(name),
+                'set(_s "{}")\n'.format(value),
+                'string(FIND "${}" "${{_s}}" _n)\n'.format(env_name),
+                'if(_n EQUAL -1)\n',
+                '    set({} "${{_s}}${}")\n'.format(env_name, env_name),
+                'endif()\n',
+            ])
 
         with open(os.path.join(self.target_cmake_dir, '{}.host.mk'.format(self.host_system)), 'wb') as f:
             fwrite(f, 'override HOST_SYSTEM = {}\n'.format(self.host_system))
@@ -1421,7 +1452,8 @@ class TargetParser:
         if self.android:
             cc_options.append(
                 '--target={}$(ANDROID_SDK_VERSION)'.format(self.android_target))
-            linker_options.extend(map(lambda x: '-C link-arg=' + x, cc_options))
+            linker_options.extend(
+                map(lambda x: '-C link-arg=' + x, cc_options))
             linker = '{}/clang{}'.format(self.android_ndk_bin, self.exe_ext)
             ar = '{}/llvm-ar{}'.format(self.android_ndk_bin, self.exe_ext)
             cc = '{}/clang{}'.format(self.android_ndk_bin, self.exe_ext)
@@ -1433,15 +1465,18 @@ class TargetParser:
         elif self.zig:
             cc_exports.append(
                 'ZIG_WRAPPER_TARGET = {}'.format(self.zig_target))
+            # cc_exports.append(
+            #     'ZIG_LIBC_INCLUDES = {}'.format(os.pathsep.join(self.zig_libc_includes)))
+            # For Rust bingen + libclang
             cc_exports.append(
-                'ZIG_LIBC_INCLUDES = {}'.format(os.pathsep.join(self.zig_libc_includes)))
-            # `linker-flavor` = gcc: use the cc executable,
-            #     which is typically gcc or clang on many systems.
-            linker_options.append('-C linker-flavor=gcc')
+                'C_INCLUDE_PATH += {}'.format(os.pathsep.join(self.zig_libc_includes)))
+            cc_exports.append(
+                'CPLUS_INCLUDE_PATH += {}'.format(os.pathsep.join(self.zig_libc_includes)))
             # On windows-gnu, linux-musl, and wasi targets:
             #     https://doc.rust-lang.org/rustc/codegen-options/index.html
             if ((self.os == 'windows' and self.env == 'gnu') or
-                (self.os == 'linux' and self.env == 'musl') or self.os.startswith('wasi')):
+                    (self.os == 'linux' and self.env == 'musl') or self.os.startswith('wasi')):
+                linker_options.append('-C linker-flavor=gcc')
                 linker_options.append('-C link-self-contained=no')
             linker = '{}/zig-cc{}'.format(self.zig_cc_dir, self.exe_ext)
             ar = '{}/zig-ar{}'.format(self.zig_cc_dir, self.exe_ext)
@@ -1473,7 +1508,12 @@ class TargetParser:
         with open(os.path.join(self.cmake_target_dir, '{}.toolchain.mk'.format(self.host_system)), 'wb') as f:
             if cc_exports:
                 for line in cc_exports:
-                    fwrite(f, 'export {}\n'.format(line))
+                    [k, v] = list(map(lambda x: x.strip(), line.split('=', 1)))
+                    if k.endswith('+'):
+                        k = k[:-1].strip()
+                        fwrite(f, make_export_paths(k, [v]))
+                    else:
+                        fwrite(f, 'export {} = {}\n'.format(k, v))
                 fwrite(f, '\n')
 
             cargo_target = 'CARGO_TARGET_' + self.cargo_target.upper().replace('-', '_')
@@ -1511,36 +1551,20 @@ class TargetParser:
             fwrite(f, '# Configure the cross compile pkg-config.\n')
             fwrite(f, 'export PKG_CONFIG_ALLOW_CROSS = {}\n'.format(
                    1 if self.host_target != self.cargo_target else 0))
-            pkg_config_key = 'PKG_CONFIG_PATH_' + cargo_target
-            pkg_config_path = os.pathsep + join_paths(
-                self.cmake_prefix_subdirs, ['lib/pkgconfig']) + os.pathsep
-            fwrite(f, '_s = {}\n'.format(pkg_config_path))
-            fwrite(f, 'ifeq ($(findstring $(_s),$({})),)\n'.format(pkg_config_key))
-            fwrite(f, '    export {} := $(_s)$({})\n'.format(
-                pkg_config_key, pkg_config_key))
-            fwrite(f, 'endif\n')
+            fwrite(f, make_export_paths('PKG_CONFIG_PATH_' + cargo_target,
+                   self.cmake_prefix_subdirs, ['lib/pkgconfig']))
             fwrite(f, '\n')
 
             fwrite(f, '# Set system paths.\n')
             if self.host_system == 'Windows' and self.win32:
-                system_path = os.pathsep + join_paths(
-                    self.cmake_prefix_subdirs, ['bin', 'lib']) + os.pathsep
-                fwrite(f, '_s := $(subst /,$(SEP),{}$(CARGO_TARGET_OUT_DIR){})\n'.format(
-                    os.pathsep, system_path))
-                fwrite(f, 'ifeq ($(findstring $(_s),$(PATH)),)\n')
-                fwrite(f, '    export PATH := $(_s)$(PATH)\n')
-                fwrite(f, 'endif\n')
+                fwrite(f, make_export_paths('PATH', [
+                    '$(CARGO_TARGET_OUT_DIR)'] + join_paths(self.cmake_prefix_subdirs, ['bin', 'lib'])))
                 fwrite(f, '\n')
             elif self.host_target == self.cargo_target:
-                system_path = os.pathsep + join_paths(
-                    self.cmake_prefix_subdirs, ['bin']) + os.pathsep
-                fwrite(f, '_s := {}$(CARGO_TARGET_OUT_DIR){}\n'.format(
-                    os.pathsep, system_path))
-                fwrite(f, 'ifeq ($(findstring $(_s),$(PATH)),)\n')
-                fwrite(f, '    export PATH := $(_s)$(PATH)\n')
-                fwrite(f, '    export LD_LIBRARY_PATH := $(CARGO_TARGET_OUT_DIR){}{}{}$(LD_LIBRARY_PATH)\n'.
-                       format(os.pathsep, join_paths(self.cmake_prefix_subdirs, ['lib']), os.pathsep))
-                fwrite(f, 'endif\n')
+                fwrite(f, make_export_paths('PATH',
+                       ['$(CARGO_TARGET_OUT_DIR)'] + join_paths(self.cmake_prefix_subdirs, ['bin'])))
+                fwrite(f, make_export_paths('LD_LIBRARY_PATH',
+                       ['$(CARGO_TARGET_OUT_DIR)'] + join_paths(self.cmake_prefix_subdirs, ['lib'])))
                 fwrite(f, '\n')
 
             fwrite(f, '# Export variables for Cargo build.rs and CMake\n')
@@ -1567,8 +1591,12 @@ class TargetParser:
         with open(os.path.join(self.cmake_target_dir, '{}.toolchain.cmake'.format(self.host_system)), 'wb') as f:
             if cc_exports:
                 for line in cc_exports:
-                    kv = list(map(lambda x: x.strip(), line.split('=', 1)))
-                    fwrite(f, 'set(ENV{{{}}} "{}")\n'.format(kv[0], kv[1]))
+                    [k, v] = list(map(lambda x: x.strip(), line.split('=', 1)))
+                    if k.endswith('+'):
+                        k = k[:-1].strip()
+                        fwrite(f, cmake_export_paths(k, [v]))
+                    else:
+                        fwrite(f, 'set(ENV{{{}}} "{}")\n'.format(k, v))
                 fwrite(f, '\n')
 
             fwrite(f, '# AR, CC, CXX, RANLIB, STRIP, RC\n')
@@ -1583,13 +1611,8 @@ class TargetParser:
             fwrite(f, '# Configure the cross compile pkg-config.\n')
             fwrite(f, 'set(ENV{{PKG_CONFIG_ALLOW_CROSS}} "{}")\n'.format(
                    1 if self.host_target != self.cargo_target else 0))
-            pkg_config_key = 'ENV{PKG_CONFIG_PATH}'
-            fwrite(f, 'set(_s "{}")\n'.format(pkg_config_path))
-            fwrite(f, 'string(FIND "${}" "${{_s}}" _n)\n'.format(pkg_config_key))
-            fwrite(f, 'if(_n EQUAL -1)\n')
-            fwrite(f, '    set({} "${{_s}}${}")\n'.format(
-                pkg_config_key, pkg_config_key))
-            fwrite(f, 'endif()\n')
+            fwrite(f, cmake_export_paths(
+                'PKG_CONFIG_PATH', self.cmake_prefix_subdirs, ['lib/pkgconfig']))
             fwrite(f, '\n')
 
             fwrite(f, '# Export variables for Cargo build.rs and CMake\n')
