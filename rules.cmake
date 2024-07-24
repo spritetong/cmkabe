@@ -77,8 +77,7 @@ endif()
 if(NOT "${PROJECT_NAME}" STREQUAL "")
     message(FATAL_ERROR "Can not define any project before `include <cmake-abe>/rules.cmake`.")
 endif()
-# Define a dummy project.
-project(CMKABE)
+enable_language(C CXX ASM)
 
 if(MSVC)
     set(CC_DEFINE_OPT "/D")

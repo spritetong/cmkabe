@@ -32,7 +32,7 @@ _saved_default_goal := $(.DEFAULT_GOAL)
 #! Default value of `CARGO_TARGET_DIR`
 TARGET_DIR ?= $(WORKSPACE_DIR)/target
 #! The root of CMake build directories.
-TARGET_CMAKE_DIR ?= $(TARGET_DIR)/cmake
+TARGET_CMAKE_DIR ?= $(TARGET_DIR)/.cmake
 
 # ==============================================================================
 # Build target dependencies and apply.
@@ -136,8 +136,8 @@ CMAKE_INIT = cmake -B "$(CMAKE_BUILD_DIR)"
 CMAKE_INIT += $(if $(CMAKE_GENERATOR),-G$(CMAKE_GENERATOR),)
 CMAKE_INIT += $(if $(MSVC_ARCH),-A $(MSVC_ARCH),)
 CMAKE_INIT += -D "TARGET:STRING=$(CMKABE_TARGET)"
-# CMAKE_INIT += -D "TARGET_DIR:FILEPATH=$(TARGET_DIR)"
-# CMAKE_INIT += -D "TARGET_CMAKE_DIR:FILEPATH=$(TARGET_CMAKE_DIR)"
+CMAKE_INIT += -D "TARGET_DIR:FILEPATH=$(TARGET_DIR)"
+CMAKE_INIT += -D "TARGET_CMAKE_DIR:FILEPATH=$(TARGET_CMAKE_DIR)"
 # CMAKE_INIT += -D "TARGET_PREFIX:FILEPATH=$(CMAKE_TARGET_PREFIX)"
 # CMAKE_INIT += -D "TARGET_CC:STRING=$(TARGET_CC)"
 # CMAKE_INIT += -D "CARGO_TARGET:STRING=$(CARGO_TARGET)"

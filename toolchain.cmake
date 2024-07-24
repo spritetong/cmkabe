@@ -22,7 +22,7 @@ endif()
 
 # The root of CMake build directories.
 if(NOT DEFINED TARGET_CMAKE_DIR)
-    set(TARGET_CMAKE_DIR "${TARGET_DIR}/cmake")
+    set(TARGET_CMAKE_DIR "${TARGET_DIR}/.cmake")
 endif()
 
 # `HOST_TARGET`

@@ -802,7 +802,7 @@ class TargetParser:
         self.target_dir = self.normpath(os.path.abspath(
             target_dir or os.path.join(self.workspace_dir, 'target')))
         self.target_cmake_dir = self.normpath(os.path.abspath(
-            target_cmake_dir or (self.target_dir + '/cmake')))
+            target_cmake_dir or (self.target_dir + '/.cmake')))
         self.cmake_target_prefix = self.normpath(os.path.abspath(
             cmake_target_prefix or (self.target_cmake_dir + '/output')))
         self.cmake_prefix_triple = ''
@@ -1148,7 +1148,7 @@ class TargetParser:
                 self.zig_libc_includes.append(dir)
 
         self.zig_cc_dir = self.normpath(os.path.join(
-            self.target_dir, 'zig', self.host_target))
+            self.target_dir, '.zig', self.host_target))
         src = self.script_dir + '/zig-wrapper.zig'
         exe = self.zig_cc_dir + '/zig-wrapper' + self.exe_ext
         dir = self.zig_cc_dir
