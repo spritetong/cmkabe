@@ -21,6 +21,8 @@ class ShellCmd:
     EINVAL = 8
     EINTERRUPT = 254
 
+    EXE_EXT = '.exe' if os.name == 'nt' else ''
+
     def __init__(self, namespace):
         self.options = namespace
         self.args = namespace.args
@@ -111,8 +113,7 @@ class ShellCmd:
             ok = False
             for _ in range(100):
                 try:
-                    if not os.path.isdir(path):
-                        os.makedirs(path)
+                    self.makedirs(path)
                     ok = True
                 except OSError as e:
                     import errno
@@ -556,6 +557,15 @@ class ShellCmd:
             return 1
         return 0
 
+    def run__zig_patch(self):
+        TargetParser.zig_patch()
+        return 0
+
+    @classmethod
+    def makedirs(Self, dir):
+        if not os.path.isdir(dir):
+            os.makedirs(dir)
+
     @classmethod
     def win2wsl_path(Self, path):
         if os.path.isabs(path):
@@ -685,12 +695,16 @@ class ShellCmd:
                         namespace.command), file=sys.stderr)
             return Self.EINVAL
 
+        except PermissionError as e:
+            print(e)
+            return Self.EFAIL
+
         except KeyboardInterrupt:
             print('^C', file=sys.stderr)
             return Self.EINTERRUPT
 
 
-class TargetParser:
+class TargetParser(ShellCmd):
     HOST_SYSTEM_MAP = (
         ('cygwin_nt', 'cygwin'),
         ('msys_nt', 'mingw'),
@@ -792,7 +806,6 @@ class TargetParser:
         self.host_target = host_target_info['triple']
         self.script_dir = self.normpath(
             os.path.abspath(os.path.dirname(__file__)))
-        self.exe_ext = '.exe' if host_target_info['family'] == 'windows' else ''
 
         # Input parameters
         self.workspace_dir = self.normpath(os.path.abspath(
@@ -1088,12 +1101,12 @@ class TargetParser:
             import shutil
             # Find gcc cross-compiler.
             target_cc = shutil.which(
-                self.target + '-gcc') or shutil.which(self.target + '-cc')
+                self.target + '-gcc' + self.EXE_EXT) or shutil.which(self.target + '-cc' + self.EXE_EXT)
             if target_cc:
                 self.target_cc = self.normpath(target_cc)
             elif self.vendor != self.host_vendor or self.os != self.host_os or self.env != self.host_env:
                 # Find Zig cross-compiler.
-                zig = shutil.which('zig')
+                zig = shutil.which('zig' + self.EXE_EXT)
                 if zig:
                     self.zig = True
 
@@ -1123,8 +1136,7 @@ class TargetParser:
     def _cmake_init(self):
         self.cmake_target_dir = '{}/{}{}'.format(
             self.target_cmake_dir, self.target, '.native' if self.target_is_native else '')
-        if not os.path.isdir(self.cmake_target_dir):
-            os.makedirs(self.cmake_target_dir)
+        self.makedirs(self.cmake_target_dir)
 
     def _zig_init(self):
         import subprocess
@@ -1132,11 +1144,11 @@ class TargetParser:
         import glob
 
         # Zig root path and include directories.
-        zig_path = shutil.which('zig')
+        zig_path = shutil.which('zig' + self.EXE_EXT)
         if not zig_path:
             raise FileNotFoundError('`zig` is not found')
         self.zig_root = self.normpath(
-            os.path.abspath(os.path.dirname(zig_path)))
+            os.path.realpath(os.path.dirname(zig_path)))
         self.zig_libc_includes.clear()
         zig_os_family = 'windows' if self.win32 else (
             'macos' if self.apple else 'linux')
@@ -1150,27 +1162,45 @@ class TargetParser:
         self.zig_cc_dir = self.normpath(os.path.join(
             self.target_dir, '.zig', self.host_target))
         src = self.script_dir + '/zig-wrapper.zig'
-        exe = self.zig_cc_dir + '/zig-wrapper' + self.exe_ext
+        exe = self.zig_cc_dir + '/zig-wrapper' + self.EXE_EXT
         dir = self.zig_cc_dir
 
-        if not os.path.isdir(dir):
-            os.makedirs(dir)
+        self.makedirs(dir)
         if self.need_update(src, exe):
             # Compile wrapper
-            subprocess.run(['zig', 'cc', '-s', '-Os', '-o',
-                           exe, src], shell=True, check=True)
+            subprocess.run(['zig' + self.EXE_EXT, 'cc', '-s', '-Os', '-o', exe, src],
+                           check=True)
             os.chmod(exe, 0o755)
             for file in glob.glob(os.path.join(dir, exe + '.*')):
                 os.remove(file)
             for name in ['ar', 'cc', 'c++', 'dlltool', 'lib', 'ranlib', 'objcopy', 'rc']:
                 dst = os.path.join(
-                    dir, 'zig-' + name + self.exe_ext)
+                    dir, 'zig-' + name + self.EXE_EXT)
                 shutil.copy2(exe, dst)
                 os.chmod(dst, 0o755)
 
         # Override the target CC for Zig.
         self.target_cc = self.normpath(
-            self.zig_cc_dir + '/zig-cc' + self.exe_ext)
+            self.zig_cc_dir + '/zig-cc' + self.EXE_EXT)
+
+    @classmethod
+    def zig_patch(Self):
+        import shutil
+
+        zig_path = shutil.which('zig' + Self.EXE_EXT)
+        if not zig_path:
+            return
+        zig_root = os.path.realpath(os.path.dirname(zig_path))
+        any_linux_any = os.path.join(
+            zig_root, 'lib', 'libc', 'include', 'any-linux-any')
+
+        # 1. <sys/sysctl.h> is required by ffmpeg 6.0
+        sys_ctl_h = os.path.join(any_linux_any, 'sys', 'sysctl.h')
+        sys_ctl_h_src = os.path.join(any_linux_any, 'linux', 'sysctl.h')
+        if not os.path.exists(sys_ctl_h) and os.path.isfile(sys_ctl_h_src):
+            Self.makedirs(os.path.dirname(sys_ctl_h))
+            os.symlink(os.path.relpath(
+                sys_ctl_h_src, os.path.dirname(sys_ctl_h)), sys_ctl_h)
 
     def _cc_init(self):
         if not os.path.isfile(self.target_cc):
@@ -1183,7 +1213,7 @@ class TargetParser:
 
     def _android_init(self):
         self.android_ndk_root = self.normpath(
-            ShellCmd.ndk_root(check_env=True))
+            self.ndk_root(check_env=True))
         self.android_ndk_bin = self.android_ndk_root + \
             '/toolchains/llvm/prebuilt/{}-{}/bin'.format(
                 self.host_system.lower(), self.host_arch.lower())
@@ -1454,14 +1484,14 @@ class TargetParser:
                 '--target={}$(ANDROID_SDK_VERSION)'.format(self.android_target))
             linker_options.extend(
                 map(lambda x: '-C link-arg=' + x, cc_options))
-            linker = '{}/clang{}'.format(self.android_ndk_bin, self.exe_ext)
-            ar = '{}/llvm-ar{}'.format(self.android_ndk_bin, self.exe_ext)
-            cc = '{}/clang{}'.format(self.android_ndk_bin, self.exe_ext)
-            cxx = '{}/clang++{}'.format(self.android_ndk_bin, self.exe_ext)
+            linker = '{}/clang{}'.format(self.android_ndk_bin, self.EXE_EXT)
+            ar = '{}/llvm-ar{}'.format(self.android_ndk_bin, self.EXE_EXT)
+            cc = '{}/clang{}'.format(self.android_ndk_bin, self.EXE_EXT)
+            cxx = '{}/clang++{}'.format(self.android_ndk_bin, self.EXE_EXT)
             ranlib = '{}/llvm-ranlib{}'.format(
-                self.android_ndk_bin, self.exe_ext)
+                self.android_ndk_bin, self.EXE_EXT)
             strip = '{}/llvm-strip{}'.format(
-                self.android_ndk_bin, self.exe_ext)
+                self.android_ndk_bin, self.EXE_EXT)
         elif self.zig:
             cc_exports.append(
                 'ZIG_WRAPPER_TARGET = {}'.format(self.zig_target))
@@ -1478,13 +1508,13 @@ class TargetParser:
                     (self.os == 'linux' and self.env == 'musl') or self.os.startswith('wasi')):
                 linker_options.append('-C linker-flavor=gcc')
                 linker_options.append('-C link-self-contained=no')
-            linker = '{}/zig-cc{}'.format(self.zig_cc_dir, self.exe_ext)
-            ar = '{}/zig-ar{}'.format(self.zig_cc_dir, self.exe_ext)
-            cc = '{}/zig-cc{}'.format(self.zig_cc_dir, self.exe_ext)
-            cxx = '{}/zig-c++{}'.format(self.zig_cc_dir, self.exe_ext)
-            ranlib = '{}/zig-ranlib{}'.format(self.zig_cc_dir, self.exe_ext)
-            strip = '{}/zig-strip{}'.format(self.zig_cc_dir, self.exe_ext)
-            rc = '{}/zig-rc{}'.format(self.zig_cc_dir, self.exe_ext)
+            linker = '{}/zig-cc{}'.format(self.zig_cc_dir, self.EXE_EXT)
+            ar = '{}/zig-ar{}'.format(self.zig_cc_dir, self.EXE_EXT)
+            cc = '{}/zig-cc{}'.format(self.zig_cc_dir, self.EXE_EXT)
+            cxx = '{}/zig-c++{}'.format(self.zig_cc_dir, self.EXE_EXT)
+            ranlib = '{}/zig-ranlib{}'.format(self.zig_cc_dir, self.EXE_EXT)
+            strip = '{}/zig-strip{}'.format(self.zig_cc_dir, self.EXE_EXT)
+            rc = '{}/zig-rc{}'.format(self.zig_cc_dir, self.EXE_EXT)
         elif self.target_cc:
             (target_cc, cc_ext) = os.path.splitext(self.target_cc)
             target_cc = self.normpath(os.path.abspath(target_cc))

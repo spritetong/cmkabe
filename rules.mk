@@ -27,8 +27,10 @@ endif
 _saved_default_goal := $(.DEFAULT_GOAL)
 
 # ==============================================================================
-# Target directories
+# Target definitions
 
+#! Target triple or `native` for the current system
+override TARGET := $(strip $(TARGET))
 #! Default value of `CARGO_TARGET_DIR`
 TARGET_DIR ?= $(WORKSPACE_DIR)/target
 #! The root of CMake build directories.
@@ -46,33 +48,30 @@ cmake_build_target_deps = $(SHLUTIL) build_target_deps \
     CARGO_TARGET=$(CARGO_TARGET) \
     ZIG_TARGET=$(ZIG_TARGET)
 
-# Strip the target triple
-override TARGET := $(strip $(TARGET))
-
 # include $(HOST_SYSTEM).host.mk
-DOT_HOST_MK = $(TARGET_CMAKE_DIR)/$(HOST_SYSTEM).host.mk
-ifneq ($(filter cmake-init,$(if $(wildcard $(DOT_HOST_MK)),,cmake-init) $(MAKECMDGOALS)),)
+_DOT_HOST_MK = $(TARGET_CMAKE_DIR)/$(HOST_SYSTEM).host.mk
+ifneq ($(filter cmake-init,$(if $(wildcard $(_DOT_HOST_MK)),,cmake-init) $(MAKECMDGOALS)),)
     ifneq ($(shell $(cmake_build_target_deps) >$(NULL) || echo 1),)
         $(error Failed to build target: $(TARGET))
     endif
 endif
-include $(DOT_HOST_MK)
+include $(_DOT_HOST_MK)
 
-DOT_VARS_DIR := $(TARGET_CMAKE_DIR)/$(if $(filter-out native,$(TARGET)),$(TARGET),$(HOST_TARGET).native)
-DOT_VARS_MK = $(DOT_VARS_DIR)/$(HOST_SYSTEM).vars.mk
-DOT_TOOLCHAIN_MK = $(DOT_VARS_DIR)/$(HOST_SYSTEM).toolchain.mk
+_DOT_VARS_DIR := $(TARGET_CMAKE_DIR)/$(if $(filter-out native,$(TARGET)),$(TARGET),$(HOST_TARGET).native)
+_DOT_VARS_MK = $(_DOT_VARS_DIR)/$(HOST_SYSTEM).vars.mk
+TARGET_TOOLCHAIN_MK = $(_DOT_VARS_DIR)/$(HOST_SYSTEM).toolchain.mk
 
 # Auto rebuild dependencies.
-$(DOT_VARS_MK): $(addprefix $(CMKABE_HOME)/,shlutilib.py zig-wrapper.zig)
+$(_DOT_VARS_MK): $(addprefix $(CMKABE_HOME)/,shlutilib.py zig-wrapper.zig)
 	@$(cmake_build_target_deps)
 
 # include $(HOST_SYSTEM).vars.mk
-ifeq ($(wildcard $(DOT_VARS_MK)),)
+ifeq ($(wildcard $(_DOT_VARS_MK)),)
     ifneq ($(shell $(cmake_build_target_deps) >$(NULL) || echo 1),)
         $(error Failed to build target: $(TARGET))
     endif
 endif
-include $(DOT_VARS_MK)
+include $(_DOT_VARS_MK)
 ifeq ($(CMAKE_TARGET_DIR),)
     $(error Can not parse target: $(TARGET))
 endif
@@ -206,8 +205,8 @@ cargo_run = cargo $(CARGO_TOOLCHAIN) run --bin $(1) $(CARGO_OPTS) $(2)
 cargo_upgrade = cargo upgrade --incompatible $(1)
 
 # Set crosss compile tools for Rust
-# include .targetcc.mk
-include $(DOT_TOOLCHAIN_MK)
+# include $(HOST_SYSTEM).toolchain.mk
+include $(TARGET_TOOLCHAIN_MK)
 
 # Directory of Cargo output binaries, normally is "<workspace_dir>/target/<triple>/<debug|release>"
 CARGO_TARGET_OUT_DIR ?=
@@ -299,6 +298,9 @@ cargo-test: cmake-before-build
 cargo-upgrade:
 	@cargo update
 	@$(call cargo_upgrade)
+
+zig-patch:
+	@$(SHLUTIL) zig_patch
 
 # Execute a shell command
 shell:
