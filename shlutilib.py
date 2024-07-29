@@ -1523,7 +1523,7 @@ class TargetParser(ShellCmd):
                     (self.os == 'linux' and self.env == 'musl') or self.os.startswith('wasi')):
                 linker_options.append('-C linker-flavor=gcc')
                 linker_options.append('-C link-self-contained=no')
-            linker = '{}/zig-cc{}'.format(self.zig_cc_dir, self.EXE_EXT)
+            linker = '{}/zig-c++{}'.format(self.zig_cc_dir, self.EXE_EXT)
             ar = '{}/zig-ar{}'.format(self.zig_cc_dir, self.EXE_EXT)
             cc = '{}/zig-cc{}'.format(self.zig_cc_dir, self.EXE_EXT)
             cxx = '{}/zig-c++{}'.format(self.zig_cc_dir, self.EXE_EXT)

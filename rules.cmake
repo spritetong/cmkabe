@@ -19,8 +19,6 @@ include("${CMAKE_CURRENT_LIST_DIR}/toolchain.cmake")
 if(NOT DEFINED TARGET_ANY_INCLUDE_DIR)
     if(IS_DIRECTORY "${TARGET_PREFIX}/any/include")
         set(TARGET_ANY_INCLUDE_DIR "${TARGET_PREFIX}/any/include")
-    elseif(IS_DIRECTORY "${TARGET_PREFIX}/noarch/include")
-        set(TARGET_ANY_INCLUDE_DIR "${TARGET_PREFIX}/noarch/include")
     endif()
 endif()
 
