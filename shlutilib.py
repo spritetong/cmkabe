@@ -741,7 +741,7 @@ class TargetParser(ShellCmd):
         'x86': 'i686',
         'i586': 'i686',  # Upgrade i586 to i686
         'i686': 'i686',
-        'Win32': 'i686',
+        'win32': 'i686',
         'x64': 'x86_64',
         'x86_64': 'x86_64',
     }
@@ -1149,14 +1149,26 @@ class TargetParser(ShellCmd):
             raise FileNotFoundError('`zig` is not found')
         self.zig_root = self.normpath(
             os.path.realpath(os.path.dirname(zig_path)))
+
         self.zig_libc_includes.clear()
-        zig_os_family = 'windows' if self.win32 else (
-            'macos' if self.apple else 'linux')
-        for include in ['/lib/libc/include/any-{}-any'.format(zig_os_family),
+        zig_libc = ''
+        if self.win32:
+            zig_os_family = 'windows'
+        elif self.apple:
+            zig_os_family = 'macos'
+        else:
+            zig_os_family = 'linux'
+            zig_libc = 'musl' if 'musl' in self.env else 'glibc'
+        zig_arch_os = '-'.join(self.zig_target.split('-')[:2])
+        for include in ['/lib/include',
                         '/lib/libc/include/{}'.format(self.zig_target),
-                        '/lib/include',]:
+                        '/lib/libc/include/{}-any'.format(zig_arch_os),
+                        '/lib/libc/include/{}-any'.format(
+                            zig_arch_os.replace('x86_64', 'x86')),
+                        '/lib/libc/include/any-{}-any'.format(zig_os_family),
+                        '/lib/libc/include/generic-{}'.format(zig_libc),]:
             dir = self.zig_root + include
-            if os.path.isdir(dir):
+            if os.path.isdir(dir) and dir not in self.zig_libc_includes:
                 self.zig_libc_includes.append(dir)
 
         self.zig_cc_dir = self.normpath(os.path.join(
@@ -1167,17 +1179,18 @@ class TargetParser(ShellCmd):
 
         self.makedirs(dir)
         if self.need_update(src, exe):
+            for file in glob.glob(os.path.join(dir, '*')):
+                if not os.path.isdir(file):
+                    os.unlink(file)
             # Compile wrapper
             subprocess.run(['zig' + self.EXE_EXT, 'cc', '-s', '-Os', '-o', exe, src],
                            check=True)
             os.chmod(exe, 0o755)
             for file in glob.glob(os.path.join(dir, exe + '.*')):
-                os.remove(file)
+                os.unlink(file)
             for name in ['ar', 'cc', 'c++', 'dlltool', 'lib', 'ranlib', 'objcopy', 'rc']:
-                dst = os.path.join(
-                    dir, 'zig-' + name + self.EXE_EXT)
-                shutil.copy2(exe, dst)
-                os.chmod(dst, 0o755)
+                dst = os.path.join(dir, 'zig-' + name + self.EXE_EXT)
+                os.symlink(os.path.basename(exe), dst)
 
         # Override the target CC for Zig.
         self.target_cc = self.normpath(
@@ -1495,6 +1508,8 @@ class TargetParser(ShellCmd):
         elif self.zig:
             cc_exports.append(
                 'ZIG_WRAPPER_TARGET = {}'.format(self.zig_target))
+            cc_exports.append(
+                'ZIG_WRAPPER_CLANG_TARGET = {}'.format(self.cargo_target))
             # cc_exports.append(
             #     'ZIG_LIBC_INCLUDES = {}'.format(os.pathsep.join(self.zig_libc_includes)))
             # For Rust bingen + libclang
