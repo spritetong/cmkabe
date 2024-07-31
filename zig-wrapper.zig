@@ -27,6 +27,8 @@ const ZigCommand = enum {
             .{ "ranlib", .ranlib },
             .{ "strip", .strip },
             .{ "rc", .rc },
+            .{ "clang", .cc },
+            .{ "clang++", .cxx },
             .{ "gcc", .cc },
             .{ "g++", .cxx },
         });
@@ -128,7 +130,7 @@ const ZigWrapper = struct {
         const stem = std.fs.path.stem(argv0);
 
         const command = ZigCommand.fromStr(
-            stem[std.mem.lastIndexOfScalar(u8, stem, '-').? + 1 ..],
+            stem[if (std.mem.lastIndexOfScalar(u8, stem, '-')) |s| s + 1 else 0..],
         ) orelse return error.InvalidZigCommand;
 
         // Collect `argv[1]`...
@@ -229,7 +231,6 @@ const ZigWrapper = struct {
     }
 
     fn parseEnvFlags(self: *Self) !void {
-        const major_name = self.command.toFlagsName() orelse return;
         const buf = try self.allocator.alloc(u8, 20 + @max(
             self.zig_target.len,
             self.clang_target.len,
@@ -238,24 +239,30 @@ const ZigWrapper = struct {
         var args = std.ArrayList([]const u8).init(self.allocator);
         defer args.deinit();
 
-        const suffixes = [_][]const u8{ self.clang_target, self.zig_target, "" };
-        for ([_][]const u8{ major_name, ZigCommand.cc.toFlagsName().? }) |flags_name| {
-            // Do not apply the same flags.
-            const tags = //
-                if (strEql(self.zig_target, self.clang_target)) suffixes[1..] else suffixes[0..];
+        const name = self.command.toFlagsName() orelse return;
+        // Do not apply the same targets.
+        const array = [_][]const u8{ "", self.zig_target, self.clang_target };
+        const targets = //
+            if (strEql(self.zig_target, self.clang_target)) array[0..2] else array[0..];
 
-            for (tags) |tag| {
-                // Get the compiler flags from the environment variable.
-                const key = (if (tag.len > 0) std.fmt.bufPrint(
-                    buf,
-                    "{s}_{s}",
-                    .{ flags_name, tag },
-                ) else std.fmt.bufPrint(
-                    buf,
-                    "ZIG_WRAPPER_{s}",
-                    .{flags_name},
-                )) catch unreachable;
-                _ = std.mem.replace(u8, key, "-", "_", key);
+        for (targets) |target| {
+            // Get the compiler flags from the environment variable.
+            const key = (if (target.len > 0) std.fmt.bufPrint(
+                buf,
+                "{s}_{s}",
+                .{ name, target },
+            ) else std.fmt.bufPrint(
+                buf,
+                "ZIG_WRAPPER_{s}",
+                .{name},
+            )) catch unreachable;
+
+            // Try <target> and <target> with underscore.
+            for (0..2) |loop| {
+                if (loop == 1) {
+                    if (std.mem.indexOf(u8, key, "-") == null) break;
+                    _ = std.mem.replace(u8, key, "-", "_", key);
+                }
 
                 // Parse flags.
                 const flags_str = getEnvVarOwned(self.allocator, key) catch continue;
@@ -287,11 +294,6 @@ const ZigWrapper = struct {
                         }
                     }
                 }
-            }
-
-            // C++ uses `CFLAGS`.
-            if (self.command != .cxx) {
-                break;
             }
         }
     }
