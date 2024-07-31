@@ -593,7 +593,7 @@ class ShellCmd:
     def ndk_root(Self, check_env=False):
         if check_env:
             ndk_root = os.environ.get('ANDROID_NDK_ROOT', '')
-            if ndk_root:
+            if ndk_root and os.path.isdir(ndk_root):
                 os.environ['ANDROID_NDK_HOME'] = ndk_root
                 return ndk_root
 
@@ -855,8 +855,10 @@ class TargetParser(ShellCmd):
         # Zig
         self.zig = False
         self.zig_root = ''
-        self.zig_libc_includes = []
         self.zig_cc_dir = ''
+        # Include paths
+        self.c_includes = []
+        self.cxx_includes = []
 
     @ classmethod
     def normpath(Self, path):
@@ -1131,6 +1133,8 @@ class TargetParser(ShellCmd):
         if self.target != self.cargo_target:
             self.cmake_prefix_subdirs.append(
                 '{}/{}'.format(self.cmake_target_prefix, self.cargo_target))
+        self.cmake_prefix_subdirs.append(
+            '{}/any'.format(self.cmake_target_prefix))
         return self
 
     def _cmake_init(self):
@@ -1150,27 +1154,6 @@ class TargetParser(ShellCmd):
         self.zig_root = self.normpath(
             os.path.realpath(os.path.dirname(zig_path)))
 
-        self.zig_libc_includes.clear()
-        zig_libc = ''
-        if self.win32:
-            zig_os_family = 'windows'
-        elif self.apple:
-            zig_os_family = 'macos'
-        else:
-            zig_os_family = 'linux'
-            zig_libc = 'musl' if 'musl' in self.env else 'glibc'
-        zig_arch_os = '-'.join(self.zig_target.split('-')[:2])
-        for include in ['/lib/include',
-                        '/lib/libc/include/{}'.format(self.zig_target),
-                        '/lib/libc/include/{}-any'.format(zig_arch_os),
-                        '/lib/libc/include/{}-any'.format(
-                            zig_arch_os.replace('x86_64', 'x86')),
-                        '/lib/libc/include/any-{}-any'.format(zig_os_family),
-                        '/lib/libc/include/generic-{}'.format(zig_libc),]:
-            dir = self.zig_root + include
-            if os.path.isdir(dir) and dir not in self.zig_libc_includes:
-                self.zig_libc_includes.append(dir)
-
         self.zig_cc_dir = self.normpath(os.path.join(
             self.target_dir, '.zig', self.host_target))
         src = self.script_dir + '/zig-wrapper.zig'
@@ -1184,7 +1167,7 @@ class TargetParser(ShellCmd):
                     os.unlink(file)
             # Compile wrapper
             subprocess.run(['zig' + self.EXE_EXT, 'cc', '-s', '-Os', '-o', exe, src],
-                           check=True)
+                           env=self.copy_env_for_cc(), check=True)
             os.chmod(exe, 0o755)
             for file in glob.glob(os.path.join(dir, exe + '.*')):
                 os.unlink(file)
@@ -1195,6 +1178,11 @@ class TargetParser(ShellCmd):
         # Override the target CC for Zig.
         self.target_cc = self.normpath(
             self.zig_cc_dir + '/zig-cc' + self.EXE_EXT)
+
+        # Get include paths.
+        cc_cmd_args = [self.target_cc, '-target', self.zig_target]
+        self.c_includes = self._get_cc_includes(cc_cmd_args, 'c')
+        self.cxx_includes = self._get_cc_includes(cc_cmd_args, 'c++')
 
     @classmethod
     def zig_patch(Self):
@@ -1224,6 +1212,11 @@ class TargetParser(ShellCmd):
                     "Target CC is not found: {}".format(self.target_cc))
             self.target_cc = self.normpath(target_cc)
 
+        # Get include paths.
+        cc_cmd_args = [self.target_cc]
+        self.c_includes = self._get_cc_includes(cc_cmd_args, 'c')
+        self.cxx_includes = self._get_cc_includes(cc_cmd_args, 'c++')
+
     def _android_init(self):
         self.android_ndk_root = self.normpath(
             self.ndk_root(check_env=True))
@@ -1231,9 +1224,59 @@ class TargetParser(ShellCmd):
             '/toolchains/llvm/prebuilt/{}-{}/bin'.format(
                 self.host_system.lower(), self.host_arch.lower())
         if not self.android_ndk_root or not os.path.isdir(self.android_ndk_root):
-            raise FileNotFoundError('Android NDK is not found')
+            raise FileNotFoundError(
+                'Android NDK is not found: ', self.android_ndk_root)
         if not self.android_ndk_bin or not os.path.isdir(self.android_ndk_bin):
-            raise FileNotFoundError('Android NDK Clang compiler is not found')
+            raise FileNotFoundError(
+                'Android NDK Clang compiler is not found:', self.android_ndk_bin)
+
+        # Override the target CC for NDK.
+        self.target_cc = '{}/clang{}'.format(
+            self.android_ndk_bin, self.EXE_EXT)
+
+        # Get include paths.
+        cc_cmd_args = [self.target_cc,
+                       '--target={}'.format(self.android_target)]
+        self.c_includes = self._get_cc_includes(cc_cmd_args, 'c')
+        self.cxx_includes = self._get_cc_includes(cc_cmd_args, 'c++')
+
+    @classmethod
+    def _get_cc_includes(Self, cmd_args, lang='c'):
+        import subprocess
+        result = subprocess.run(cmd_args + ['-E', '-x', lang, '-', '-v'],
+                                stdin=subprocess.DEVNULL,
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE,
+                                text=True,
+                                env=Self.copy_env_for_cc())
+        start_marker = '#include <...> search starts here:'
+        end_marker = 'End of search list.'
+        output = result.stderr
+        # Find the start and end indices
+        start = output.find(start_marker)
+        end = output.find(end_marker, start)
+        # Extract the lines between the markers if both markers are found
+        if start >= 0 and end >= 0:
+            text = output[start + len(start_marker):end]
+            return [line for line in map(lambda x: x.strip().replace(os.sep, '/'),
+                                         text.splitlines()) if line]
+        return []
+
+    @classmethod
+    def copy_env_for_cc(Self):
+        env = os.environ.copy()
+        # Remove GCC environment variables.
+        for key in [
+            'CPATH',
+            'C_INCLUDE_PATH',
+            'CPLUS_INCLUDE_PATH',
+            'OBJC_INCLUDE_PATH',
+            'COMPILER_PATH',
+            'LIBRARY_PATH',
+        ]:
+            if key in env:
+                del env[key]
+        return env
 
     def build(self):
         if self.android:
@@ -1493,6 +1536,8 @@ class TargetParser(ShellCmd):
         linker_options = []
         (linker, ar, cc, cxx, ranlib, strip, rc) = ('', '', '', '', '', '', '')
         if self.android:
+            cc_exports.append(
+                'ANDROID_NDK_ROOT = {}'.format(self.android_ndk_root))
             cc_options.append(
                 '--target={}$(ANDROID_SDK_VERSION)'.format(self.android_target))
             linker_options.extend(
@@ -1510,13 +1555,6 @@ class TargetParser(ShellCmd):
                 'ZIG_WRAPPER_TARGET = {}'.format(self.zig_target))
             cc_exports.append(
                 'ZIG_WRAPPER_CLANG_TARGET = {}'.format(self.cargo_target))
-            # cc_exports.append(
-            #     'ZIG_LIBC_INCLUDES = {}'.format(os.pathsep.join(self.zig_libc_includes)))
-            # For Rust bingen + libclang
-            cc_exports.append(
-                'C_INCLUDE_PATH += {}'.format(os.pathsep.join(self.zig_libc_includes)))
-            cc_exports.append(
-                'CPLUS_INCLUDE_PATH += {}'.format(os.pathsep.join(self.zig_libc_includes)))
             # On windows-gnu, linux-musl, and wasi targets:
             #     https://doc.rust-lang.org/rustc/codegen-options/index.html
             if ((self.os == 'windows' and self.env == 'gnu') or
@@ -1549,6 +1587,14 @@ class TargetParser(ShellCmd):
             ar = cc_prefix + '-ar' + cc_ext
             ranlib = cc_prefix + '-ranlib' + cc_ext
             strip = cc_prefix + '-strip' + cc_ext
+
+        # For Rust bingen + libclang
+        cmake_prefix_includes = [
+            '{}/include'.format(x) for x in self.cmake_prefix_subdirs]
+        cc_exports.append(
+            'C_INCLUDE_PATH += {}'.format(os.pathsep.join(cmake_prefix_includes + self.c_includes)))
+        cc_exports.append(
+            'CPLUS_INCLUDE_PATH += {}'.format(os.pathsep.join(cmake_prefix_includes + self.cxx_includes)))
 
         with open(os.path.join(self.cmake_target_dir, '{}.toolchain.mk'.format(self.host_system)), 'wb') as f:
             if cc_exports:
