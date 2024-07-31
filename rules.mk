@@ -259,7 +259,7 @@ cmake-clean-root: cmake-clean-output
 # Clean extra output files.
 cmake-clean-output:
 	@$(if $(CMAKE_OUTPUT_DIRS),$(call git_remove_ignored,$(CMAKE_OUTPUT_DIRS),$(CMAKE_OUTPUT_FILE_PATTERNS)) || $(OK),$(OK))
-	@$(RM) -rf "$(WORKSPACE_DIR)/-" $(CMAKE_OUTPUT_FILES) || $(OK)
+	@$(RM) -rf "$(WORKSPACE_DIR)/-" "$(TARGET_DIR)/.zig" $(CMAKE_OUTPUT_FILES) || $(OK)
 	@$(call exists,"$(WORKSPACE_DIR)/CMakeLists.txt") && $(TOUCH) "$(WORKSPACE_DIR)/CMakeLists.txt" || $(OK)
 
 # Cargo command
