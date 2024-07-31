@@ -70,9 +70,7 @@ if(NOT "${PROJECT_NAME}" STREQUAL "")
     message(FATAL_ERROR "Can not define any project before `include <cmake-abe>/rules.cmake`.")
 endif()
 # Define a dummy project.
-file(LOCK "${TARGET_LOCK_FILE}" GUARD FILE TIMEOUT 120)
 project(CMKABE LANGUAGES C CXX ASM)
-file(LOCK "${TARGET_LOCK_FILE}" RELEASE)
 
 if(MSVC)
     set(CC_DEFINE_OPT "/D")

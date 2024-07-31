@@ -569,6 +569,8 @@ class ShellCmd:
     @classmethod
     def lock_file(Self, path=None, unlock=None):
         if unlock is None:
+            if not os.path.exists(os.path.dirname(path)):
+                Self.makedirs(os.path.dirname(path))
             f = open(path, 'a+')
         else:
             f = unlock
@@ -1310,11 +1312,11 @@ class TargetParser(ShellCmd):
         return env
 
     def build(self):
-        file = ShellCmd.lock_file(path=self.cmake_lock_file)
+        file = self.lock_file(path=self.cmake_lock_file)
         try:
             self._build()
         finally:
-            ShellCmd.lock_file(unlock=file)
+            self.lock_file(unlock=file)
 
     def _build(self):
         if self.android:
