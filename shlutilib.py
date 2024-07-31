@@ -567,6 +567,35 @@ class ShellCmd:
             os.makedirs(dir)
 
     @classmethod
+    def lock_file(Self, path=None, unlock=None):
+        if unlock is None:
+            f = open(path, 'a+')
+        else:
+            f = unlock
+        try:
+            # Posix based file locking (Linux, Ubuntu, MacOS, etc.)
+            #   Only allows locking on writable files, might cause
+            #   strange results for reading.
+            import fcntl
+            if unlock is None:
+                fcntl.lockf(f, fcntl.LOCK_EX)
+                return f
+            else:
+                fcntl.lockf(f, fcntl.LOCK_UN)
+                unlock.close()
+        except ModuleNotFoundError:
+            # Windows file locking
+            import msvcrt
+            def file_size(f):
+                return os.path.getsize(os.path.realpath(f.name))
+            if unlock is None:
+                msvcrt.locking(f.fileno(), msvcrt.LK_RLCK, file_size(f))
+                return f
+            else:
+                msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, file_size(f))
+                unlock.close()
+
+    @classmethod
     def win2wsl_path(Self, path):
         if os.path.isabs(path):
             path = os.path.abspath(path)
@@ -816,6 +845,8 @@ class TargetParser(ShellCmd):
             target_dir or os.path.join(self.workspace_dir, 'target')))
         self.target_cmake_dir = self.normpath(os.path.abspath(
             target_cmake_dir or (self.target_dir + '/.cmake')))
+        self.cmake_lock_file = self.normpath(os.path.join(
+            self.target_cmake_dir, '{}.cmake.lock'.format(self.host_system)))
         self.cmake_target_prefix = self.normpath(os.path.abspath(
             cmake_target_prefix or (self.target_cmake_dir + '/output')))
         self.cmake_prefix_triple = ''
@@ -1279,6 +1310,13 @@ class TargetParser(ShellCmd):
         return env
 
     def build(self):
+        file = ShellCmd.lock_file(path=self.cmake_lock_file)
+        try:
+            self._build()
+        finally:
+            ShellCmd.lock_file(unlock=file)
+
+    def _build(self):
         if self.android:
             self._android_init()
         elif self.zig:
@@ -1362,6 +1400,8 @@ class TargetParser(ShellCmd):
             fwrite(f, 'override TARGET_DIR = {}\n'.format(self.target_dir))
             fwrite(f, 'override TARGET_CMAKE_DIR = {}\n'.format(
                 self.target_cmake_dir))
+            fwrite(f, 'override CMAKE_LOCK_FILE = {}\n'.format(
+                self.cmake_lock_file))
             fwrite(f, 'override CMAKE_TARGET_PREFIX = {}\n'.format(
                 self.cmake_target_prefix))
             fwrite(f, 'override CMAKE_PREFIX_TRIPLE = {}\n'.format(
@@ -1455,6 +1495,8 @@ class TargetParser(ShellCmd):
             fwrite(f, 'set(TARGET_DIR "{}")\n'.format(self.target_dir))
             fwrite(f, 'set(TARGET_CMAKE_DIR "{}")\n'.format(
                 self.target_cmake_dir))
+            fwrite(f, 'set(TARGET_LOCK_FILE "{}")\n'.format(
+                self.cmake_lock_file))
             fwrite(f, 'set(TARGET_PREFIX "{}")\n'.format(
                 self.cmake_target_prefix))
             fwrite(f, 'set(TARGET_PREFIX_TRIPLE "{}")\n'.format(
