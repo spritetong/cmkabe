@@ -1235,10 +1235,11 @@ class TargetParser(ShellCmd):
             self.zig_cc_dir + '/zig-cc' + self.EXE_EXT)
 
         # Get include paths.
-        def cc_cmd_args(cc):
-            return [cc, '-target', self.zig_target]
-        self.c_includes = self._get_cc_includes(cc_cmd_args(self.target_cc), 'c')
-        self.cxx_includes = self._get_cc_includes(cc_cmd_args(self.target_cxx()), 'c++')
+        if self.host_system == 'Windows':
+            def cc_cmd_args(cc):
+                return [cc, '-target', self.zig_target]
+            self.c_includes = self._get_cc_includes(cc_cmd_args(self.target_cc), 'c')
+            self.cxx_includes = self._get_cc_includes(cc_cmd_args(self.target_cxx()), 'c++')
 
     @classmethod
     def zig_patch(Self):
