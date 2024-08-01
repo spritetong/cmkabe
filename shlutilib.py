@@ -1195,7 +1195,8 @@ class TargetParser(ShellCmd):
                 self.target + '-gcc' + self.EXE_EXT) or shutil.which(self.target + '-cc' + self.EXE_EXT)
             if target_cc:
                 self.target_cc = self.normpath(target_cc)
-            elif self.vendor != self.host_vendor or self.os != self.host_os or self.env != self.host_env:
+            elif (self.vendor != self.host_vendor or self.os != self.host_os or 
+                  self.env != self.host_env) or (self.host_is_linux and self.os == 'linux'):
                 # Find Zig cross-compiler.
                 zig = shutil.which('zig' + self.EXE_EXT)
                 if zig:
@@ -1725,7 +1726,8 @@ class TargetParser(ShellCmd):
             fwrite(f, '# For Rust bingen + libclang\n')
             bindgen_includes = [
                 '{}/include'.format(x) for x in self.cmake_prefix_subdirs] + self.cxx_includes
-            fwrite(f, 'override BINDGEN_EXTRA_CLANG_ARGS := $(TARGET_BINDGEN_CLANG_ARGS) {}\n'.format(
+            fwrite(f, 'override BINDGEN_EXTRA_CLANG_ARGS := $(TARGET_BINDGEN_CLANG_ARGS) {} {}\n'.format(
+                '-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_FAST',
                 ' '.join(map(lambda x: '-I' + x, bindgen_includes))))
             fwrite(f, 'export BINDGEN_EXTRA_CLANG_ARGS\n')
             fwrite(f, '\n')
