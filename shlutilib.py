@@ -818,6 +818,7 @@ class TargetParser(ShellCmd):
     }
 
     GCC_ENV_KEYS = (
+        'BINDGEN_EXTRA_CLANG_ARGS',
         'CPATH',
         'C_INCLUDE_PATH',
         'CPLUS_INCLUDE_PATH',
@@ -840,6 +841,7 @@ class TargetParser(ShellCmd):
 
         # Const variables
         self.host_system = host_target_info['host_system']
+        self.host_system_ext = host_target_info['system']
         self.host_arch = host_target_info['arch']
         self.host_os = host_target_info['os']
         self.host_vendor = host_target_info['vendor']
@@ -903,6 +905,36 @@ class TargetParser(ShellCmd):
         self.c_includes = []
         self.cxx_includes = []
 
+    @property
+    def host_is_windows(self):
+        return self.host_system == 'Windows'
+
+    # Check if the host is a POSIX system (mingw, cygwin) on Windows.
+    @property
+    def host_is_win_posix(self):
+        return self.host_system_ext in ['mingw', 'cygwin']
+
+    @property
+    def host_is_mingw(self):
+        return self.host_system_ext  == 'mingw'
+
+    @property
+    def host_is_cygwin(self):
+        return self.host_system_ext  == 'cygwin'
+
+    @property
+    def host_is_unix(self):
+        return self.host_system != 'Windows'
+
+    @property
+    def host_is_linux(self):
+        return self.host_system == 'Linux'
+
+    @property
+    def host_is_macos(self):
+        return self.host_system == 'Darwin'
+
+    @property
     def target_cxx(self):
         stem, ext = os.path.splitext(os.path.basename(self.target_cc))
         if stem.endswith('clang'):
@@ -915,6 +947,7 @@ class TargetParser(ShellCmd):
             cxx = stem
         return self.target_cc[:-(len(stem) + len(ext))] + cxx + ext
 
+    # Check if the host operating system is Windows.
     @ classmethod
     def normpath(Self, path):
         return os.path.normpath(path).replace('\\', '/')
@@ -927,7 +960,9 @@ class TargetParser(ShellCmd):
     @ classmethod
     def host_target_info(Self):
         import platform
-        # (not for Cargo) windows, linux, macos, cygwin, mingw
+        # (compatible with Make & CMake) Windows, Linux, Darwin
+        host_system = 'Windows' if os.name == 'nt' else platform.uname()[0]
+        # (not for Cargo) windows, linux, macos, mingw, cygwin
         target_system = ''
         # windows, unix, wasm
         target_family = ''
@@ -990,8 +1025,7 @@ class TargetParser(ShellCmd):
         )
 
         return {
-            # Compatible with Make & CMake
-            'host_system': 'Windows' if target_family == 'windows' else platform.uname()[0],
+            'host_system': host_system,
             'system': target_system,
             'family': target_family,
             'os': target_os,
@@ -1171,7 +1205,7 @@ class TargetParser(ShellCmd):
         if self.zig:
             if not self.zig_target:
                 self.zig_target = zig_target
-            self.cmake_generator = 'Ninja' if self.host_system == 'Windows' else 'Unix Makefiles'
+            self.cmake_generator = 'Ninja' if self.host_is_windows else 'Unix Makefiles'
 
         if self.target == self.cargo_target:
             self.cargo_target_dir = self.target_dir
@@ -1235,11 +1269,10 @@ class TargetParser(ShellCmd):
             self.zig_cc_dir + '/zig-cc' + self.EXE_EXT)
 
         # Get include paths.
-        if self.host_system == 'Windows':
-            def cc_cmd_args(cc):
-                return [cc, '-target', self.zig_target]
-            self.c_includes = self._get_cc_includes(cc_cmd_args(self.target_cc), 'c')
-            self.cxx_includes = self._get_cc_includes(cc_cmd_args(self.target_cxx()), 'c++')
+        def cc_cmd_args(cc):
+            return [cc, '-target', self.zig_target]
+        self.c_includes = self._get_cc_includes(cc_cmd_args(self.target_cc), 'c')
+        self.cxx_includes = self._get_cc_includes(cc_cmd_args(self.target_cxx), 'c++')
 
     @classmethod
     def zig_patch(Self):
@@ -1270,9 +1303,8 @@ class TargetParser(ShellCmd):
             self.target_cc = self.normpath(target_cc)
 
         # Get include paths.
-        if self.host_system == 'Windows':
-            self.c_includes = self._get_cc_includes([self.target_cc], 'c')
-            self.cxx_includes = self._get_cc_includes([self.target_cxx()], 'c++')
+        self.c_includes = self._get_cc_includes([self.target_cc], 'c')
+        self.cxx_includes = self._get_cc_includes([self.target_cxx], 'c++')
 
     def _android_init(self):
         self.android_ndk_root = self.normpath(
@@ -1292,11 +1324,10 @@ class TargetParser(ShellCmd):
             self.android_ndk_bin, self.EXE_EXT)
 
         # Get include paths.
-        if self.host_system == 'Windows':
-            def cc_cmd_args(cc):
-                return [cc, '--target={}'.format(self.android_target)]
-            self.c_includes = self._get_cc_includes(cc_cmd_args(self.target_cc), 'c')
-            self.cxx_includes = self._get_cc_includes(cc_cmd_args(self.target_cxx()), 'c++')
+        def cc_cmd_args(cc):
+            return [cc, '--target={}'.format(self.android_target)]
+        self.c_includes = self._get_cc_includes(cc_cmd_args(self.target_cc), 'c')
+        self.cxx_includes = self._get_cc_includes(cc_cmd_args(self.target_cxx), 'c++')
 
     @classmethod
     def _get_cc_includes(Self, cmd_args, lang='c'):
@@ -1387,8 +1418,11 @@ class TargetParser(ShellCmd):
             fwrite(f, '# Constants for the host platform\n')
             fwrite(f, 'override HOST_SEP := $(strip {})\n'.format(os.sep))
             fwrite(f, 'override HOST_PATHSEP = {}\n'.format(os.pathsep))
-            fwrite(f, 'override HOST_EXE_EXT = {}\n'.format(
-                '.exe' if self.host_system == 'Windows' else ''))
+            fwrite(f, 'override HOST_EXE_EXT = {}\n'.format(self.EXE_EXT))
+            fwrite(f, '\n')
+            fwrite(f, '# Unexport environment variables that may affect the CC compiler.\n')
+            for key in self.GCC_ENV_KEYS:
+                fwrite(f, 'unexport {}\n'.format(key))
 
         with open(os.path.join(self.target_cmake_dir, '{}.host.cmake'.format(self.host_system)), 'wb') as f:
             fwrite(f, 'set(HOST_SYSTEM "{}")\n'.format(self.host_system))
@@ -1398,8 +1432,7 @@ class TargetParser(ShellCmd):
             fwrite(f, 'set(HOST_SEP "{}")\n'.format(
                 os.sep.replace('\\', '\\\\')))
             fwrite(f, 'set(HOST_PATHSEP "{}")\n'.format(os.pathsep))
-            fwrite(f, 'set(HOST_EXE_EXT "{}")\n'.format(
-                '.exe' if self.host_system == 'Windows' else ''))
+            fwrite(f, 'set(HOST_EXE_EXT "{}")\n'.format(self.EXE_EXT))
 
         with open(os.path.join(self.cmake_target_dir, '{}.vars.mk'.format(self.host_system)), 'wb') as f:
             fwrite(f, '# Constants for the target platform\n')
@@ -1629,7 +1662,7 @@ class TargetParser(ShellCmd):
         elif self.target_cc:
             (target_cc, cc_ext) = os.path.splitext(self.target_cc)
             target_cc = self.normpath(os.path.abspath(target_cc))
-            if self.host_system == 'Windows':
+            if self.host_is_windows:
                 cc_ext = cc_ext.lower()
             if target_cc.endswith('-gcc'):
                 cc_prefix = target_cc[:-4]
@@ -1677,30 +1710,24 @@ class TargetParser(ShellCmd):
                 fwrite(f, '\n')
 
                 fwrite(f, '# ARFLAGS, CFLAGS, CXXFLAGS, RANLIBFLAGS\n')
-                fwrite(f, 'override ARFLAGS_{} += \n'.format(cargo_target))
+                fwrite(f, 'override ARFLAGS_{} := $(TARGET_ARFLAGS)\n'.format(cargo_target))
                 fwrite(f, 'export ARFLAGS_{}\n'.format(cargo_target))
-                fwrite(f, 'override CFLAGS_{} += {}\n'.format(cargo_target,
+                fwrite(f, 'override CFLAGS_{} := {} $(TARGET_CFLAGS)\n'.format(cargo_target,
                                                               ' '.join(cc_options)))
                 fwrite(f, 'export CFLAGS_{}\n'.format(cargo_target))
-                fwrite(f, 'override CXXFLAGS_{} += {}\n'.format(
+                fwrite(f, 'override CXXFLAGS_{} := {} $(TARGET_CXXFLAGS)\n'.format(
                     cargo_target, ' '.join(cc_options)))
                 fwrite(f, 'export CXXFLAGS_{}\n'.format(cargo_target))
-                fwrite(f, 'override RANLIBFLAGS_{} += \n'.format(cargo_target))
+                fwrite(f, 'override RANLIBFLAGS_{} := $(TARGET_RANLIBFLAGS)\n'.format(cargo_target))
                 fwrite(f, 'export RANLIBFLAGS_{}\n'.format(cargo_target))
                 fwrite(f, '\n')
 
             fwrite(f, '# For Rust bingen + libclang\n')
-            cmake_prefix_includes = [
-                '{}/include'.format(x) for x in self.cmake_prefix_subdirs]
-            for key in self.GCC_ENV_KEYS:
-                if key == 'C_INCLUDE_PATH':
-                    fwrite(f, 'export {} = {}\n'.format(key, os.pathsep.join(
-                        cmake_prefix_includes + self.c_includes)))
-                elif key == 'CPLUS_INCLUDE_PATH':
-                    fwrite(f, 'export {} = {}\n'.format(key, os.pathsep.join(
-                        cmake_prefix_includes + self.cxx_includes)))
-                else:
-                    fwrite(f, 'unexport {}\n'.format(key))
+            bindgen_includes = [
+                '{}/include'.format(x) for x in self.cmake_prefix_subdirs] + self.cxx_includes
+            fwrite(f, 'override BINDGEN_EXTRA_CLANG_ARGS := $(TARGET_BINDGEN_CLANG_ARGS) {}\n'.format(
+                ' '.join(map(lambda x: '-I' + x, bindgen_includes))))
+            fwrite(f, 'export BINDGEN_EXTRA_CLANG_ARGS\n')
             fwrite(f, '\n')
 
             fwrite(f, '# Configure the cross compile pkg-config.\n')
@@ -1711,16 +1738,15 @@ class TargetParser(ShellCmd):
             fwrite(f, '\n')
 
             fwrite(f, '# Set system paths.\n')
-            if self.host_system == 'Windows' and self.win32:
+            if self.host_is_windows and self.win32:
                 fwrite(f, make_export_paths('PATH', [
                     '$(CARGO_TARGET_OUT_DIR)'] + join_paths(self.cmake_prefix_subdirs, ['bin', 'lib'])))
-                fwrite(f, '\n')
             elif self.host_target == self.cargo_target:
                 fwrite(f, make_export_paths('PATH',
                        ['$(CARGO_TARGET_OUT_DIR)'] + join_paths(self.cmake_prefix_subdirs, ['bin'])))
                 fwrite(f, make_export_paths('LD_LIBRARY_PATH',
                        ['$(CARGO_TARGET_OUT_DIR)'] + join_paths(self.cmake_prefix_subdirs, ['lib'])))
-                fwrite(f, '\n')
+            fwrite(f, '\n')
 
             fwrite(f, '# Export variables for Cargo build.rs and CMake\n')
             fwrite(f, 'export CARGO_WORKSPACE_DIR = {}\n'.format(
@@ -1761,11 +1787,6 @@ class TargetParser(ShellCmd):
             fwrite(f, 'set(TARGET_RANLIB "{}")\n'.format(ranlib))
             fwrite(f, 'set(TARGET_STRIP "{}")\n'.format(strip))
             fwrite(f, 'set(TARGET_RC "{}")\n'.format(rc))
-            fwrite(f, '\n')
-
-            fwrite(f, '# Rremove environment variables related to C/C++ compiler.\n')
-            for gcc_env_key in self.GCC_ENV_KEYS:
-                fwrite(f, 'unset(ENV{{{}}})\n'.format(gcc_env_key))
             fwrite(f, '\n')
 
             fwrite(f, '# Configure the cross compile pkg-config.\n')

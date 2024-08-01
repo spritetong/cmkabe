@@ -59,7 +59,7 @@ include $(_DOT_HOST_MK)
 
 _DOT_VARS_DIR := $(TARGET_CMAKE_DIR)/$(if $(filter-out native,$(TARGET)),$(TARGET),$(HOST_TARGET).native)
 _DOT_VARS_MK = $(_DOT_VARS_DIR)/$(HOST_SYSTEM).vars.mk
-TARGET_TOOLCHAIN_MK = $(_DOT_VARS_DIR)/$(HOST_SYSTEM).toolchain.mk
+_DOT_TOOLCHAIN_MK = $(_DOT_VARS_DIR)/$(HOST_SYSTEM).toolchain.mk
 
 # Auto rebuild dependencies.
 $(_DOT_VARS_MK): $(addprefix $(CMKABE_HOME)/,shlutilib.py zig-wrapper.zig)
@@ -205,8 +205,7 @@ cargo_run = cargo $(CARGO_TOOLCHAIN) run --bin $(1) $(CARGO_OPTS) $(2)
 cargo_upgrade = cargo upgrade --incompatible $(1)
 
 # Set crosss compile tools for Rust
-# include $(HOST_SYSTEM).toolchain.mk
-include $(TARGET_TOOLCHAIN_MK)
+$(call cmkabe_update_toolchain)
 
 # Directory of Cargo output binaries, normally is "<workspace_dir>/target/<triple>/<debug|release>"
 CARGO_TARGET_OUT_DIR ?=

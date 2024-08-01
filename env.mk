@@ -34,6 +34,10 @@ define _cmkabe_version_check_
     endif
 endef
 
+# cmkabe_update_toolchain()
+#    Apply variables to the toolchain of the current target.
+cmkabe_update_toolchain = $(eval include $(_DOT_TOOLCHAIN_MK))
+
 # If `$(TARGET_IS_NATIVE)` is true, return `native`; otherwise, return `$(TARGET)`.
 CMKABE_TARGET = $(call bsel,$(TARGET_IS_NATIVE),native,$(TARGET))
 
