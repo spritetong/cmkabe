@@ -588,6 +588,7 @@ class ShellCmd:
         except ModuleNotFoundError:
             # Windows file locking
             import msvcrt
+
             def file_size(f):
                 return os.path.getsize(os.path.realpath(f.name))
             if unlock is None:
@@ -816,6 +817,15 @@ class TargetParser(ShellCmd):
         'ios-sim': 'ios',
     }
 
+    GCC_ENV_KEYS = (
+        'CPATH',
+        'C_INCLUDE_PATH',
+        'CPLUS_INCLUDE_PATH',
+        'OBJC_INCLUDE_PATH',
+        'COMPILER_PATH',
+        'LIBRARY_PATH',
+    )
+
     def __init__(self,
                  workspace_dir='',
                  target='',
@@ -892,6 +902,18 @@ class TargetParser(ShellCmd):
         # Include paths
         self.c_includes = []
         self.cxx_includes = []
+
+    def target_cxx(self):
+        stem, ext = os.path.splitext(os.path.basename(self.target_cc))
+        if stem.endswith('clang'):
+            cxx = stem[:-5] + 'clang++'
+        elif stem.endswith('gcc'):
+            cxx = stem[:-3] + 'g++'
+        elif stem.endswith('cc'):
+            cxx = stem[:-2] + 'c++'
+        else:
+            cxx = stem
+        return self.target_cc[:-(len(stem) + len(ext))] + cxx + ext
 
     @ classmethod
     def normpath(Self, path):
@@ -1213,9 +1235,10 @@ class TargetParser(ShellCmd):
             self.zig_cc_dir + '/zig-cc' + self.EXE_EXT)
 
         # Get include paths.
-        cc_cmd_args = [self.target_cc, '-target', self.zig_target]
-        self.c_includes = self._get_cc_includes(cc_cmd_args, 'c')
-        self.cxx_includes = self._get_cc_includes(cc_cmd_args, 'c++')
+        def cc_cmd_args(cc):
+            return [cc, '-target', self.zig_target]
+        self.c_includes = self._get_cc_includes(cc_cmd_args(self.target_cc), 'c')
+        self.cxx_includes = self._get_cc_includes(cc_cmd_args(self.target_cxx()), 'c++')
 
     @classmethod
     def zig_patch(Self):
@@ -1246,9 +1269,9 @@ class TargetParser(ShellCmd):
             self.target_cc = self.normpath(target_cc)
 
         # Get include paths.
-        cc_cmd_args = [self.target_cc]
-        self.c_includes = self._get_cc_includes(cc_cmd_args, 'c')
-        self.cxx_includes = self._get_cc_includes(cc_cmd_args, 'c++')
+        if self.host_system == 'Windows':
+            self.c_includes = self._get_cc_includes([self.target_cc], 'c')
+            self.cxx_includes = self._get_cc_includes([self.target_cxx()], 'c++')
 
     def _android_init(self):
         self.android_ndk_root = self.normpath(
@@ -1268,10 +1291,11 @@ class TargetParser(ShellCmd):
             self.android_ndk_bin, self.EXE_EXT)
 
         # Get include paths.
-        cc_cmd_args = [self.target_cc,
-                       '--target={}'.format(self.android_target)]
-        self.c_includes = self._get_cc_includes(cc_cmd_args, 'c')
-        self.cxx_includes = self._get_cc_includes(cc_cmd_args, 'c++')
+        if self.host_system == 'Windows':
+            def cc_cmd_args(cc):
+                return [cc, '--target={}'.format(self.android_target)]
+            self.c_includes = self._get_cc_includes(cc_cmd_args(self.target_cc), 'c')
+            self.cxx_includes = self._get_cc_includes(cc_cmd_args(self.target_cxx()), 'c++')
 
     @classmethod
     def _get_cc_includes(Self, cmd_args, lang='c'):
@@ -1297,19 +1321,8 @@ class TargetParser(ShellCmd):
 
     @classmethod
     def copy_env_for_cc(Self):
-        env = os.environ.copy()
         # Remove GCC environment variables.
-        for key in [
-            'CPATH',
-            'C_INCLUDE_PATH',
-            'CPLUS_INCLUDE_PATH',
-            'OBJC_INCLUDE_PATH',
-            'COMPILER_PATH',
-            'LIBRARY_PATH',
-        ]:
-            if key in env:
-                del env[key]
-        return env
+        return {k: v for (k, v) in os.environ.items() if k not in Self.GCC_ENV_KEYS}
 
     def build(self):
         file = self.lock_file(path=self.cmake_lock_file)
@@ -1586,7 +1599,7 @@ class TargetParser(ShellCmd):
                 '--target={}$(ANDROID_SDK_VERSION)'.format(self.android_target))
             linker_options.extend(
                 map(lambda x: '-C link-arg=' + x, cc_options))
-            linker = '{}/clang{}'.format(self.android_ndk_bin, self.EXE_EXT)
+            linker = '{}/clang++{}'.format(self.android_ndk_bin, self.EXE_EXT)
             ar = '{}/llvm-ar{}'.format(self.android_ndk_bin, self.EXE_EXT)
             cc = '{}/clang{}'.format(self.android_ndk_bin, self.EXE_EXT)
             cxx = '{}/clang++{}'.format(self.android_ndk_bin, self.EXE_EXT)
@@ -1632,14 +1645,6 @@ class TargetParser(ShellCmd):
             ranlib = cc_prefix + '-ranlib' + cc_ext
             strip = cc_prefix + '-strip' + cc_ext
 
-        # For Rust bingen + libclang
-        cmake_prefix_includes = [
-            '{}/include'.format(x) for x in self.cmake_prefix_subdirs]
-        cc_exports.append(
-            'C_INCLUDE_PATH += {}'.format(os.pathsep.join(cmake_prefix_includes + self.c_includes)))
-        cc_exports.append(
-            'CPLUS_INCLUDE_PATH += {}'.format(os.pathsep.join(cmake_prefix_includes + self.cxx_includes)))
-
         with open(os.path.join(self.cmake_target_dir, '{}.toolchain.mk'.format(self.host_system)), 'wb') as f:
             if cc_exports:
                 for line in cc_exports:
@@ -1682,6 +1687,20 @@ class TargetParser(ShellCmd):
                 fwrite(f, 'override RANLIBFLAGS_{} += \n'.format(cargo_target))
                 fwrite(f, 'export RANLIBFLAGS_{}\n'.format(cargo_target))
                 fwrite(f, '\n')
+
+            fwrite(f, '# For Rust bingen + libclang\n')
+            cmake_prefix_includes = [
+                '{}/include'.format(x) for x in self.cmake_prefix_subdirs]
+            for key in self.GCC_ENV_KEYS:
+                if key == 'C_INCLUDE_PATH':
+                    fwrite(f, 'export {} = {}\n'.format(key, os.pathsep.join(
+                        cmake_prefix_includes + self.c_includes)))
+                elif key == 'CPLUS_INCLUDE_PATH':
+                    fwrite(f, 'export {} = {}\n'.format(key, os.pathsep.join(
+                        cmake_prefix_includes + self.cxx_includes)))
+                else:
+                    fwrite(f, 'unexport {}\n'.format(key))
+            fwrite(f, '\n')
 
             fwrite(f, '# Configure the cross compile pkg-config.\n')
             fwrite(f, 'export PKG_CONFIG_ALLOW_CROSS = {}\n'.format(
@@ -1741,6 +1760,11 @@ class TargetParser(ShellCmd):
             fwrite(f, 'set(TARGET_RANLIB "{}")\n'.format(ranlib))
             fwrite(f, 'set(TARGET_STRIP "{}")\n'.format(strip))
             fwrite(f, 'set(TARGET_RC "{}")\n'.format(rc))
+            fwrite(f, '\n')
+
+            fwrite(f, '# Rremove environment variables related to C/C++ compiler.\n')
+            for gcc_env_key in self.GCC_ENV_KEYS:
+                fwrite(f, 'unset(ENV{{{}}})\n'.format(gcc_env_key))
             fwrite(f, '\n')
 
             fwrite(f, '# Configure the cross compile pkg-config.\n')
