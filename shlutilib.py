@@ -1121,6 +1121,8 @@ class TargetParser(ShellCmd):
         return (arch, vendor, os_str, env_str)
 
     def parse(self):
+        import shutil
+
         self.target_is_native = self.target in ('', 'native')
         if self.target_is_native:
             self.target = self.host_target
@@ -1184,20 +1186,20 @@ class TargetParser(ShellCmd):
             zig_target = self.join_triple(
                 self.ZIG_ARCH_MAP.get(self.arch) or self.arch, '', self.os, self.env)
 
-        # Cross compile.
-        self.zig = bool(self.zig_target) or (os.path.splitext(
+        # Find the cross compiler.
+        self.zig = (os.path.splitext(
             os.path.basename(self.target_cc))[0] in ('zig', 'zig-cc',))
         if (not self.target_is_native and not self.android and not self.zig and
-                not self.target_cc and self.cargo_target != self.host_target):
-            import shutil
-            # Find gcc cross-compiler.
+                (not self.target_cc or not shutil.which(self.target_cc)) and
+                self.cargo_target != self.host_target):
+            # Try gcc cross-compiler.
             target_cc = shutil.which(
                 self.target + '-gcc' + self.EXE_EXT) or shutil.which(self.target + '-cc' + self.EXE_EXT)
             if target_cc:
                 self.target_cc = self.normpath(target_cc)
             elif (self.vendor != self.host_vendor or self.os != self.host_os or 
                   self.env != self.host_env) or (self.host_is_linux and self.os == 'linux'):
-                # Find Zig cross-compiler.
+                # Try Zig cross-compiler.
                 zig = shutil.which('zig' + self.EXE_EXT)
                 if zig:
                     self.zig = True
