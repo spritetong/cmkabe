@@ -253,12 +253,12 @@ cmake-distclean: cmake-clean-output
 
 # Clean the root directory of all targets.
 cmake-clean-root: cmake-clean-output
-	@$(RM) -rf "$(TARGET_CMAKE_DIR)" || $(OK)
+	@$(RM) -rf "$(TARGET_CMAKE_DIR)" "$(TARGET_DIR)/.zig" || $(OK)
 
 # Clean extra output files.
 cmake-clean-output:
 	@$(if $(CMAKE_OUTPUT_DIRS),$(call git_remove_ignored,$(CMAKE_OUTPUT_DIRS),$(CMAKE_OUTPUT_FILE_PATTERNS)) || $(OK),$(OK))
-	@$(RM) -rf "$(WORKSPACE_DIR)/-" "$(TARGET_DIR)/.zig" $(CMAKE_OUTPUT_FILES) || $(OK)
+	@$(RM) -rf $(CMAKE_OUTPUT_FILES) "$(WORKSPACE_DIR)/-" || $(OK)
 	@$(call exists,"$(WORKSPACE_DIR)/CMakeLists.txt") && $(TOUCH) "$(WORKSPACE_DIR)/CMakeLists.txt" || $(OK)
 
 # Cargo command

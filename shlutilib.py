@@ -1115,7 +1115,7 @@ class TargetParser(ShellCmd):
                 'Invalid ARCH for Apple: {}'.format(target_triple))
 
         parsed_triple = Self.join_triple(arch, vendor, os_str, env_str)
-        if parsed_triple != target_triple:
+        if not arch or not os_str or parsed_triple != target_triple:
             raise ValueError('Invalid target triple: {}'.format(target_triple))
 
         return (arch, vendor, os_str, env_str)
