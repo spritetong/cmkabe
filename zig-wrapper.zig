@@ -196,6 +196,7 @@ const ZigWrapper = struct {
             self.log.write(" ");
             self.log.write(arg);
             switch (self.trySkip(arg)) {
+                -1 => _ = self.args.pop(),
                 0 => try self.appendArgument(arg),
                 1 => {},
                 2 => skip = true,
@@ -287,6 +288,7 @@ const ZigWrapper = struct {
                         self.buffers.append(arg) catch unreachable;
 
                         switch (self.trySkip(arg)) {
+                            -1 => _ = self.args.pop(),
                             0 => try self.appendArgument(arg),
                             1 => {},
                             2 => skip = true,
@@ -325,28 +327,36 @@ const ZigWrapper = struct {
         }
     }
 
-    fn trySkip(self: *Self, arg: []const u8) usize {
-        const skip_two = std.StaticStringMap(void).initComptime(.{
+    fn trySkip(self: *Self, arg: []const u8) i32 {
+        const skips = std.StaticStringMap(i32).initComptime(.{
             // --target <target>
-            .{"--target"},
-            // "--target" <target>
-            .{"\"--target\""},
+            .{ "--target", 2 },
             // -m <target>, unknown Clang option: '-m'
-            .{"-m"},
+            .{ "-m", 2 },
+            // x265
+            .{ "-march=i586", 1 },
+            .{ "-march=i686", 1 },
         });
+        var opt = arg;
         switch (self.command) {
             .cc, .cxx => {
-                // Skip:
-                //     --target=<target>
-                //     "--target=<target>"
-                //     -Wl,-v
-                if (strStartsWith(arg, "--target=") or
-                    strStartsWith(arg, "\"--target="))
-                {
-                    return 1;
+                // Strip quotes
+                if (strStartsWith(opt, "\"")) opt = opt[1..];
+                if (strEndsWith(opt, "\"")) opt = opt[0 .. opt.len - 1];
+
+                if (skips.get(opt)) |n| {
+                    return n;
                 }
-                if (skip_two.get(arg) != null) {
-                    return 2;
+
+                var prefix_len = std.mem.indexOf(u8, opt, "=");
+                if (prefix_len == null) {
+                    prefix_len = std.mem.indexOf(u8, opt, ":");
+                }
+                if (prefix_len) |len| {
+                    opt = opt[0..len];
+                    if (skips.get(opt)) |n| {
+                        return if (n >= 2) n - 1 else n;
+                    }
                 }
             },
             else => {},
@@ -359,9 +369,6 @@ const ZigWrapper = struct {
             // strip local symbols
             .{ "-Wl,-x", "-Wl,--strip-debug" },
             .{ "-Wl,-v", "" },
-            // x265
-            .{ "-march=i586", "" },
-            .{ "-march=i686", "" },
         });
         switch (self.command) {
             .cc, .cxx => {

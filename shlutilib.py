@@ -1730,7 +1730,7 @@ class TargetParser(ShellCmd):
                 '{}/include'.format(x) for x in self.cmake_prefix_subdirs] + self.cxx_includes
             fwrite(f, 'override BINDGEN_EXTRA_CLANG_ARGS := $(TARGET_BINDGEN_CLANG_ARGS) {} {}\n'.format(
                 '-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_FAST',
-                ' '.join(map(lambda x: '-I' + x, bindgen_includes))))
+                ' '.join(map(lambda x: '-I"{}"'.format(x), bindgen_includes))))
             fwrite(f, 'export BINDGEN_EXTRA_CLANG_ARGS\n')
             fwrite(f, '\n')
 
