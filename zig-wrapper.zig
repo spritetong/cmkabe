@@ -55,6 +55,41 @@ const ZigCommand = enum {
     }
 };
 
+const ZigArgOp = union(enum) {
+    replace: []const []const u8,
+    match_next_and_replace: struct { []const u8, []const []const u8 },
+
+    const Self = @This();
+
+    const cc_table = std.StaticStringMap([]const Self).initComptime(.{
+        // --target <target>
+        .{ "--target", &.{Self.skip_two} },
+        // -m <target>, unknown Clang option: '-m'
+        .{ "-m", &.{Self.skip_two} },
+        // strip local symbols
+        .{ "-Wl,-x", &.{Self.replace_with("-Wl,--strip-debug")} },
+        .{ "-Wl,-v", &.{Self.skip} },
+        // x265
+        .{ "-march=i586", &.{Self.skip} },
+        .{ "-march=i686", &.{Self.skip} },
+    });
+
+    const skip: Self = .{ .replace = &.{} };
+    const skip_two: Self = .{ .match_next_and_replace = .{ "", &.{} } };
+
+    fn replace_with(comptime arg: []const u8) Self {
+        return .{ .replace = &.{arg} };
+    }
+
+    fn skip_next(comptime next_arg: []const u8) Self {
+        return .{ .match_next_and_replace = .{ next_arg, &.{} } };
+    }
+
+    fn replace_next(comptime next_arg: []const u8, comptime replacement: []const []const u8) Self {
+        return .{ .match_next_and_replace = .{ next_arg, replacement } };
+    }
+};
+
 const ZigLog = struct {
     file: ?std.fs.File,
 
@@ -191,16 +226,14 @@ const ZigWrapper = struct {
         // Parse Zig flags in the environment variables.
         self.parseEnvFlags() catch {};
 
-        var skip = false;
-        for (self.sys_argv.items) |arg| {
+        var skip: usize = 0;
+        for (self.sys_argv.items, 0..) |arg, i| {
             self.log.write(" ");
             self.log.write(arg);
-            switch (self.trySkip(arg)) {
-                -1 => _ = self.args.pop(),
-                0 => try self.appendArgument(arg),
-                1 => {},
-                2 => skip = true,
-                else => unreachable,
+            if (skip > 0) {
+                skip -= 1;
+            } else {
+                skip = try self.appendArgument(arg, self.sys_argv.items[i + 1 ..]);
             }
         }
         self.log.write("\n");
@@ -282,17 +315,15 @@ const ZigWrapper = struct {
                 if (!stringsContains(self.args.items[1..], args.items) and
                     !stringsContains(self.sys_argv.items, args.items))
                 {
-                    var skip = false;
-                    for (args.items) |_arg| {
+                    var skip: usize = 0;
+                    for (args.items, 0..) |_arg, i| {
                         const arg = try self.allocator.dupe(u8, _arg);
                         self.buffers.append(arg) catch unreachable;
 
-                        switch (self.trySkip(arg)) {
-                            -1 => _ = self.args.pop(),
-                            0 => try self.appendArgument(arg),
-                            1 => {},
-                            2 => skip = true,
-                            else => unreachable,
+                        if (skip > 0) {
+                            skip -= 1;
+                        } else {
+                            skip = try self.appendArgument(arg, self.sys_argv.items[i + 1 ..]);
                         }
                     }
                 }
@@ -327,61 +358,52 @@ const ZigWrapper = struct {
         }
     }
 
-    fn trySkip(self: *Self, arg: []const u8) i32 {
-        const skips = std.StaticStringMap(i32).initComptime(.{
-            // --target <target>
-            .{ "--target", 2 },
-            // -m <target>, unknown Clang option: '-m'
-            .{ "-m", 2 },
-            // x265
-            .{ "-march=i586", 1 },
-            .{ "-march=i686", 1 },
-        });
+    fn appendArgument(self: *Self, arg: []const u8, remaining: []const []const u8) !usize {
         var opt = arg;
         switch (self.command) {
             .cc, .cxx => {
                 // Strip quotes
-                if (strStartsWith(opt, "\"")) opt = opt[1..];
-                if (strEndsWith(opt, "\"")) opt = opt[0 .. opt.len - 1];
+                opt = std.mem.trim(u8, opt, "\"");
 
-                if (skips.get(opt)) |n| {
-                    return n;
+                if (ZigArgOp.cc_table.get(opt)) |arg_ops| {
+                    for (arg_ops) |arg_op| switch (arg_op) {
+                        .replace => |v| {
+                            try self.args.appendSlice(v);
+                            return 0;
+                        },
+                        .match_next_and_replace => |v| {
+                            if (v.@"0".len == 0 or
+                                (remaining.len > 0 or strEql(v.@"0", remaining[0])))
+                            {
+                                try self.args.appendSlice(v.@"1");
+                                return 1;
+                            }
+                        },
+                    };
                 }
 
-                var prefix_len = std.mem.indexOf(u8, opt, "=");
-                if (prefix_len == null) {
-                    prefix_len = std.mem.indexOf(u8, opt, ":");
-                }
-                if (prefix_len) |len| {
-                    opt = opt[0..len];
-                    if (skips.get(opt)) |n| {
-                        return if (n >= 2) n - 1 else n;
+                var opt_kv = std.mem.splitAny(u8, opt, "=:");
+                const opt_k = opt_kv.next().?;
+                const opt_v = opt[opt_k.len + 1 ..];
+                if (opt.len > opt_k.len) {
+                    if (ZigArgOp.cc_table.get(opt_k)) |arg_ops| {
+                        for (arg_ops) |arg_op| switch (arg_op) {
+                            .replace => return 0,
+                            .match_next_and_replace => |v| {
+                                if (v.@"0".len == 0 or strEql(v.@"0", opt_v)) {
+                                    try self.args.appendSlice(v.@"1");
+                                    return 0;
+                                }
+                            },
+                        };
                     }
                 }
             },
             else => {},
         }
+
+        try self.args.append(arg);
         return 0;
-    }
-
-    fn appendArgument(self: *Self, arg: []const u8) !void {
-        const replacement = std.StaticStringMap([]const u8).initComptime(.{
-            // strip local symbols
-            .{ "-Wl,-x", "-Wl,--strip-debug" },
-            .{ "-Wl,-v", "" },
-        });
-        switch (self.command) {
-            .cc, .cxx => {
-                if (replacement.get(arg)) |s| {
-                    if (s.len > 0) {
-                        try self.args.append(s);
-                    }
-                    return;
-                }
-            },
-            else => {},
-        }
-        return self.args.append(arg);
     }
 };
 
