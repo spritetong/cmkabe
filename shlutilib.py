@@ -1205,11 +1205,13 @@ class TargetParser(ShellCmd):
                     self.zig = True
 
         # Zig
-        if self.zig:
-            if not self.zig_target:
-                self.zig_target = zig_target
+        if self.zig and not self.zig_target:
+            self.zig_target = zig_target
+
+        # CMake generator
+        if not self.cmake_generator and (self.zig or self.target_cc):
             self.cmake_generator = 'Ninja' if (
-                self.host_is_windows or shutil.which('ninja')) else 'Unix Makefiles'
+                self.host_is_windows or shutil.which('ninja' + self.EXE_EXT)) else 'Unix Makefiles'
 
         if self.target == self.cargo_target:
             self.cargo_target_dir = self.target_dir
@@ -1275,10 +1277,8 @@ class TargetParser(ShellCmd):
         # Get include paths.
         def cc_cmd_args(cc):
             return [cc, '-target', self.zig_target]
-        self.c_includes = self._get_cc_includes(
-            cc_cmd_args(self.target_cc), 'c')
-        self.cxx_includes = self._get_cc_includes(
-            cc_cmd_args(self.target_cxx), 'c++')
+        self.c_includes = self._get_cc_includes(cc_cmd_args(self.target_cc), 'c')
+        self.cxx_includes = self._get_cc_includes(cc_cmd_args(self.target_cxx), 'c++')
 
     @classmethod
     def zig_patch(Self):
@@ -1332,10 +1332,8 @@ class TargetParser(ShellCmd):
         # Get include paths.
         def cc_cmd_args(cc):
             return [cc, '--target={}'.format(self.android_target)]
-        self.c_includes = self._get_cc_includes(
-            cc_cmd_args(self.target_cc), 'c')
-        self.cxx_includes = self._get_cc_includes(
-            cc_cmd_args(self.target_cxx), 'c++')
+        self.c_includes = self._get_cc_includes(cc_cmd_args(self.target_cc), 'c')
+        self.cxx_includes = self._get_cc_includes(cc_cmd_args(self.target_cxx), 'c++')
 
     @classmethod
     def _get_cc_includes(Self, cmd_args, lang='c'):
@@ -1718,10 +1716,11 @@ class TargetParser(ShellCmd):
                 fwrite(f, '\n')
 
                 fwrite(f, '# ARFLAGS, CFLAGS, CXXFLAGS, RANLIBFLAGS\n')
-                fwrite(f, 'override ARFLAGS_{} := $(TARGET_ARFLAGS)\n'.format(cargo_target))
+                fwrite(f, 'override ARFLAGS_{} := $(TARGET_ARFLAGS)\n'.format(
+                    cargo_target))
                 fwrite(f, 'export ARFLAGS_{}\n'.format(cargo_target))
-                fwrite(f, 'override CFLAGS_{} := {} $(TARGET_CFLAGS)\n'.format(cargo_target,
-                                                                               ' '.join(cc_options)))
+                fwrite(f, 'override CFLAGS_{} := {} $(TARGET_CFLAGS)\n'.format(
+                    cargo_target, ' '.join(cc_options)))
                 fwrite(f, 'export CFLAGS_{}\n'.format(cargo_target))
                 fwrite(f, 'override CXXFLAGS_{} := {} $(TARGET_CXXFLAGS)\n'.format(
                     cargo_target, ' '.join(cc_options)))

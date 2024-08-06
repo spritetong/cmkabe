@@ -62,6 +62,14 @@ const ZigArgOp = union(enum) {
     const Self = @This();
 
     const cc_table = std.StaticStringMap([]const Self).initComptime(.{
+        // Linux system include paths
+        .{ "-I/usr/include", &.{Self.replace_with(&.{ "-idirafter", "/usr/include" })} },
+        .{ "-I/usr/local/include", &.{Self.replace_with(&.{ "-idirafter", "/usr/local/include" })} },
+        // MSVC
+        .{ "-Xlinker", &.{
+            Self.skip_next("/MANIFEST:EMBED"),
+            Self.skip_next("/version:0.0"),
+        } },
         // --target <target>
         .{ "--target", &.{Self.skip_two} },
         // -m <target>, unknown Clang option: '-m'
@@ -72,11 +80,6 @@ const ZigArgOp = union(enum) {
         // x265
         .{ "-march=i586", &.{Self.skip} },
         .{ "-march=i686", &.{Self.skip} },
-        // Linux system include paths
-        .{ "-I/usr/include", &.{Self.replace_with(&.{ "-idirafter", "/usr/include" })} },
-        .{ "-I/usr/local/include", &.{Self.replace_with(&.{ "-idirafter", "/usr/local/include" })} },
-        .{ "-I/usr/lib/tcc/include", &.{Self.replace_with(&.{ "-idirafter", "/usr/lib/tcc/include" })} },
-        .{ "-I/usr/local/lib/tcc/include", &.{Self.replace_with(&.{ "-idirafter", "/usr/local/lib/tcc/include" })} },
     });
 
     const skip: Self = .{ .replace = &.{} };
