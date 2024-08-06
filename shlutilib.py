@@ -916,11 +916,11 @@ class TargetParser(ShellCmd):
 
     @property
     def host_is_mingw(self):
-        return self.host_system_ext  == 'mingw'
+        return self.host_system_ext == 'mingw'
 
     @property
     def host_is_cygwin(self):
-        return self.host_system_ext  == 'cygwin'
+        return self.host_system_ext == 'cygwin'
 
     @property
     def host_is_unix(self):
@@ -1197,7 +1197,7 @@ class TargetParser(ShellCmd):
                 self.target + '-gcc' + self.EXE_EXT) or shutil.which(self.target + '-cc' + self.EXE_EXT)
             if target_cc:
                 self.target_cc = self.normpath(target_cc)
-            elif (self.vendor != self.host_vendor or self.os != self.host_os or 
+            elif (self.vendor != self.host_vendor or self.os != self.host_os or
                   self.env != self.host_env) or (self.host_is_linux and self.os == 'linux'):
                 # Try Zig cross-compiler.
                 zig = shutil.which('zig' + self.EXE_EXT)
@@ -1208,7 +1208,8 @@ class TargetParser(ShellCmd):
         if self.zig:
             if not self.zig_target:
                 self.zig_target = zig_target
-            self.cmake_generator = 'Ninja' if self.host_is_windows else 'Unix Makefiles'
+            self.cmake_generator = 'Ninja' if (
+                self.host_is_windows or shutil.which('ninja')) else 'Unix Makefiles'
 
         if self.target == self.cargo_target:
             self.cargo_target_dir = self.target_dir
@@ -1274,8 +1275,10 @@ class TargetParser(ShellCmd):
         # Get include paths.
         def cc_cmd_args(cc):
             return [cc, '-target', self.zig_target]
-        self.c_includes = self._get_cc_includes(cc_cmd_args(self.target_cc), 'c')
-        self.cxx_includes = self._get_cc_includes(cc_cmd_args(self.target_cxx), 'c++')
+        self.c_includes = self._get_cc_includes(
+            cc_cmd_args(self.target_cc), 'c')
+        self.cxx_includes = self._get_cc_includes(
+            cc_cmd_args(self.target_cxx), 'c++')
 
     @classmethod
     def zig_patch(Self):
@@ -1329,8 +1332,10 @@ class TargetParser(ShellCmd):
         # Get include paths.
         def cc_cmd_args(cc):
             return [cc, '--target={}'.format(self.android_target)]
-        self.c_includes = self._get_cc_includes(cc_cmd_args(self.target_cc), 'c')
-        self.cxx_includes = self._get_cc_includes(cc_cmd_args(self.target_cxx), 'c++')
+        self.c_includes = self._get_cc_includes(
+            cc_cmd_args(self.target_cc), 'c')
+        self.cxx_includes = self._get_cc_includes(
+            cc_cmd_args(self.target_cxx), 'c++')
 
     @classmethod
     def _get_cc_includes(Self, cmd_args, lang='c'):
@@ -1716,12 +1721,13 @@ class TargetParser(ShellCmd):
                 fwrite(f, 'override ARFLAGS_{} := $(TARGET_ARFLAGS)\n'.format(cargo_target))
                 fwrite(f, 'export ARFLAGS_{}\n'.format(cargo_target))
                 fwrite(f, 'override CFLAGS_{} := {} $(TARGET_CFLAGS)\n'.format(cargo_target,
-                                                              ' '.join(cc_options)))
+                                                                               ' '.join(cc_options)))
                 fwrite(f, 'export CFLAGS_{}\n'.format(cargo_target))
                 fwrite(f, 'override CXXFLAGS_{} := {} $(TARGET_CXXFLAGS)\n'.format(
                     cargo_target, ' '.join(cc_options)))
                 fwrite(f, 'export CXXFLAGS_{}\n'.format(cargo_target))
-                fwrite(f, 'override RANLIBFLAGS_{} := $(TARGET_RANLIBFLAGS)\n'.format(cargo_target))
+                fwrite(f, 'override RANLIBFLAGS_{} := $(TARGET_RANLIBFLAGS)\n'.format(
+                    cargo_target))
                 fwrite(f, 'export RANLIBFLAGS_{}\n'.format(cargo_target))
                 fwrite(f, '\n')
 

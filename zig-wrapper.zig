@@ -67,18 +67,23 @@ const ZigArgOp = union(enum) {
         // -m <target>, unknown Clang option: '-m'
         .{ "-m", &.{Self.skip_two} },
         // strip local symbols
-        .{ "-Wl,-x", &.{Self.replace_with("-Wl,--strip-debug")} },
+        .{ "-Wl,-x", &.{Self.replace_with(&.{"-Wl,--strip-debug"})} },
         .{ "-Wl,-v", &.{Self.skip} },
         // x265
         .{ "-march=i586", &.{Self.skip} },
         .{ "-march=i686", &.{Self.skip} },
+        // Linux system include paths
+        .{ "-I/usr/include", &.{Self.replace_with(&.{ "-idirafter", "/usr/include" })} },
+        .{ "-I/usr/local/include", &.{Self.replace_with(&.{ "-idirafter", "/usr/local/include" })} },
+        .{ "-I/usr/lib/tcc/include", &.{Self.replace_with(&.{ "-idirafter", "/usr/lib/tcc/include" })} },
+        .{ "-I/usr/local/lib/tcc/include", &.{Self.replace_with(&.{ "-idirafter", "/usr/local/lib/tcc/include" })} },
     });
 
     const skip: Self = .{ .replace = &.{} };
     const skip_two: Self = .{ .match_next_and_replace = .{ "", &.{} } };
 
-    fn replace_with(comptime arg: []const u8) Self {
-        return .{ .replace = &.{arg} };
+    fn replace_with(comptime args: []const []const u8) Self {
+        return .{ .replace = args };
     }
 
     fn skip_next(comptime next_arg: []const u8) Self {
