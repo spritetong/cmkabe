@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 const ZigCommand = enum {
+    const Self = @This();
     ar,
     cc,
     cxx,
@@ -12,8 +13,6 @@ const ZigCommand = enum {
     ranlib,
     rc,
     strip,
-
-    const Self = @This();
 
     fn fromStr(str: []const u8) ?Self {
         const map = std.StaticStringMap(ZigCommand).initComptime(.{
@@ -56,10 +55,9 @@ const ZigCommand = enum {
 };
 
 const ZigArgOp = union(enum) {
+    const Self = @This();
     replace: []const []const u8,
     match_next_and_replace: struct { []const u8, []const []const u8 },
-
-    const Self = @This();
 
     const cc_table = std.StaticStringMap([]const Self).initComptime(.{
         // Linux system include paths
@@ -98,10 +96,73 @@ const ZigArgOp = union(enum) {
     }
 };
 
-const ZigLog = struct {
-    file: ?std.fs.File,
-
+const Deallcator = union(enum) {
     const Self = @This();
+    arg_iter: std.process.ArgIterator,
+    arg_iter_gen: std.process.ArgIteratorGeneral(.{}),
+    string: struct { std.mem.Allocator, []u8 },
+
+    fn deinit(self: *Self) void {
+        switch (self.*) {
+            .arg_iter => |*v| v.deinit(),
+            .arg_iter_gen => |*v| v.deinit(),
+            .string => |*v| v.@"0".free(v.@"1"),
+        }
+    }
+};
+
+const ResourceCollection = struct {
+    const Self = @This();
+    items: std.ArrayList(Deallcator),
+
+    fn init(allocator_: std.mem.Allocator) Self {
+        return .{ .items = std.ArrayList(Deallcator).init(allocator_) };
+    }
+
+    fn deinit(self: *Self) void {
+        self.clear();
+        self.items.deinit();
+    }
+
+    inline fn allocator(self: *Self) std.mem.Allocator {
+        return self.items.allocator;
+    }
+
+    fn clear(self: *Self) void {
+        while (self.items.popOrNull()) |*de| {
+            @constCast(de).deinit();
+        }
+        self.items.clearRetainingCapacity();
+    }
+
+    fn add_arg_iterator(self: *Self, arg_iter: std.process.ArgIterator) void {
+        self.items.append(.{
+            .arg_iter = arg_iter,
+        }) catch unreachable;
+    }
+
+    fn add_arg_iter_general(self: *Self, arg_iter: std.process.ArgIteratorGeneral(.{})) void {
+        self.items.append(.{
+            .arg_iter_gen = arg_iter,
+        }) catch unreachable;
+    }
+
+    fn add_string(self: *Self, string: []u8) void {
+        self.items.append(.{
+            .string = .{ self.items.allocator, string },
+        }) catch unreachable;
+    }
+
+    fn getEnvVar(self: *Self, key: []const u8) std.process.GetEnvVarOwnedError![]u8 {
+        const value = try getEnvVarOwned(self.allocator(), key);
+        self.add_string(value);
+        return value;
+    }
+};
+
+const ZigLog = struct {
+    const Self = @This();
+    file: ?std.fs.File,
 
     fn init(allocator: std.mem.Allocator) !Self {
         if (getEnvVarOwned(allocator, "ZIG_WRAPPER_LOG_PATH")) |path| {
@@ -149,9 +210,9 @@ const ZigLog = struct {
 };
 
 const ZigWrapper = struct {
+    const Self = @This();
     allocator: std.mem.Allocator,
-    buffers: std.ArrayList([]const u8),
-    arg_iter: std.process.ArgIterator,
+    gc: ResourceCollection,
     sys_argv: std.ArrayList([]const u8),
     log: ZigLog,
     command: ZigCommand,
@@ -160,8 +221,6 @@ const ZigWrapper = struct {
     /// <arch>-<os>-<abi>
     zig_target: []const u8,
     args: std.ArrayList([]const u8),
-
-    const Self = @This();
 
     fn init(allocator: std.mem.Allocator) !Self {
         var arg_iter = try std.process.argsWithAllocator(allocator);
@@ -186,10 +245,12 @@ const ZigWrapper = struct {
         errdefer log.deinit();
         log.print("{s}", .{argv0});
 
+        var gc = ResourceCollection.init(allocator);
+        gc.add_arg_iterator(arg_iter);
+
         return .{
             .allocator = allocator,
-            .buffers = std.ArrayList([]const u8).init(allocator),
-            .arg_iter = arg_iter,
+            .gc = gc,
             .sys_argv = sys_argv,
             .log = log,
             .command = command,
@@ -201,26 +262,23 @@ const ZigWrapper = struct {
 
     fn run(self: *Self) !u8 {
         // zig[.exe]
-        const zig_exe = getEnvVarOwned(self.allocator, "ZIG_EXECUTABLE") catch
+        const zig_exe = self.gc.getEnvVar("ZIG_EXECUTABLE") catch
             try std.fmt.allocPrint(
             self.allocator,
             "zig{s}",
             .{builtin.os.tag.exeFileExt(builtin.cpu.arch)},
         );
-        self.buffers.append(zig_exe) catch unreachable;
         try self.args.append(zig_exe);
 
         // command
         try self.args.append(self.command.toName());
 
         // cc, c++: -target <target>
-        if (getEnvVarOwned(self.allocator, "ZIG_WRAPPER_CLANG_TARGET")) |target| {
-            self.buffers.append(target) catch unreachable;
+        if (self.gc.getEnvVar("ZIG_WRAPPER_CLANG_TARGET")) |target| {
             self.clang_target = target;
         } else |_| {}
         try self.targetInit(blk: {
-            if (getEnvVarOwned(self.allocator, "ZIG_WRAPPER_TARGET")) |target| {
-                self.buffers.append(target) catch unreachable;
+            if (self.gc.getEnvVar("ZIG_WRAPPER_TARGET")) |target| {
                 self.zig_target = target;
                 if (self.clang_target.len == 0) {
                     self.clang_target = target;
@@ -265,11 +323,7 @@ const ZigWrapper = struct {
         self.args.clearAndFree();
         self.log.deinit();
         self.sys_argv.clearAndFree();
-        self.arg_iter.deinit();
-        for (self.buffers.items) |buf| {
-            self.allocator.free(buf);
-        }
-        self.buffers.clearAndFree();
+        self.gc.deinit();
     }
 
     fn parseEnvFlags(self: *Self) !void {
@@ -307,15 +361,15 @@ const ZigWrapper = struct {
                 }
 
                 // Parse flags.
-                const flags_str = getEnvVarOwned(self.allocator, key) catch continue;
-                defer self.allocator.free(flags_str);
-                var args_iter = std.process.ArgIteratorGeneral(.{}).init(
+                const flags_str = self.gc.getEnvVar(key) catch continue;
+                var arg_iter = std.process.ArgIteratorGeneral(.{}).init(
                     self.allocator,
                     flags_str,
                 ) catch unreachable;
-                defer args_iter.deinit();
+                self.gc.add_arg_iter_general(arg_iter);
+
                 args.clearRetainingCapacity();
-                while (args_iter.next()) |arg| {
+                while (arg_iter.next()) |arg| {
                     try args.append(arg);
                 }
 
@@ -324,10 +378,7 @@ const ZigWrapper = struct {
                     !stringsContains(self.sys_argv.items, args.items))
                 {
                     var skip: usize = 0;
-                    for (args.items, 0..) |_arg, i| {
-                        const arg = try self.allocator.dupe(u8, _arg);
-                        self.buffers.append(arg) catch unreachable;
-
+                    for (args.items, 0..) |arg, i| {
                         if (skip > 0) {
                             skip -= 1;
                         } else {
