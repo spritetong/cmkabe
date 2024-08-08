@@ -947,6 +947,21 @@ class TargetParser(ShellCmd):
             cxx = stem
         return self.target_cc[:-(len(stem) + len(ext))] + cxx + ext
 
+    def enum_link_dirs(self, quotes=False):
+        for dir in self.cmake_prefix_subdirs:
+            for subdir in ['lib', 'bin'] if self.win32 else ['lib']:
+                if quotes:
+                    yield '"{}/{}"'.format(dir, subdir)
+                else:
+                    yield '{}/{}'.format(dir, subdir)
+
+    def enum_prefix_subdirs_of(self, subdir, quotes=False):
+        for dir in self.cmake_prefix_subdirs:
+            if quotes:
+                yield '"{}{}{}"'.format(dir, '/' if subdir else '', subdir)
+            else:
+                yield '{}{}{}'.format(dir, '/' if subdir else '', subdir)
+
     # Check if the host operating system is Windows.
     @ classmethod
     def normpath(Self, path):
@@ -1228,6 +1243,10 @@ class TargetParser(ShellCmd):
         if self.target != self.cargo_target:
             self.cmake_prefix_subdirs.append(
                 '{}/{}'.format(self.cmake_target_prefix, self.cargo_target))
+        if self.os == 'windows' and self.env == 'gnu':
+            self.cmake_prefix_subdirs.append(
+                '{}/{}'.format(self.cmake_target_prefix,
+                               self.join_triple(self.arch, 'pc', 'windows', 'msvc')))
         self.cmake_prefix_subdirs.append(
             '{}/any'.format(self.cmake_target_prefix))
         return self
@@ -1277,8 +1296,10 @@ class TargetParser(ShellCmd):
         # Get include paths.
         def cc_cmd_args(cc):
             return [cc, '-target', self.zig_target]
-        self.c_includes = self._get_cc_includes(cc_cmd_args(self.target_cc), 'c')
-        self.cxx_includes = self._get_cc_includes(cc_cmd_args(self.target_cxx), 'c++')
+        self.c_includes = self._get_cc_includes(
+            cc_cmd_args(self.target_cc), 'c')
+        self.cxx_includes = self._get_cc_includes(
+            cc_cmd_args(self.target_cxx), 'c++')
 
     @classmethod
     def zig_patch(Self):
@@ -1332,8 +1353,10 @@ class TargetParser(ShellCmd):
         # Get include paths.
         def cc_cmd_args(cc):
             return [cc, '--target={}'.format(self.android_target)]
-        self.c_includes = self._get_cc_includes(cc_cmd_args(self.target_cc), 'c')
-        self.cxx_includes = self._get_cc_includes(cc_cmd_args(self.target_cxx), 'c++')
+        self.c_includes = self._get_cc_includes(
+            cc_cmd_args(self.target_cc), 'c')
+        self.cxx_includes = self._get_cc_includes(
+            cc_cmd_args(self.target_cxx), 'c++')
 
     @classmethod
     def _get_cc_includes(Self, cmd_args, lang='c'):
@@ -1426,7 +1449,8 @@ class TargetParser(ShellCmd):
             fwrite(f, 'override HOST_PATHSEP = {}\n'.format(os.pathsep))
             fwrite(f, 'override HOST_EXE_EXT = {}\n'.format(self.EXE_EXT))
             fwrite(f, '\n')
-            fwrite(f, '# Unexport environment variables that may affect the CC compiler.\n')
+            fwrite(
+                f, '# Unexport environment variables that may affect the CC compiler.\n')
             for key in self.GCC_ENV_KEYS:
                 fwrite(f, 'unexport {}\n'.format(key))
 
@@ -1462,13 +1486,13 @@ class TargetParser(ShellCmd):
             fwrite(f, 'override CMAKE_PREFIX_TRIPLE = {}\n'.format(
                 self.cmake_prefix_triple))
             fwrite(f, 'override CMAKE_PREFIX_SUBDIRS = {}\n'.format(
-                ' '.join(self.cmake_prefix_subdirs)))
+                ' '.join(self.enum_prefix_subdirs_of(''))))
             fwrite(f, 'override CMAKE_PREFIX_BINS = {}\n'.format(
-                ' '.join(map(lambda x: x + '/bin', self.cmake_prefix_subdirs))))
+                ' '.join(self.enum_prefix_subdirs_of('bin'))))
             fwrite(f, 'override CMAKE_PREFIX_LIBS = {}\n'.format(
-                ' '.join(map(lambda x: x + '/lib', self.cmake_prefix_subdirs))))
+                ' '.join(self.enum_link_dirs())))
             fwrite(f, 'override CMAKE_PREFIX_INCLUDES = {}\n'.format(
-                ' '.join(map(lambda x: x + '/include', self.cmake_prefix_subdirs))))
+                ' '.join(self.enum_prefix_subdirs_of('include'))))
             fwrite(f, '\n')
 
             fwrite(f, '# Cargo\n')
@@ -1557,13 +1581,13 @@ class TargetParser(ShellCmd):
             fwrite(f, 'set(TARGET_PREFIX_TRIPLE "{}")\n'.format(
                 self.cmake_prefix_triple))
             fwrite(f, 'set(TARGET_PREFIX_SUBDIRS {})\n'.format(
-                ' '.join(map(lambda x: '"{}"'.format(x), self.cmake_prefix_subdirs))))
+                ' '.join(self.enum_prefix_subdirs_of('', quotes=True))))
             fwrite(f, 'set(TARGET_PREFIX_BINS {})\n'.format(
-                ' '.join(map(lambda x: '"{}/bin"'.format(x), self.cmake_prefix_subdirs))))
+                ' '.join(self.enum_prefix_subdirs_of('bin', quotes=True))))
             fwrite(f, 'set(TARGET_PREFIX_LIBS {})\n'.format(
-                ' '.join(map(lambda x: '"{}/lib"'.format(x), self.cmake_prefix_subdirs))))
+                ' '.join(self.enum_link_dirs(quotes=True))))
             fwrite(f, 'set(TARGET_PREFIX_INCLUDES {})\n'.format(
-                ' '.join(map(lambda x: '"{}/include"'.format(x), self.cmake_prefix_subdirs))))
+                ' '.join(self.enum_prefix_subdirs_of('include', quotes=True))))
             fwrite(f, '\n')
 
             fwrite(f, '# Cargo\n')
@@ -1777,6 +1801,10 @@ class TargetParser(ShellCmd):
             fwrite(f, 'export CMKABE_DEBUG := $(DEBUG)\n')
             fwrite(f, 'export CMKABE_MINSIZE := $(MINSIZE)\n')
             fwrite(f, 'export CMKABE_DBGINFO := $(DBGINFO)\n')
+            fwrite(f, 'export CMKABE_LINK_DIRS = {}\n'.format(
+                os.path.pathsep.join(self.enum_link_dirs())))
+            fwrite(f, 'export CMKABE_INCLUDE_DIRS = {}\n'.format(
+                os.path.pathsep.join(self.enum_prefix_subdirs_of('include'))))
 
         with open(os.path.join(self.cmake_target_dir, '{}.toolchain.cmake'.format(self.host_system)), 'wb') as f:
             if cc_exports:
@@ -1839,5 +1867,9 @@ class TargetParser(ShellCmd):
             fwrite(f, '    set(ENV{CMKABE_MINSIZE} OFF)\n')
             fwrite(f, '    set(ENV{CMKABE_DBGINFO} ON)\n')
             fwrite(f, 'endif()\n')
+            fwrite(f, 'set(ENV{{CMKABE_LINK_DIRS}} "{}")\n'.format(
+                os.path.pathsep.join(self.enum_link_dirs())))
+            fwrite(f, 'set(ENV{{CMKABE_INCLUDE_DIRS}} "{}")\n'.format(
+                os.path.pathsep.join(self.enum_prefix_subdirs_of('include'))))
 
         return self

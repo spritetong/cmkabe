@@ -72,6 +72,14 @@ endif()
 # Define a dummy project.
 project(CMKABE LANGUAGES C CXX ASM)
 
+if(ZIG AND (ZIG_TARGET MATCHES "windows-gnu$"))
+    # Remove the prefix lib from the names of dynamic libraries
+    set(CMAKE_SHARED_LIBRARY_PREFIX "")
+    set(CMAKE_SHARED_LIBRARY_SUFFIX ".dll")
+    set(CMAKE_IMPORT_LIBRARY_PREFIX "")
+    set(CMAKE_IMPORT_LIBRARY_SUFFIX ".lib")
+endif()
+
 if(MSVC)
     set(CC_DEFINE_OPT "/D")
 else()
