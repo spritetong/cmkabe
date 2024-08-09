@@ -496,8 +496,8 @@ pub const ZigWrapper = struct {
 
         for (targets) |target| {
             for ([_][]const u8{
-                if (self.command == .cxx) (ZigCommand.cc.toFlagsName() orelse "") else "",
                 self.command.toFlagsName() orelse "",
+                if (self.command == .cxx) ZigCommand.cc.toFlagsName().? else "",
             }) |flags_name| {
                 if (flags_name.len == 0) continue;
 
