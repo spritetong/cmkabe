@@ -75,7 +75,7 @@ pub const ZigArgFilter = union(enum) {
         // -m <target>, unknown Clang option: '-m'
         .{ "-m", &.{Self.skip_two} },
         // strip local symbols
-        .{ "-Wl,-x", &.{Self.replace_with(&.{"-Wl,--strip-debug"})} },
+        .{ "-Wl,-x", &.{Self.replace_with(&.{"-Wl,--strip-all"})} },
         .{ "-Wl,-v", &.{Self.skip} },
         // x265
         .{ "-march=i586", &.{Self.skip} },
@@ -84,11 +84,14 @@ pub const ZigArgFilter = union(enum) {
 
     pub const windows_gnu_cc_filters = FilterTable.initComptime(.{
         .{ "-Wl,--disable-auto-image-base", &.{Self.skip} },
-        .{ "-lgcc", &.{Self.skip} },
-        .{ "-lgcc_eh", &.{Self.skip} },
-        .{ "-lmsvcrt", &.{Self.skip} },
-        .{ "-lwinapi_synchronization", &.{Self.skip} },
-        .{ "-lwindows", &.{Self.skip} },
+    });
+    pub const windows_gnu_skipped_libs = std.StaticStringMap(void).initComptime(.{
+        .{"gcc"},
+        .{"gcc_eh"},
+        .{"msvcrt"},
+        .{"pthread"},
+        .{"stdc++"},
+        .{"synchronization"},
     });
 
     const skip: Self = .{ .replace = &.{} };
@@ -104,6 +107,61 @@ pub const ZigArgFilter = union(enum) {
 
     fn replace_next(comptime next_arg: []const u8, comptime replacement: []const []const u8) Self {
         return .{ .match_next_and_replace = .{ next_arg, replacement } };
+    }
+};
+
+pub const LinkerLibKind = enum { none, static, dynamic };
+
+pub const LinkerLib = struct {
+    const Self = @This();
+    kind: LinkerLibKind = .none,
+    name: []const u8 = "",
+    index: usize = 0,
+
+    const dynamic_lib_exts: []const []const u8 = &.{
+        ".so", ".dll", ".dll.a", ".dll.lib",
+    };
+    const static_lib_exts: []const []const u8 = &.{ ".a", ".lib" };
+
+    pub fn fromFileName(is_windows: bool, file_name: []const u8) Self {
+        var kind = LinkerLibKind.none;
+
+        var name = std.fs.path.basename(file_name);
+        if (strStartsWith(name, ":")) {
+            name = name[1..];
+            kind = .static;
+        }
+        if (strStartsWith(name, "lib")) {
+            name = name[3..];
+        }
+
+        for ([_]LinkerLibKind{ .dynamic, .static }) |k| {
+            for (Self.get_lib_exts(is_windows, k)) |ext| {
+                if (strEndsWith(name, ext)) {
+                    return Self{
+                        .kind = k,
+                        .name = name[0 .. name.len - ext.len],
+                    };
+                }
+            }
+        }
+        return Self{ .kind = kind, .name = name };
+    }
+
+    pub fn get_lib_exts(is_windows: bool, kind: LinkerLibKind) []const []const u8 {
+        if (is_windows) {
+            switch (kind) {
+                .static => return Self.static_lib_exts,
+                .dynamic => return Self.dynamic_lib_exts,
+                else => unreachable,
+            }
+        } else {
+            switch (kind) {
+                .static => return Self.static_lib_exts[0..1],
+                .dynamic => return Self.dynamic_lib_exts[0..1],
+                else => unreachable,
+            }
+        }
     }
 };
 
@@ -277,8 +335,8 @@ pub const ZigWrapper = struct {
     /// <arch>-<vendor>-<os>-<abi>
     clang_target: []const u8,
     target_is_windows: bool,
-    target_is_linux: bool,
     target_is_android: bool,
+    target_is_linux: bool,
     target_is_apple: bool,
     target_is_wasm: bool,
     target_is_msvc: bool,
@@ -337,8 +395,8 @@ pub const ZigWrapper = struct {
         const zig_target = alloc.getEnvVar("ZIG_WRAPPER_TARGET") catch "";
         const clang_target = alloc.getEnvVar("ZIG_WRAPPER_CLANG_TARGET") catch zig_target;
         const is_windows = std.mem.indexOf(u8, clang_target, "-windows") != null;
-        const is_linux = std.mem.indexOf(u8, clang_target, "-linux") != null;
         const is_android = std.mem.indexOf(u8, clang_target, "-android") != null;
+        const is_linux = std.mem.indexOf(u8, clang_target, "-linux") != null;
         const is_apple = std.mem.indexOf(u8, clang_target, "-apple") != null;
         const is_wasm = strStartsWith(clang_target, "wasm") or
             strEndsWith(clang_target, "-emscripten");
@@ -354,8 +412,8 @@ pub const ZigWrapper = struct {
             .zig_target = zig_target,
             .clang_target = clang_target,
             .target_is_windows = is_windows,
-            .target_is_linux = is_linux,
             .target_is_android = is_android,
+            .target_is_linux = is_linux,
             .target_is_apple = is_apple,
             .target_is_wasm = is_wasm,
             .target_is_msvc = is_msvc,
@@ -380,6 +438,7 @@ pub const ZigWrapper = struct {
         // Parse Zig flags in the environment variables and append them to `sys_argv`.
         self.parseEnvFlags() catch {};
 
+        // Parse and write the input command line to log.
         var skip: usize = 0;
         self.log.print("{s}", .{self.sys_argv.items[0]});
         for (self.sys_argv.items[1..], 1..) |arg, i| {
@@ -389,12 +448,17 @@ pub const ZigWrapper = struct {
                 skip -= 1;
             } else {
                 skip = try self.appendArgument(
-                    arg,
+                    @constCast(arg),
                     self.sys_argv.items[i + 1 ..],
                 );
             }
         }
         self.log.write("\n");
+
+        // Fix link libraries.
+        try self.fixLinkLibs();
+
+        // Write the actual `zig` command line to log.
         self.log.write("    -->");
         for (self.args.items) |arg| {
             self.log.write(" ");
@@ -412,6 +476,7 @@ pub const ZigWrapper = struct {
             defer buffer.deinit();
             for (self.args.items[2..]) |arg| {
                 if (std.mem.indexOfAny(u8, arg, " \t") != null) {
+                    // TODO: escape quotes
                     if (arg[0] != '\"') try buffer.appendSlice("\"");
                     try buffer.appendSlice(arg);
                     if (arg[arg.len - 1] != '\"') try buffer.appendSlice("\"");
@@ -480,7 +545,7 @@ pub const ZigWrapper = struct {
         return args;
     }
 
-    pub fn parseEnvFlags(self: *Self) !void {
+    fn parseEnvFlags(self: *Self) !void {
         const buf = try self.allocator().alloc(u8, 32 + @max(
             self.zig_target.len,
             self.clang_target.len,
@@ -538,7 +603,7 @@ pub const ZigWrapper = struct {
         }
     }
 
-    pub fn targetInit(self: *Self, target: []const u8) !void {
+    fn targetInit(self: *Self, target: []const u8) !void {
         switch (self.command) {
             .cc, .cxx => {
                 if (target.len > 0) {
@@ -565,12 +630,145 @@ pub const ZigWrapper = struct {
         }
     }
 
-    pub fn appendArgument(self: *Self, arg_: []const u8, remaining: []const []const u8) !usize {
+    fn fixLinkLibs(self: *Self) !void {
+        var libs = std.ArrayList(LinkerLib).init(self.allocator());
+        defer libs.deinit();
+
+        var paths = std.ArrayList([]const u8).init(self.allocator());
+        defer {
+            for (paths.items) |path| {
+                self.allocator().free(path);
+            }
+            paths.deinit();
+        }
+
+        var i: usize = 0;
+        outer: while (i < self.args.items.len) : (i += 1) {
+            // Collect link libraries.
+            const arg = self.args.items[i];
+            if (strStartsWith(arg, "-l")) {
+                var lib = LinkerLib.fromFileName(
+                    self.target_is_windows,
+                    arg[2..],
+                );
+                lib.index = i;
+                for (libs.items) |*entry| {
+                    if (strEql(entry.name, lib.name)) {
+                        // Remove the duplicate link library from `args`.
+                        if (entry.kind == .none and lib.kind != .none) {
+                            self.args.items[entry.index] = "";
+                            entry.* = lib;
+                        } else {
+                            self.args.items[i] = "";
+                        }
+                        continue :outer;
+                    }
+                }
+                try libs.append(lib);
+                continue;
+            }
+
+            // Collect link paths.
+            if (strStartsWith(arg, "-L")) {
+                const escaped_path = try self.allocator().dupe(
+                    u8,
+                    if (strEql(arg, "-L") and i + 1 < self.args.items.len) blk: {
+                        i += 1;
+                        break :blk self.args.items[i];
+                    } else arg[2..],
+                );
+                defer self.allocator().free(escaped_path);
+
+                var path = try std.fs.path.relative(
+                    self.allocator(),
+                    ".",
+                    strUnescape(escaped_path, true),
+                );
+                defer if (path.len > 0) self.allocator().free(path);
+                if (!stringsContains(paths.items, &.{path})) {
+                    try paths.append(path);
+                    path.len = 0;
+                }
+                continue;
+            }
+        }
+
+        // for (paths.items) |path| {
+        //     std.io.getStdErr().writer().print("link-path: {s}\n", .{path}) catch {};
+        // }
+        // for (libs.items) |lib| {
+        //     std.io.getStdErr().writer().print("link-lib: {s} -> {s}\n", .{ lib.name, self.args.items[lib.index] }) catch {};
+        // }
+
+        outer: for (paths.items) |path| {
+            var dir = std.fs.cwd().openDir(
+                path,
+                .{ .iterate = true, .no_follow = true },
+            ) catch continue;
+            defer dir.close();
+            var dir_it = dir.iterate();
+            while (dir_it.next() catch continue :outer) |entry| {
+                if (entry.kind == .file or entry.kind == .sym_link) {
+                    const file_ext = std.fs.path.extension(entry.name);
+                    const file_lib = LinkerLib.fromFileName(
+                        self.target_is_windows,
+                        entry.name,
+                    );
+                    if (file_lib.kind == .none) continue;
+
+                    for (libs.items, 0..) |lib, lib_idx| {
+                        if (strEql(lib.name, file_lib.name)) {
+                            if (lib.kind == .none or lib.kind == file_lib.kind) {
+                                if (stringsContains(&.{ ".so", ".dll" }, &.{file_ext})) {
+                                    const opt = try std.fmt.allocPrint(
+                                        self.allocator(),
+                                        "-l{s}",
+                                        .{file_lib.name},
+                                    );
+                                    self.alloc.addString(opt);
+                                    self.args.items[lib.index] = opt;
+                                } else {
+                                    const lib_path = try std.fs.path.join(
+                                        self.allocator(),
+                                        &.{ path, entry.name },
+                                    );
+                                    self.alloc.addString(lib_path);
+                                    self.args.items[lib.index] = lib_path;
+                                }
+                                // The library is already fixed, so remove it from `libs`.
+                                _ = libs.swapRemove(lib_idx);
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        for (libs.items) |lib| {
+            if (self.target_is_windows and !self.target_is_msvc and
+                ZigArgFilter.windows_gnu_skipped_libs.getIndex(lib.name) != null)
+            {
+                self.args.items[lib.index] = "";
+                continue;
+            }
+
+            const opt = try std.fmt.allocPrint(
+                self.allocator(),
+                "-l{s}",
+                .{lib.name},
+            );
+            self.alloc.addString(opt);
+            self.args.items[lib.index] = opt;
+        }
+    }
+
+    fn appendArgument(self: *Self, arg_: []u8, remaining: []const []const u8) !usize {
         var arg = arg_;
         switch (self.command) {
             .cc, .cxx => {
                 // Strip quotes
-                var opt = std.mem.trim(u8, arg, "\"");
+                var opt = strUnescape(arg, true);
                 var filters = &ZigArgFilter.cc_filters;
 
                 for (0..3) |loop_for_opt| {
@@ -580,7 +778,8 @@ pub const ZigWrapper = struct {
                             var opt_kv = std.mem.splitAny(
                                 u8,
                                 opt,
-                                if (self.target_is_msvc) "=:" else "=",
+                                if (self.target_is_msvc and
+                                    opt.len > 0 and opt[0] == '/') ":" else "=",
                             );
                             const s = opt_kv.next().?;
                             // Do not continue if the delimiter is not found.
@@ -614,41 +813,10 @@ pub const ZigWrapper = struct {
                     if (self.target_is_windows and !self.target_is_msvc) {
                         filters = &ZigArgFilter.windows_gnu_cc_filters;
                         if (loop_for_opt == 1) {
-                            const arg_len = arg.len;
-                            if (strStartsWith(opt, "-l")) {
-                                var lib = opt[2..];
-                                // Trim library version like `windows.0.48.5`.
-                                if (strStartsWith(lib, "windows")) {
-                                    if (std.mem.indexOf(u8, lib, ".")) |i| {
-                                        lib = lib[0..i];
-                                    }
-                                }
-                                // Trim prefix `winapi_`.
-                                if (strStartsWith(lib, "winapi_")) {
-                                    lib = lib[7..];
-                                }
-
-                                // Strip `.a` and `.so`.
-                                if (strStartsWith(lib, ":")) {
-                                    lib = lib[1..];
-                                    if (strStartsWith(lib, "lib")) {
-                                        lib = lib[3..];
-                                    }
-                                    if (strEndsWith(lib, ".a")) {
-                                        lib = lib[0..(lib.len - 2)];
-                                    } else if (strEndsWith(lib, ".so")) {
-                                        lib = lib[0..(lib.len - 3)];
-                                    }
-                                }
-
-                                opt = std.fmt.bufPrint(
-                                    @constCast(arg),
-                                    "-l{s}",
-                                    .{lib},
-                                ) catch continue;
-                            }
-                            if (arg_len == opt.len) continue;
-                            arg.len = opt.len;
+                            const new_opt = Self.windowsGnuArgFilter(opt);
+                            if (std.mem.eql(u8, opt, new_opt)) break;
+                            opt = new_opt;
+                            arg = new_opt;
                         }
                     } else {
                         break;
@@ -660,6 +828,33 @@ pub const ZigWrapper = struct {
 
         try self.args.append(arg);
         return 0;
+    }
+
+    fn windowsGnuArgFilter(arg: []u8) []u8 {
+        // `-Wl,/DEF:<lib>.def`
+        if (strStartsWith(arg, "-Wl,") and
+            strEndsWith(arg, ".def"))
+        {
+            var opt = arg[4..];
+            if (strStartsWith(opt, "/DEF:")) {
+                opt = opt[5..];
+            }
+            std.mem.copyForwards(u8, arg, opt);
+            return arg[0..opt.len];
+        }
+
+        // `-l<lib>`
+        if (strStartsWith(arg, "-l")) {
+            var lib = arg[2..];
+
+            // Trim prefix `winapi_`.
+            if (strStartsWith(lib, "winapi_")) {
+                lib = lib[7..];
+            }
+
+            return std.fmt.bufPrint(arg, "-l{s}", .{lib}) catch unreachable;
+        }
+        return arg;
     }
 };
 
@@ -703,6 +898,36 @@ pub fn stringsContains(slice: []const []const u8, sub_slice: []const []const u8)
         return true;
     }
     return false;
+}
+
+fn strUnescape(string: []u8, require_quotes: bool) []u8 {
+    var buffer = string;
+
+    if (require_quotes) {
+        if (!strStartsWith(buffer, "\"") or !strEndsWith(buffer, "\"")) {
+            return string;
+        }
+        buffer = buffer[1 .. buffer.len - 1];
+    }
+
+    var len: usize = 0;
+    var i: usize = 0;
+    while (i < buffer.len) : (i += 1) {
+        if (buffer[i] == '\\' and i + 1 < buffer.len) {
+            const next = buffer[i + 1];
+            if (next == '\\' or next == '"' or next == '\'') {
+                buffer[len] = next;
+                i += 1; // Skip the next character
+            } else {
+                buffer[len] = buffer[i];
+            }
+        } else {
+            buffer[len] = buffer[i];
+        }
+        len += 1;
+    }
+
+    return buffer[0..len];
 }
 
 pub fn main() noreturn {

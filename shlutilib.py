@@ -935,6 +935,18 @@ class TargetParser(ShellCmd):
         return self.host_system == 'Darwin'
 
     @property
+    def target_is_runnable(self):
+        if self.target_is_native or self.host_target == self.cargo_target:
+            return True
+        if (not self.android and not self.ios and
+            (self.host_os == self.os) and
+            (self.host_arch == self.arch or (self.host_arch == 'x86_64' and self.arch in ['i586', 'i686'])) and
+            (self.vendor in ['pc', 'apple', 'unknown']) and
+                (self.env in ['msvc', 'gnu', 'musl', ''])):
+            return True
+        return False
+
+    @property
     def target_cxx(self):
         stem, ext = os.path.splitext(os.path.basename(self.target_cc))
         if stem.endswith('clang'):
@@ -948,12 +960,13 @@ class TargetParser(ShellCmd):
         return self.target_cc[:-(len(stem) + len(ext))] + cxx + ext
 
     def enum_link_dirs(self, quotes=False):
-        for dir in self.cmake_prefix_subdirs:
-            for subdir in ['lib', 'bin'] if self.win32 else ['lib']:
-                if quotes:
-                    yield '"{}/{}"'.format(dir, subdir)
-                else:
-                    yield '{}/{}'.format(dir, subdir)
+        return self.enum_prefix_subdirs_of('lib', quotes=quotes)
+        # for dir in self.cmake_prefix_subdirs:
+        #     for subdir in ['lib', 'bin'] if self.win32 else ['lib']:
+        #         if quotes:
+        #             yield '"{}/{}"'.format(dir, subdir)
+        #         else:
+        #             yield '{}/{}'.format(dir, subdir)
 
     def enum_prefix_subdirs_of(self, subdir, quotes=False):
         for dir in self.cmake_prefix_subdirs:
@@ -1304,6 +1317,27 @@ class TargetParser(ShellCmd):
     @classmethod
     def zig_patch(Self):
         import shutil
+        import subprocess
+        import json
+
+        def patch_file(filename, search, insert=''):
+            with open(filename, 'rb') as file:
+                content = file.read().decode()
+            # Find the index of the search string
+            index = content.find(search)
+            if index < 0:
+                return
+            # Calculate the position to insert the new text
+            insert_position = index + len(search)
+            if content[insert_position:insert_position + len(insert)] == insert:
+                return
+            # Open the file for writing and save the modified content
+            with open(filename, 'wb') as file:
+                file.write(content[:insert_position].encode())
+                file.write(insert.encode())
+                file.write(content[insert_position:].encode())
+                return True
+            return False
 
         zig_path = shutil.which('zig' + Self.EXE_EXT)
         if not zig_path:
@@ -1319,6 +1353,21 @@ class TargetParser(ShellCmd):
             Self.makedirs(os.path.dirname(sys_ctl_h))
             os.symlink(os.path.relpath(
                 sys_ctl_h_src, os.path.dirname(sys_ctl_h)), sys_ctl_h)
+        # 2. define _LIBUNWIND_HIDE_SYMBOLS for `libunwind`.
+        libunwind_src = os.path.join(zig_root, 'lib', 'libunwind', 'src')
+        libunwind_patched = False
+        for (file, tag) in [('assembly.h', 'UNWIND_ASSEMBLY_H'),
+                            ('config.h', 'LIBUNWIND_CONFIG_H')]:
+            libunwind_patched = patch_file(
+                os.path.join(libunwind_src, file),
+                '#define ' + tag,
+                '\n\n/* XPATCH: do not export symbols. */\n#define _LIBUNWIND_HIDE_SYMBOLS'
+            )
+        if libunwind_patched:
+            zig_env = json.loads(subprocess.run(
+                'zig{} env'.format(Self.EXE_EXT),
+                capture_output=True, check=True).stdout)
+            shutil.rmtree(zig_env['global_cache_dir'], ignore_errors=True)
 
     def _cc_init(self):
         if not os.path.isfile(self.target_cc):
@@ -1443,6 +1492,10 @@ class TargetParser(ShellCmd):
         with open(os.path.join(self.target_cmake_dir, '{}.host.mk'.format(self.host_system)), 'wb') as f:
             fwrite(f, 'override HOST_SYSTEM = {}\n'.format(self.host_system))
             fwrite(f, 'override HOST_TARGET = {}\n'.format(self.host_target))
+            fwrite(f, 'override HOST_ARCH = {}\n'.format(self.host_arch))
+            fwrite(f, 'override HOST_VENDOR = {}\n'.format(self.host_vendor))
+            fwrite(f, 'override HOST_OS = {}\n'.format(self.host_os))
+            fwrite(f, 'override HOST_ENV = {}\n'.format(self.host_env))
             fwrite(f, '\n')
             fwrite(f, '# Constants for the host platform\n')
             fwrite(f, 'override HOST_SEP := $(strip {})\n'.format(os.sep))
@@ -1457,6 +1510,10 @@ class TargetParser(ShellCmd):
         with open(os.path.join(self.target_cmake_dir, '{}.host.cmake'.format(self.host_system)), 'wb') as f:
             fwrite(f, 'set(HOST_SYSTEM "{}")\n'.format(self.host_system))
             fwrite(f, 'set(HOST_TARGET "{}")\n'.format(self.host_target))
+            fwrite(f, 'set(HOST_ARCH "{}")\n'.format(self.host_arch))
+            fwrite(f, 'set(HOST_VENDOR "{}")\n'.format(self.host_vendor))
+            fwrite(f, 'set(HOST_OS "{}")\n'.format(self.host_os))
+            fwrite(f, 'set(HOST_ENV "{}")\n'.format(self.host_env))
             fwrite(f, '\n')
             fwrite(f, '# Constants for the host platform\n')
             fwrite(f, 'set(HOST_SEP "{}")\n'.format(
@@ -1551,6 +1608,8 @@ class TargetParser(ShellCmd):
             fwrite(f, '# Target related conditions\n')
             fwrite(f, 'override TARGET_IS_NATIVE = {}\n'.format(
                 onoff(self.target_is_native)))
+            fwrite(f, 'override TARGET_IS_RUNNABLE = {}\n'.format(
+                onoff(self.target_is_runnable)))
             fwrite(f, 'override TARGET_IS_WIN32 = {}\n'.format(onoff(self.win32)))
             fwrite(f, 'override TARGET_IS_MSVC = {}\n'.format(onoff(self.msvc)))
             fwrite(f, 'override TARGET_IS_ANDROID = {}\n'.format(
@@ -1642,6 +1701,8 @@ class TargetParser(ShellCmd):
             fwrite(f, '# Target related conditions\n')
             fwrite(f, 'set(TARGET_IS_NATIVE {})\n'.format(
                 onoff(self.target_is_native)))
+            fwrite(f, 'set(TARGET_IS_RUNNABLE {})\n'.format(
+                onoff(self.target_is_runnable)))
             fwrite(f, 'set(TARGET_IS_WIN32 {})\n'.format(onoff(self.win32)))
             fwrite(f, 'set(TARGET_IS_MSVC {})\n'.format(onoff(self.msvc)))
             fwrite(f, 'set(TARGET_IS_ANDROID {})\n'.format(onoff(self.android)))
@@ -1771,14 +1832,15 @@ class TargetParser(ShellCmd):
             fwrite(f, '\n')
 
             fwrite(f, '# Set system paths.\n')
-            if self.host_is_windows and self.win32:
-                fwrite(f, make_export_paths('PATH', [
-                    '$(CARGO_TARGET_OUT_DIR)'] + join_paths(self.cmake_prefix_subdirs, ['bin', 'lib'])))
-            elif self.host_target == self.cargo_target:
-                fwrite(f, make_export_paths('PATH',
-                       ['$(CARGO_TARGET_OUT_DIR)'] + join_paths(self.cmake_prefix_subdirs, ['bin'])))
-                fwrite(f, make_export_paths('LD_LIBRARY_PATH',
-                       ['$(CARGO_TARGET_OUT_DIR)'] + join_paths(self.cmake_prefix_subdirs, ['lib'])))
+            if self.target_is_runnable:
+                if self.host_is_windows:
+                    fwrite(f, make_export_paths('PATH', [
+                        '$(CARGO_TARGET_OUT_DIR)'] + join_paths(self.cmake_prefix_subdirs, ['bin', 'lib'])))
+                else:
+                    fwrite(f, make_export_paths('PATH',
+                                                ['$(CARGO_TARGET_OUT_DIR)'] + join_paths(self.cmake_prefix_subdirs, ['bin'])))
+                    fwrite(f, make_export_paths('LD_LIBRARY_PATH',
+                                                ['$(CARGO_TARGET_OUT_DIR)'] + join_paths(self.cmake_prefix_subdirs, ['lib'])))
             fwrite(f, '\n')
 
             fwrite(f, '# Export variables for Cargo build.rs and CMake\n')
