@@ -1365,7 +1365,7 @@ class TargetParser(ShellCmd):
             )
         if libunwind_patched:
             zig_env = json.loads(subprocess.run(
-                'zig{} env'.format(Self.EXE_EXT),
+                ['zig' + Self.EXE_EXT, 'env'],
                 capture_output=True, check=True).stdout)
             shutil.rmtree(zig_env['global_cache_dir'], ignore_errors=True)
 
