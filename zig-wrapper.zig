@@ -342,7 +342,7 @@ pub const ZigWrapper = struct {
     target_is_msvc: bool,
     target_is_musl: bool,
     args: std.ArrayList([]const u8),
-    at_file_path: ?[]const u8,
+    flags_file_path: ?[]const u8,
 
     pub fn init(allocator_: std.mem.Allocator) !Self {
         var alloc = BufferedAllocator.init(allocator_);
@@ -357,7 +357,7 @@ pub const ZigWrapper = struct {
         };
         errdefer log.deinit();
 
-        var at_file_path: ?[]const u8 = null;
+        var flags_file_path: ?[]const u8 = null;
         var sys_argv = std.ArrayList([]const u8).init(alloc.allocator());
         errdefer sys_argv.deinit();
         var arg_iter = try alloc.argIterator();
@@ -367,7 +367,7 @@ pub const ZigWrapper = struct {
             // Parse the linker flag file.
             if (strStartsWith(arg, "@") and sys_argv.items.len > 0) {
                 if (Self.parseFileFlags(&alloc, arg[1..])) |flags| {
-                    at_file_path = arg;
+                    flags_file_path = arg;
                     try sys_argv.appendSlice(flags.items);
                     continue;
                 } else |_| {}
@@ -419,7 +419,7 @@ pub const ZigWrapper = struct {
             .target_is_msvc = is_msvc,
             .target_is_musl = is_musl,
             .args = std.ArrayList([]const u8).init(alloc.allocator()),
-            .at_file_path = at_file_path,
+            .flags_file_path = flags_file_path,
         };
     }
 
@@ -467,40 +467,7 @@ pub const ZigWrapper = struct {
         self.log.write("\n");
 
         // Write to the `@<file_path>` file if present.
-        if (self.at_file_path) |at_file_path| {
-            // Write flags to buffer.
-            var buffer = try std.ArrayList(u8).initCapacity(
-                self.allocator(),
-                64 * 1024,
-            );
-            defer buffer.deinit();
-            for (self.args.items[2..]) |arg| {
-                if (std.mem.indexOfAny(u8, arg, " \t") != null) {
-                    // TODO: escape quotes
-                    if (arg[0] != '\"') try buffer.appendSlice("\"");
-                    try buffer.appendSlice(arg);
-                    if (arg[arg.len - 1] != '\"') try buffer.appendSlice("\"");
-                } else {
-                    try buffer.appendSlice(arg);
-                }
-                try buffer.appendSlice(" ");
-            }
-
-            // Write to file.
-            var file = try std.fs.cwd().openFile(
-                at_file_path[1..],
-                .{ .mode = .read_write },
-            );
-            defer file.close();
-            try file.seekTo(0);
-            try file.writeAll(buffer.items);
-            try file.setEndPos(try file.getPos());
-
-            // Only keep the executable path and the command type.
-            self.args.items.len = 2;
-            // Set the @<file_path> flag.
-            try self.args.append(at_file_path);
-        }
+        try self.writeFlagsFile();
 
         // Execute the command.
         var proc = std.process.Child.init(self.args.items, self.allocator());
@@ -855,6 +822,54 @@ pub const ZigWrapper = struct {
             return std.fmt.bufPrint(arg, "-l{s}", .{lib}) catch unreachable;
         }
         return arg;
+    }
+
+    fn writeFlagsFile(self: *Self) !void {
+        const flags_file_path = self.flags_file_path orelse return;
+
+        // Do not write the `@<file_path>` if the size of arguments is not large engouh.
+        var argv_size: usize = 256;
+        for (self.args.items[2..]) |arg| {
+            argv_size += arg.len + 6;
+        }
+        if (builtin.os.tag == .windows) {
+            if (argv_size <= 32 * 1024) return;
+        } else {
+            if (argv_size <= 256 * 1024) return;
+        }
+
+        // Write flags to buffer.
+        var buffer = try std.ArrayList(u8).initCapacity(
+            self.allocator(),
+            64 * 1024,
+        );
+        defer buffer.deinit();
+        for (self.args.items[2..]) |arg| {
+            if (std.mem.indexOfAny(u8, arg, " \t") != null) {
+                // TODO: escape quotes
+                if (arg[0] != '\"') try buffer.appendSlice("\"");
+                try buffer.appendSlice(arg);
+                if (arg[arg.len - 1] != '\"') try buffer.appendSlice("\"");
+            } else {
+                try buffer.appendSlice(arg);
+            }
+            try buffer.appendSlice(" ");
+        }
+
+        // Write to file.
+        var file = try std.fs.cwd().openFile(
+            flags_file_path[1..],
+            .{ .mode = .read_write },
+        );
+        defer file.close();
+        try file.seekTo(0);
+        try file.writeAll(buffer.items);
+        try file.setEndPos(try file.getPos());
+
+        // Only keep the executable path and the command type.
+        self.args.items.len = 2;
+        // Set the @<file_path> flag.
+        try self.args.append(flags_file_path);
     }
 };
 
