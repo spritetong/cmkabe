@@ -84,13 +84,18 @@ pub const ZigArgFilter = union(enum) {
 
     pub const windows_gnu_cc_filters = FilterTable.initComptime(.{
         .{ "-Wl,--disable-auto-image-base", &.{Self.skip} },
+        .{ "-lmingw32", &.{Self.skip} },
+        .{ "-lmingw64", &.{Self.skip} },
+        .{ "-lmingwex", &.{Self.skip} },
+        .{ "-lwindows", &.{Self.skip} },
+        .{ "-lstdc++", &.{Self.replace_with(&.{"-lc++"})} },
     });
     pub const windows_gnu_skipped_libs = std.StaticStringMap(void).initComptime(.{
         .{"gcc"},
         .{"gcc_eh"},
         .{"msvcrt"},
+        .{"msvcrtd"},
         .{"pthread"},
-        .{"stdc++"},
         .{"synchronization"},
     });
 
