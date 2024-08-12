@@ -2,7 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const ArgIteratorGeneral = std.process.ArgIteratorGeneral(.{});
 
-const ZigCommand = enum {
+pub const ZigCommand = enum {
     const Self = @This();
     ar,
     cc,
@@ -84,9 +84,11 @@ pub const ZigArgFilter = union(enum) {
 
     pub const windows_gnu_cc_filters = FilterTable.initComptime(.{
         .{ "-Wl,--disable-auto-image-base", &.{Self.skip} },
-        .{ "-lmingw32", &.{Self.skip} },
-        .{ "-lmingw64", &.{Self.skip} },
-        .{ "-lmingwex", &.{Self.skip} },
+        //.{ "-lmingw32", &.{Self.skip} },
+        //.{ "-lmingw64", &.{Self.skip} },
+        //.{ "-lmingwex", &.{Self.skip} },
+        // Cargo crate `windows_x86_64_gnu 0.42`: `libwindows.a` causes
+        //     stack overflow on `windows-gnu` targets.
         .{ "-lwindows", &.{Self.skip} },
         .{ "-lstdc++", &.{Self.replace_with(&.{"-lc++"})} },
     });
@@ -471,7 +473,7 @@ pub const ZigWrapper = struct {
         }
         self.log.write("\n");
 
-        // Write to the `@<file_path>` file if present.
+        // Write to `@<flags file>` if present.
         try self.writeFlagsFile();
 
         // Execute the command.
@@ -832,32 +834,29 @@ pub const ZigWrapper = struct {
     fn writeFlagsFile(self: *Self) !void {
         const flags_file_path = self.flags_file_path orelse return;
 
-        // Do not write the `@<file_path>` if the size of arguments is not large engouh.
-        var argv_size: usize = 256;
-        for (self.args.items[2..]) |arg| {
-            argv_size += arg.len + 6;
+        // Do not write `@<flags file>` if the size of arguments does not exceed the system limits.
+        var argv_size: usize = 8;
+        for (self.args.items) |arg| {
+            argv_size += arg.len + 1;
+            var s = arg;
+            while (std.mem.indexOfAny(u8, s, "\\\"'")) |i| {
+                // two quotes
+                if (s.len == arg.len) argv_size += 2;
+                // escape character
+                argv_size += 1;
+                s = s[i + 1 ..];
+            }
         }
-        if (builtin.os.tag == .windows) {
-            if (argv_size <= 32 * 1024) return;
-        } else {
-            if (argv_size <= 256 * 1024) return;
-        }
+        if (argv_size <= sysArgMax()) return;
 
         // Write flags to buffer.
         var buffer = try std.ArrayList(u8).initCapacity(
             self.allocator(),
-            64 * 1024,
+            argv_size,
         );
         defer buffer.deinit();
         for (self.args.items[2..]) |arg| {
-            if (std.mem.indexOfAny(u8, arg, " \t") != null) {
-                // TODO: escape quotes
-                if (arg[0] != '\"') try buffer.appendSlice("\"");
-                try buffer.appendSlice(arg);
-                if (arg[arg.len - 1] != '\"') try buffer.appendSlice("\"");
-            } else {
-                try buffer.appendSlice(arg);
-            }
+            try strEscapeAppend(&buffer, arg);
             try buffer.appendSlice(" ");
         }
 
@@ -924,7 +923,9 @@ fn strUnescape(string: []u8, require_quotes: bool) []u8 {
     var buffer = string;
 
     if (require_quotes) {
-        if (!strStartsWith(buffer, "\"") or !strEndsWith(buffer, "\"")) {
+        if (buffer.len < 2 or !strStartsWith(buffer, "\"") or
+            !strEndsWith(buffer, "\""))
+        {
             return string;
         }
         buffer = buffer[1 .. buffer.len - 1];
@@ -948,6 +949,43 @@ fn strUnescape(string: []u8, require_quotes: bool) []u8 {
     }
 
     return buffer[0..len];
+}
+
+fn strEscapeAppend(buffer: *std.ArrayList(u8), string: []const u8) !void {
+    var quoted = false;
+    var left = string;
+
+    while (left.len > 0) {
+        const i = std.mem.indexOfAny(u8, left, "\\\"' \t\r\n") orelse break;
+
+        // Initial buffer and append the left quote.
+        if (!quoted) {
+            quoted = true;
+            try buffer.append('"');
+        }
+
+        try buffer.appendSlice(left[0..i]);
+        if (!std.ascii.isWhitespace(left[i])) try buffer.append('\\');
+        try buffer.append(left[i]);
+        left = left[i + 1 ..];
+    }
+
+    try buffer.appendSlice(left);
+    if (quoted) {
+        // Append the right quote.
+        try buffer.append('"');
+    }
+}
+
+fn sysArgMax() usize {
+    if (builtin.os.tag == .windows) {
+        return 32767;
+    } else {
+        const unistd = @cImport({
+            @cInclude("unistd.h");
+        });
+        return @intCast(unistd.sysconf(@intCast(unistd._SC_ARG_MAX)));
+    }
 }
 
 pub fn main() noreturn {
