@@ -55,10 +55,29 @@ pub const ZigCommand = enum {
     }
 };
 
+pub const ZigWrapperArgKind = enum {
+    zig,
+    zig_target,
+    clang_target,
+    skip_libs,
+    skip_lib_paths,
+
+    pub const map = std.StaticStringMap(@This()).initComptime(.{
+        .{ "zig", .zig },
+        .{ "zig-target", .zig_target },
+        .{ "clang-target", .clang_target },
+        .{ "skip-libs", .skip_libs },
+        .{ "skip-lib-paths", .skip_lib_paths },
+    });
+};
+
 pub const ZigArgFilter = union(enum) {
     const Self = @This();
     replace: []const []const u8,
     match_next_and_replace: struct { []const u8, []const []const u8 },
+
+    // Options to compile source files only and not to run the linker.
+    pub const compile_only_opts: []const []const u8 = &.{ "-c", "-E", "-S" };
 
     pub const FilterTable = std.StaticStringMap([]const Self);
     pub const cc_filters = FilterTable.initComptime(.{
@@ -217,7 +236,7 @@ pub const BufferedAllocator = struct {
         return std.process.GetEnvVarOwnedError.EnvironmentVariableNotFound;
     }
 
-    pub fn argIterator(self: *Self) ArgIteratorInitError!std.process.ArgIterator {
+    pub fn sysArgvIterator(self: *Self) ArgIteratorInitError!std.process.ArgIterator {
         const value = try std.process.argsWithAllocator(self.allocator());
         self.items.append(.{
             .arg_iter = value,
@@ -286,101 +305,130 @@ pub const ZigLog = struct {
 pub const ZigWrapper = struct {
     const Self = @This();
     alloc: BufferedAllocator,
-    sys_argv: std.ArrayList([]const u8),
     log: ZigLog,
-    zig_exe: []const u8,
-    command: ZigCommand,
+    sys_argv: std.ArrayList([]const u8),
+    zig_exe: []const u8 = "",
+
+    /// The current Zig command.
+    command: ZigCommand = ZigCommand.cc,
+
+    /// If the Zig command is running as a linker.
+    is_linker: bool = false,
     /// <arch>-<os>-<abi>
-    zig_target: []const u8,
+    zig_target: []const u8 = "",
     /// <arch>-<vendor>-<os>-<abi>
-    clang_target: []const u8,
-    target_is_windows: bool,
-    target_is_android: bool,
-    target_is_linux: bool,
-    target_is_apple: bool,
-    target_is_wasm: bool,
-    target_is_msvc: bool,
-    target_is_musl: bool,
+    clang_target: []const u8 = "",
+    /// -l<lib> options not to be passed to the linker.
+    skipped_libs: std.ArrayList([]const u8),
+    /// -L<lib path> options not to be passed to the linker.
+    skipped_lib_paths: std.ArrayList([]const u8),
+
+    target_is_windows: bool = false,
+    target_is_android: bool = false,
+    target_is_linux: bool = false,
+    target_is_apple: bool = false,
+    target_is_wasm: bool = false,
+    target_is_msvc: bool = false,
+    target_is_musl: bool = false,
+    flags_file_path: ?[]const u8 = null,
+
+    /// The arguments to run the Zig command, include the Zig executable and its arguments.
     args: std.ArrayList([]const u8),
-    flags_file_path: ?[]const u8,
 
     pub fn init(allocator_: std.mem.Allocator) !Self {
-        var alloc = BufferedAllocator.init(allocator_);
-        errdefer alloc.deinit();
+        var self = outer: {
+            // allocator
+            var alloc = BufferedAllocator.init(allocator_);
+            // logger
+            const log = blk: {
+                const log_path = alloc.getEnvVar("ZIG_WRAPPER_LOG") catch null;
+                errdefer if (log_path) |v| {
+                    alloc.freeString(v);
+                    alloc.deinit();
+                };
+                const v = try ZigLog.init(log_path);
+                break :blk v;
+            };
 
-        // log the `argv[0]`
-        var log = blk: {
-            const log_path = alloc.getEnvVar("ZIG_WRAPPER_LOG") catch null;
-            defer if (log_path) |v| alloc.freeString(v);
-            const v = try ZigLog.init(log_path);
-            break :blk v;
+            break :outer Self{
+                .alloc = alloc,
+                .log = log,
+                .sys_argv = std.ArrayList([]const u8).init(alloc.allocator()),
+                .skipped_libs = std.ArrayList([]const u8).init(alloc.allocator()),
+                .skipped_lib_paths = std.ArrayList([]const u8).init(alloc.allocator()),
+                .args = std.ArrayList([]const u8).init(alloc.allocator()),
+            };
         };
-        errdefer log.deinit();
-
-        var flags_file_path: ?[]const u8 = null;
-        var sys_argv = std.ArrayList([]const u8).init(alloc.allocator());
-        errdefer sys_argv.deinit();
-        var arg_iter = try alloc.argIterator();
+        errdefer self.deinit();
 
         // Collect `argv[0..]`...
+        var arg_iter = try self.alloc.sysArgvIterator();
         while (arg_iter.next()) |arg| {
-            // Parse the linker flag file.
-            if (strStartsWith(arg, "@") and sys_argv.items.len > 0) {
-                if (Self.parseFileFlags(&alloc, arg[1..])) |flags| {
-                    flags_file_path = arg;
-                    try sys_argv.appendSlice(flags.items);
+            if (self.sys_argv.items.len > 0) {
+                if (strStartsWith(arg, "@")) {
+                    // Parse the flags file.
+                    const flags = try Self.parseFileFlags(&self, arg[1..]);
+                    defer flags.deinit();
+                    self.flags_file_path = arg;
+                    try self.sys_argv.appendSlice(flags.items);
                     continue;
-                } else |_| {}
+                }
+
+                // If the flags file is not the last argument, ignore it.
+                if (self.flags_file_path != null) {
+                    self.flags_file_path = null;
+                }
             }
-            try sys_argv.append(arg);
+            try self.sys_argv.append(arg);
         }
 
         // Parse the command type from `argv[0]`.
-        const stem = std.fs.path.stem(sys_argv.items[0]);
-        const command = ZigCommand.fromStr(
+        const stem = std.fs.path.stem(self.sys_argv.items[0]);
+        self.command = ZigCommand.fromStr(
             stem[if (std.mem.lastIndexOfScalar(u8, stem, '-')) |s| s + 1 else 0..],
         ) orelse return error.InvalidZigCommand;
+        if (self.command == .cc or self.command == .cxx or self.command == .ld) {
+            self.is_linker = true;
+        }
 
-        // zig[.exe]
-        const zig_exe = alloc.getEnvVar("ZIG_EXECUTABLE") catch blk: {
+        // Parse environment variables.
+        self.zig_exe = self.alloc.getEnvVar("ZIG_EXECUTABLE") catch "";
+        self.zig_target = self.alloc.getEnvVar("ZIG_WRAPPER_TARGET") catch "";
+        self.clang_target = self.alloc.getEnvVar("ZIG_WRAPPER_CLANG_TARGET") catch "";
+
+        // Parse Zig flags in the environment variables.
+        var env_flags = try self.parseEnvFlags();
+        defer env_flags.deinit();
+        try self.parseArgv(env_flags.items);
+        try self.parseArgv(self.sys_argv.items[1..]);
+        try self.sys_argv.appendSlice(env_flags.items);
+
+        // Set default values.
+        if (self.zig_exe.len == 0) {
             const str = try std.fmt.allocPrint(
-                alloc.allocator(),
+                self.alloc.allocator(),
                 "zig{s}",
                 .{builtin.os.tag.exeFileExt(builtin.cpu.arch)},
             );
-            alloc.addString(str);
-            break :blk str;
-        };
+            self.alloc.addString(str);
+            self.zig_exe = str;
+        }
+        if (self.clang_target.len == 0) {
+            self.clang_target = self.zig_target;
+        }
 
-        const zig_target = alloc.getEnvVar("ZIG_WRAPPER_TARGET") catch "";
-        const clang_target = alloc.getEnvVar("ZIG_WRAPPER_CLANG_TARGET") catch zig_target;
-        const is_windows = std.mem.indexOf(u8, clang_target, "-windows") != null;
-        const is_android = std.mem.indexOf(u8, clang_target, "-android") != null;
-        const is_linux = std.mem.indexOf(u8, clang_target, "-linux") != null;
-        const is_apple = std.mem.indexOf(u8, clang_target, "-apple") != null;
-        const is_wasm = strStartsWith(clang_target, "wasm") or
-            strEndsWith(clang_target, "-emscripten");
-        const is_msvc = strEndsWith(clang_target, "-msvc");
-        const is_musl = strEndsWith(clang_target, "-musl");
+        self.target_is_windows = std.mem.indexOf(u8, self.clang_target, "-windows") != null;
+        self.target_is_android = std.mem.indexOf(u8, self.clang_target, "-android") != null;
+        self.target_is_linux = std.mem.indexOf(u8, self.clang_target, "-linux") != null;
+        self.target_is_apple = std.mem.indexOf(u8, self.clang_target, "-apple") != null or
+            std.mem.indexOf(u8, self.clang_target, "-macos") != null or
+            std.mem.indexOf(u8, self.clang_target, "-darwin") != null;
+        self.target_is_wasm = strStartsWith(self.clang_target, "wasm") or
+            strEndsWith(self.clang_target, "-emscripten");
+        self.target_is_msvc = strEndsWith(self.clang_target, "-msvc");
+        self.target_is_musl = strEndsWith(self.clang_target, "-musl");
 
-        return .{
-            .alloc = alloc,
-            .sys_argv = sys_argv,
-            .log = log,
-            .zig_exe = zig_exe,
-            .command = command,
-            .zig_target = zig_target,
-            .clang_target = clang_target,
-            .target_is_windows = is_windows,
-            .target_is_android = is_android,
-            .target_is_linux = is_linux,
-            .target_is_apple = is_apple,
-            .target_is_wasm = is_wasm,
-            .target_is_msvc = is_msvc,
-            .target_is_musl = is_musl,
-            .args = std.ArrayList([]const u8).init(alloc.allocator()),
-            .flags_file_path = flags_file_path,
-        };
+        return self;
     }
 
     pub inline fn allocator(self: *Self) std.mem.Allocator {
@@ -394,9 +442,6 @@ pub const ZigWrapper = struct {
         try self.args.append(self.command.toName());
         // `cc`, `c++`: -target <target>
         try self.targetInit(self.zig_target);
-
-        // Parse Zig flags in the environment variables and append them to `sys_argv`.
-        self.parseEnvFlags() catch {};
 
         // Parse and write the input command line to log.
         var skip: usize = 0;
@@ -416,7 +461,9 @@ pub const ZigWrapper = struct {
         self.log.write("\n");
 
         // Fix link libraries.
-        try self.fixLinkLibs();
+        if (self.is_linker) {
+            try self.fixLinkLibs();
+        }
 
         // Write the actual `zig` command line to log.
         self.log.write("    -->");
@@ -439,13 +486,15 @@ pub const ZigWrapper = struct {
     }
 
     pub fn deinit(self: *Self) void {
-        self.args.clearAndFree();
+        self.args.deinit();
+        self.skipped_lib_paths.deinit();
+        self.skipped_libs.deinit();
         self.log.deinit();
-        self.sys_argv.clearAndFree();
+        self.sys_argv.deinit();
         self.alloc.deinit();
     }
 
-    pub fn parseFileFlags(alloc: *BufferedAllocator, path: []const u8) !std.ArrayList([]const u8) {
+    pub fn parseFileFlags(self: *Self, path: []const u8) !std.ArrayList([]const u8) {
         // Open the file for reading
         var file = try std.fs.cwd().openFile(path, .{});
         defer file.close();
@@ -454,30 +503,32 @@ pub const ZigWrapper = struct {
         const file_size = try file.getEndPos();
 
         // Allocate a buffer to hold the file content
-        const flags_str = try alloc.allocString(file_size);
-        errdefer alloc.freeString(flags_str);
+        const flags_str = try self.alloc.allocString(file_size);
+        errdefer self.alloc.freeString(flags_str);
 
         // Read the file content into the buffer
         _ = try file.readAll(flags_str);
 
-        var args = std.ArrayList([]const u8).init(alloc.allocator());
+        var args = std.ArrayList([]const u8).init(self.alloc.allocator());
         errdefer args.deinit();
 
         // Parse the flags
-        var arg_iter = try alloc.argIteratorTakeOwnership(flags_str);
-        alloc.forgetString(flags_str);
+        var arg_iter = try self.alloc.argIteratorTakeOwnership(flags_str);
+        self.alloc.forgetString(flags_str);
         while (arg_iter.next()) |arg| {
             try args.append(arg);
         }
         return args;
     }
 
-    fn parseEnvFlags(self: *Self) !void {
-        const buf = try self.allocator().alloc(u8, 32 + @max(
-            self.zig_target.len,
-            self.clang_target.len,
-        ));
+    fn parseEnvFlags(self: *Self) !std.ArrayList([]const u8) {
+        var res = std.ArrayList([]const u8).init(self.allocator());
+        errdefer res.deinit();
+
+        const buf = try self.allocator().alloc(u8, 32 +
+            @max(self.zig_target.len, self.clang_target.len));
         defer self.allocator().free(buf);
+
         var args = std.ArrayList([]const u8).init(self.allocator());
         defer args.deinit();
 
@@ -516,16 +567,82 @@ pub const ZigWrapper = struct {
                     var arg_iter = try self.alloc.argIteratorTakeOwnership(flags_str);
                     self.alloc.forgetString(flags_str);
 
-                    args.clearRetainingCapacity();
                     while (arg_iter.next()) |arg| {
                         try args.append(arg);
                     }
 
                     // Do not append the same flags.
-                    if (!stringsContains(self.sys_argv.items, args.items)) {
-                        try self.sys_argv.appendSlice(args.items);
+                    if (!stringsContains(res.items, args.items) and
+                        !stringsContains(self.sys_argv.items, args.items))
+                    {
+                        try res.appendSlice(args.items);
                     }
+                    args.clearRetainingCapacity();
                 }
+            }
+        }
+
+        return res;
+    }
+
+    fn parseArgv(self: *Self, argv: [][]const u8) !void {
+        var i: usize = 0;
+        while (i < argv.len) : (i += 1) {
+            const arg = argv[i];
+            // starts with `--`?
+            if (arg.len > 0 and arg[0] == '-') {
+                if (arg.len < 2 or arg[1] != '-') {
+                    if (self.is_linker and self.command != .ld and
+                        stringsContains(ZigArgFilter.compile_only_opts, &.{arg}))
+                    {
+                        self.is_linker = false;
+                    }
+                    continue;
+                }
+            }
+
+            var key: []const u8 = arg[2..];
+            var value: []const u8 = "";
+
+            if (std.mem.indexOf(u8, key, "=")) |pos| {
+                value = key[pos + 1 ..];
+                key = key[0..pos];
+            }
+
+            const arg_kind = ZigWrapperArgKind.map.get(key) orelse continue;
+            // Consume the argument(s).
+            argv[i] = "";
+            if (key.len + 2 == arg.len and i + 1 < argv.len) {
+                i += 1;
+                value = argv[i];
+                argv[i] = "";
+            }
+            if (value.len == 0) continue;
+
+            switch (arg_kind) {
+                .zig => {
+                    if (self.zig_exe.len == 0) self.zig_exe = value;
+                },
+                .zig_target => {
+                    if (self.zig_target.len == 0) self.zig_target = value;
+                },
+                .clang_target => {
+                    if (self.clang_target.len == 0) self.clang_target = value;
+                },
+                .skip_libs => {
+                    var parts = std.mem.splitAny(u8, value, ",;");
+                    while (parts.next()) |part| {
+                        const v = strTrimRight(part);
+                        if (v.len > 0) try self.skipped_libs.append(v);
+                    }
+                },
+                .skip_lib_paths => {
+                    var parts = std.mem.splitAny(u8, value, ",;");
+                    while (parts.next()) |part| {
+                        const v = strTrimRight(part);
+                        if (v.len > 0) try self.skipped_lib_paths.append(v);
+                    }
+                },
             }
         }
     }
@@ -619,6 +736,15 @@ pub const ZigWrapper = struct {
             if (strStartsWith(arg, "-l")) {
                 var lib = self.libFromFileName(arg[2..]);
                 lib.index = i;
+
+                for (self.skipped_libs.items) |pattern| {
+                    if (strMatch(pattern, lib.name)) {
+                        // Remove the skipped link library from `args`.
+                        self.args.items[i] = "";
+                        continue :outer;
+                    }
+                }
+
                 for (libs.items) |*entry| {
                     if (strEql(entry.name, lib.name)) {
                         // Remove the duplicate link library from `args`.
@@ -637,21 +763,35 @@ pub const ZigWrapper = struct {
 
             // Collect link paths.
             if (strStartsWith(arg, "-L")) {
+                var single_opt = true;
                 const escaped_path = try self.allocator().dupe(
                     u8,
-                    if (strEql(arg, "-L") and i + 1 < self.args.items.len) blk: {
+                    if (arg.len == 2 and i + 1 < self.args.items.len) blk: {
+                        single_opt = false;
                         i += 1;
                         break :blk self.args.items[i];
                     } else arg[2..],
                 );
                 defer self.allocator().free(escaped_path);
 
+                // normalize path
                 var path = try std.fs.path.relative(
                     self.allocator(),
                     ".",
                     strUnescape(escaped_path, true),
                 );
                 defer if (path.len > 0) self.allocator().free(path);
+                _ = std.mem.replace(u8, path, "\\", "/", path);
+
+                for (self.skipped_lib_paths.items) |pattern| {
+                    if (strMatch(pattern, path)) {
+                        // Remove the skipped link path from `args`.
+                        self.args.items[i] = "";
+                        if (!single_opt) self.args.items[i - 1] = "";
+                        continue :outer;
+                    }
+                }
+
                 if (!stringsContains(paths.items, &.{path})) {
                     try paths.append(path);
                     path.len = 0;
@@ -969,7 +1109,7 @@ fn strEscapeAppend(buffer: *std.ArrayList(u8), string: []const u8) !void {
 
 fn versionParse(version: []const u8) [4]u32 {
     var ver = [4]u32{ 0, 0, 0, 0 };
-    var parts = std.mem.split(version, ".");
+    var parts = std.mem.splitAny(version, ".");
     for (parts.iterator(), 0..) |part, i| {
         if (i < 4) {
             ver[i] = try std.fmt.parseInt(u32, part, 10) catch 0;
@@ -990,6 +1130,89 @@ fn versionCompare(a: []const u8, b: []const u8) i32 {
     return 0;
 }
 
+fn strMatch(pattern: []const u8, string: []const u8) bool {
+    const INVALID = std.math.maxInt(usize);
+    var pat: usize = 0;
+    var src: usize = 0;
+    var pat_res: usize = INVALID;
+    var src_res: usize = INVALID;
+    var result = false;
+
+    while (true) {
+        // without previous "*"
+        while (true) {
+            if (pat == pattern.len) {
+                result = src == string.len;
+                if (result or src_res == INVALID or pat_res == INVALID) {
+                    return result;
+                }
+                src = src_res;
+                pat = pat_res;
+                break;
+            }
+            const ch_pat = pattern.ptr[pat];
+            if (ch_pat == '*') {
+                pat += 1;
+                pat_res = pat;
+                break;
+            } else if (ch_pat == '?') {
+                if (src == string.len) {
+                    return result;
+                }
+                src += 1;
+                pat += 1;
+            } else {
+                if (src == string.len) {
+                    return result;
+                }
+                if (ch_pat != string.ptr[src]) {
+                    if (src_res == INVALID or pat_res == INVALID) {
+                        return result;
+                    }
+                    src = src_res;
+                    pat = pat_res;
+                    break;
+                }
+                src += 1;
+                pat += 1;
+            }
+        }
+
+        // with previous "*"
+        while (true) {
+            if (pat == pattern.len) {
+                return true;
+            }
+            const ch_pat = pattern.ptr[pat];
+            if (ch_pat == '*') {
+                pat += 1;
+                pat_res = pat;
+            } else if (ch_pat == '?') {
+                if (src == string.len) {
+                    return result;
+                }
+                src += 1;
+                pat += 1;
+            } else {
+                while (true) {
+                    if (src == string.len) {
+                        return result;
+                    }
+                    if (ch_pat == string.ptr[src]) {
+                        break;
+                    }
+                    src += 1;
+                }
+
+                src += 1;
+                src_res = src;
+                pat += 1;
+                break;
+            }
+        }
+    }
+}
+
 fn sysArgMax() usize {
     if (builtin.os.tag == .windows) {
         return 32767;
@@ -998,6 +1221,12 @@ fn sysArgMax() usize {
             @cInclude("unistd.h");
         });
         return @intCast(unistd.sysconf(@intCast(unistd._SC_ARG_MAX)));
+    }
+}
+
+fn customAssert(condition: bool) void {
+    if (!condition) {
+        @panic("error");
     }
 }
 
@@ -1010,6 +1239,14 @@ pub fn main() noreturn {
         _ = std.io.getStdErr().writer().print("error: {}\n", .{err}) catch {};
         std.process.exit(1);
     }
+
+    customAssert(strMatch("*", "abc"));
+    customAssert(strMatch("a?*", "abc"));
+    customAssert(!strMatch("a?b", "abc"));
+    customAssert(strMatch("a?c", "abc"));
+    customAssert(strMatch("*bc", "abc"));
+    customAssert(strMatch("*b*", "abc"));
+    customAssert(strMatch("?b*?", "abc"));
 
     var zig = try ZigWrapper.init(std.heap.c_allocator);
     defer zig.deinit();
