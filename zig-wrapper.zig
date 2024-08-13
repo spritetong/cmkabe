@@ -84,9 +84,9 @@ pub const ZigArgFilter = union(enum) {
 
     pub const windows_gnu_cc_filters = FilterTable.initComptime(.{
         .{ "-Wl,--disable-auto-image-base", &.{Self.skip} },
-        //.{ "-lmingw32", &.{Self.skip} },
-        //.{ "-lmingw64", &.{Self.skip} },
-        //.{ "-lmingwex", &.{Self.skip} },
+        .{ "-lmingw32", &.{Self.skip} },
+        .{ "-lmingw64", &.{Self.skip} },
+        .{ "-lmingwex", &.{Self.skip} },
         // Cargo crate `windows_x86_64_gnu 0.42`: `libwindows.a` causes
         //     stack overflow on `windows-gnu` targets.
         .{ "-lwindows", &.{Self.skip} },
@@ -120,56 +120,9 @@ pub const ZigArgFilter = union(enum) {
 pub const LinkerLibKind = enum { none, static, dynamic };
 
 pub const LinkerLib = struct {
-    const Self = @This();
     kind: LinkerLibKind = .none,
     name: []const u8 = "",
     index: usize = 0,
-
-    const dynamic_lib_exts: []const []const u8 = &.{
-        ".so", ".dll", ".dll.a", ".dll.lib",
-    };
-    const static_lib_exts: []const []const u8 = &.{ ".a", ".lib" };
-
-    pub fn fromFileName(is_windows: bool, file_name: []const u8) Self {
-        var kind = LinkerLibKind.none;
-
-        var name = std.fs.path.basename(file_name);
-        if (strStartsWith(name, ":")) {
-            name = name[1..];
-            kind = .static;
-        }
-        if (strStartsWith(name, "lib")) {
-            name = name[3..];
-        }
-
-        for ([_]LinkerLibKind{ .dynamic, .static }) |k| {
-            for (Self.get_lib_exts(is_windows, k)) |ext| {
-                if (strEndsWith(name, ext)) {
-                    return Self{
-                        .kind = k,
-                        .name = name[0 .. name.len - ext.len],
-                    };
-                }
-            }
-        }
-        return Self{ .kind = kind, .name = name };
-    }
-
-    pub fn get_lib_exts(is_windows: bool, kind: LinkerLibKind) []const []const u8 {
-        if (is_windows) {
-            switch (kind) {
-                .static => return Self.static_lib_exts,
-                .dynamic => return Self.dynamic_lib_exts,
-                else => unreachable,
-            }
-        } else {
-            switch (kind) {
-                .static => return Self.static_lib_exts[0..1],
-                .dynamic => return Self.dynamic_lib_exts[0..1],
-                else => unreachable,
-            }
-        }
-    }
 };
 
 pub const Deallcator = union(enum) {
@@ -604,6 +557,49 @@ pub const ZigWrapper = struct {
         }
     }
 
+    fn getlibExts(self: Self, static_lib: bool) []const []const u8 {
+        if (self.target_is_windows) {
+            if (static_lib) {
+                return &.{ ".dll.lib", ".dll.a", ".lib", ".a" };
+            } else {
+                return &.{".dll"};
+            }
+        } else {
+            if (static_lib) {
+                return &.{".a"};
+            } else if (self.target_is_apple) {
+                return &.{".dylib"};
+            } else {
+                return &.{".so"};
+            }
+        }
+    }
+
+    fn libFromFileName(self: Self, file_name: []const u8) LinkerLib {
+        var kind = LinkerLibKind.none;
+        var name = std.fs.path.basename(file_name);
+        if (strStartsWith(name, ":")) {
+            name = name[1..];
+            kind = .static;
+        }
+        if (strStartsWith(name, "lib")) {
+            name = name[3..];
+        }
+
+        for ([_]LinkerLibKind{ .dynamic, .static }) |k| {
+            const exts = self.getlibExts(k == .static);
+            for (exts) |ext| {
+                if (strEndsWith(name, ext)) {
+                    return LinkerLib{
+                        .kind = k,
+                        .name = name[0 .. name.len - ext.len],
+                    };
+                }
+            }
+        }
+        return LinkerLib{ .kind = kind, .name = name };
+    }
+
     fn fixLinkLibs(self: *Self) !void {
         var libs = std.ArrayList(LinkerLib).init(self.allocator());
         defer libs.deinit();
@@ -621,10 +617,7 @@ pub const ZigWrapper = struct {
             // Collect link libraries.
             const arg = self.args.items[i];
             if (strStartsWith(arg, "-l")) {
-                var lib = LinkerLib.fromFileName(
-                    self.target_is_windows,
-                    arg[2..],
-                );
+                var lib = self.libFromFileName(arg[2..]);
                 lib.index = i;
                 for (libs.items) |*entry| {
                     if (strEql(entry.name, lib.name)) {
@@ -684,16 +677,13 @@ pub const ZigWrapper = struct {
             while (dir_it.next() catch continue :outer) |entry| {
                 if (entry.kind == .file or entry.kind == .sym_link) {
                     const file_ext = std.fs.path.extension(entry.name);
-                    const file_lib = LinkerLib.fromFileName(
-                        self.target_is_windows,
-                        entry.name,
-                    );
+                    const file_lib = self.libFromFileName(entry.name);
                     if (file_lib.kind == .none) continue;
 
                     for (libs.items, 0..) |lib, lib_idx| {
                         if (strEql(lib.name, file_lib.name)) {
                             if (lib.kind == .none or lib.kind == file_lib.kind) {
-                                if (stringsContains(&.{ ".so", ".dll" }, &.{file_ext})) {
+                                if (stringsContains(self.getlibExts(false), &.{file_ext})) {
                                     const opt = try std.fmt.allocPrint(
                                         self.allocator(),
                                         "-l{s}",
@@ -861,9 +851,9 @@ pub const ZigWrapper = struct {
         }
 
         // Write to file.
-        var file = try std.fs.cwd().openFile(
+        var file = try std.fs.cwd().createFile(
             flags_file_path[1..],
-            .{ .mode = .read_write },
+            .{ .truncate = true },
         );
         defer file.close();
         try file.seekTo(0);
@@ -975,6 +965,29 @@ fn strEscapeAppend(buffer: *std.ArrayList(u8), string: []const u8) !void {
         // Append the right quote.
         try buffer.append('"');
     }
+}
+
+fn versionParse(version: []const u8) [4]u32 {
+    var ver = [4]u32{ 0, 0, 0, 0 };
+    var parts = std.mem.split(version, ".");
+    for (parts.iterator(), 0..) |part, i| {
+        if (i < 4) {
+            ver[i] = try std.fmt.parseInt(u32, part, 10) catch 0;
+        } else {
+            break;
+        }
+    }
+    return parts;
+}
+
+fn versionCompare(a: []const u8, b: []const u8) i32 {
+    const v1 = versionParse(a);
+    const v2 = versionParse(b);
+    for (0..4) |i| {
+        if (v1[i] > v2[i]) return 1;
+        if (v1[i] < v2[i]) return -1;
+    }
+    return 0;
 }
 
 fn sysArgMax() usize {
