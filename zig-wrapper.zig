@@ -1049,7 +1049,7 @@ pub fn stringsContains(slice: []const []const u8, sub_slice: []const []const u8)
     return false;
 }
 
-fn strUnescape(string: []u8, require_quotes: bool) []u8 {
+pub fn strUnescape(string: []u8, require_quotes: bool) []u8 {
     var buffer = string;
 
     if (require_quotes) {
@@ -1081,7 +1081,7 @@ fn strUnescape(string: []u8, require_quotes: bool) []u8 {
     return buffer[0..len];
 }
 
-fn strEscapeAppend(buffer: *std.ArrayList(u8), string: []const u8) !void {
+pub fn strEscapeAppend(buffer: *std.ArrayList(u8), string: []const u8) !void {
     var quoted = false;
     var left = string;
 
@@ -1105,29 +1105,6 @@ fn strEscapeAppend(buffer: *std.ArrayList(u8), string: []const u8) !void {
         // Append the right quote.
         try buffer.append('"');
     }
-}
-
-fn versionParse(version: []const u8) [4]u32 {
-    var ver = [4]u32{ 0, 0, 0, 0 };
-    var parts = std.mem.splitAny(version, ".");
-    for (parts.iterator(), 0..) |part, i| {
-        if (i < 4) {
-            ver[i] = try std.fmt.parseInt(u32, part, 10) catch 0;
-        } else {
-            break;
-        }
-    }
-    return parts;
-}
-
-fn versionCompare(a: []const u8, b: []const u8) i32 {
-    const v1 = versionParse(a);
-    const v2 = versionParse(b);
-    for (0..4) |i| {
-        if (v1[i] > v2[i]) return 1;
-        if (v1[i] < v2[i]) return -1;
-    }
-    return 0;
 }
 
 fn strMatch(pattern: []const u8, string: []const u8) bool {
@@ -1213,6 +1190,29 @@ fn strMatch(pattern: []const u8, string: []const u8) bool {
     }
 }
 
+pub fn versionParse(version: []const u8) [4]u32 {
+    var ver = [4]u32{ 0, 0, 0, 0 };
+    var parts = std.mem.splitAny(version, ".");
+    for (parts.iterator(), 0..) |part, i| {
+        if (i < 4) {
+            ver[i] = try std.fmt.parseInt(u32, part, 10) catch 0;
+        } else {
+            break;
+        }
+    }
+    return parts;
+}
+
+pub fn versionCompare(a: []const u8, b: []const u8) i32 {
+    const v1 = versionParse(a);
+    const v2 = versionParse(b);
+    for (0..4) |i| {
+        if (v1[i] > v2[i]) return 1;
+        if (v1[i] < v2[i]) return -1;
+    }
+    return 0;
+}
+
 fn sysArgMax() usize {
     if (builtin.os.tag == .windows) {
         return 32767;
@@ -1221,12 +1221,6 @@ fn sysArgMax() usize {
             @cInclude("unistd.h");
         });
         return @intCast(unistd.sysconf(@intCast(unistd._SC_ARG_MAX)));
-    }
-}
-
-fn customAssert(condition: bool) void {
-    if (!condition) {
-        @panic("error");
     }
 }
 
@@ -1239,14 +1233,6 @@ pub fn main() noreturn {
         _ = std.io.getStdErr().writer().print("error: {}\n", .{err}) catch {};
         std.process.exit(1);
     }
-
-    customAssert(strMatch("*", "abc"));
-    customAssert(strMatch("a?*", "abc"));
-    customAssert(!strMatch("a?b", "abc"));
-    customAssert(strMatch("a?c", "abc"));
-    customAssert(strMatch("*bc", "abc"));
-    customAssert(strMatch("*b*", "abc"));
-    customAssert(strMatch("?b*?", "abc"));
 
     var zig = try ZigWrapper.init(std.heap.c_allocator);
     defer zig.deinit();
