@@ -53,6 +53,13 @@ pub const ZigCommand = enum {
             else => null,
         };
     }
+
+    fn isCompiler(self: Self) bool {
+        return switch (self) {
+            .cc, .cxx => true,
+            else => false,
+        };
+    }
 };
 
 pub const ZigWrapperArgKind = enum {
@@ -287,7 +294,7 @@ pub const ZigLog = struct {
         }
     }
 
-    pub fn is_enabled(self: *Self) bool {
+    pub fn enabled(self: *Self) bool {
         return self.file != null;
     }
 
@@ -301,6 +308,87 @@ pub const ZigLog = struct {
         if (self.file) |file| {
             file.writer().print(fmt, args) catch {};
         }
+    }
+};
+
+pub const TempFile = struct {
+    const Self = @This();
+    file: ?std.fs.File,
+    _path: std.ArrayList(u8),
+
+    pub fn init(a: std.mem.Allocator) !Self {
+        const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+
+        const tmp_dir = try Self.getSysTmpDir(a);
+        defer a.free(tmp_dir);
+
+        var path = try std.ArrayList(u8).initCapacity(a, tmp_dir.len + 32);
+        errdefer path.deinit();
+        path.appendSlice(tmp_dir) catch unreachable;
+        path.append(std.fs.path.sep) catch unreachable;
+        path.appendSlice("zig-wrapper") catch unreachable;
+
+        // Create the `zig-wrapper` directory in the `tmp` dir.
+        _ = std.fs.cwd().makeDir(path.items) catch |err| switch (err) {
+            error.PathAlreadyExists => {},
+            else => |e| return e,
+        };
+        path.append(std.fs.path.sep) catch unreachable;
+        const dir_len = path.items.len;
+
+        while (true) {
+            path.resize(dir_len) catch unreachable;
+            for (0..10) |_| {
+                const index = std.crypto.random.uintLessThan(usize, chars.len);
+                path.append(chars[index]) catch unreachable;
+            }
+            path.appendSlice(".tmp") catch unreachable;
+
+            // Check file existence.
+            const file = std.fs.cwd().createFile(
+                path.items,
+                .{ .exclusive = true },
+            ) catch |err| switch (err) {
+                error.PathAlreadyExists => continue,
+                else => |e| return e,
+            };
+            return .{ .file = file, ._path = path };
+        }
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.close();
+        std.fs.cwd().deleteFile(self.getPath()) catch {};
+        self._path.deinit();
+    }
+
+    pub fn close(self: *Self) void {
+        if (self.file) |file| {
+            file.close();
+            self.file = null;
+        }
+    }
+
+    pub inline fn getPath(self: *Self) []const u8 {
+        return self._path.items;
+    }
+
+    pub fn write(self: *Self, bytes: []const u8) !void {
+        if (self.file) |file| {
+            _ = try file.writeAll(bytes);
+        }
+    }
+
+    fn getSysTmpDir(a: std.mem.Allocator) ![]const u8 {
+        return std.process.getEnvVarOwned(a, "TMPDIR") catch {
+            return std.process.getEnvVarOwned(a, "TMP") catch {
+                return std.process.getEnvVarOwned(a, "TEMP") catch {
+                    return std.process.getEnvVarOwned(a, "TEMPDIR") catch {
+                        return a.dupe(u8, if (builtin.os.tag == .windows) "." else "/tmp");
+                    };
+                };
+            };
+        };
     }
 };
 
@@ -332,10 +420,11 @@ pub const ZigWrapper = struct {
     target_is_wasm: bool = false,
     target_is_msvc: bool = false,
     target_is_musl: bool = false,
-    flags_file_path: ?[]const u8 = null,
+    at_file_opt: ?[]const u8 = null,
 
     /// The arguments to run the Zig command, include the Zig executable and its arguments.
     args: std.ArrayList([]const u8),
+    flags_file: ?TempFile = null,
 
     const _REMOVED: []const u8 = "????????";
 
@@ -373,14 +462,14 @@ pub const ZigWrapper = struct {
                     // Parse the flags file.
                     const flags = try Self.parseFileFlags(&self, arg[1..]);
                     defer flags.deinit();
-                    self.flags_file_path = arg;
+                    self.at_file_opt = arg;
                     try self.sys_argv.appendSlice(flags.items);
                     continue;
                 }
 
                 // If the flags file is not the last argument, ignore it.
-                if (self.flags_file_path != null) {
-                    self.flags_file_path = null;
+                if (self.at_file_opt != null) {
+                    self.at_file_opt = null;
                 }
             }
             try self.sys_argv.append(arg);
@@ -391,7 +480,7 @@ pub const ZigWrapper = struct {
         self.command = ZigCommand.fromStr(
             stem[if (std.mem.lastIndexOfScalar(u8, stem, '-')) |s| s + 1 else 0..],
         ) orelse return error.InvalidZigCommand;
-        if (self.command == .cc or self.command == .cxx or self.command == .ld) {
+        if (self.command.isCompiler() or self.command == .ld) {
             self.is_linker = true;
         }
 
@@ -482,7 +571,7 @@ pub const ZigWrapper = struct {
         self.args.resize(arg_num) catch unreachable;
 
         // Write the actual `zig` command line to log.
-        if (self.log.is_enabled()) {
+        if (self.log.enabled()) {
             self.log.write("    -->");
             for (self.args.items) |arg| {
                 self.log.write(" ");
@@ -504,6 +593,10 @@ pub const ZigWrapper = struct {
     }
 
     pub fn deinit(self: *Self) void {
+        if (self.flags_file) |*flags_file| {
+            flags_file.deinit();
+            self.flags_file = null;
+        }
         self.args.deinit();
         self.skipped_lib_paths.deinit();
         self.skipped_libs.deinit();
@@ -664,29 +757,26 @@ pub const ZigWrapper = struct {
     }
 
     fn targetInit(self: *Self, target: []const u8) !void {
-        switch (self.command) {
-            .cc, .cxx => {
-                if (target.len > 0) {
-                    try self.args.appendSlice(&[_][]const u8{ "-target", target });
-                }
+        if (self.command.isCompiler()) {
+            if (target.len > 0) {
+                try self.args.appendSlice(&[_][]const u8{ "-target", target });
+            }
 
-                // https://github.com/ziglang/zig/wiki/FAQ#why-do-i-get-illegal-instruction-when-using-with-zig-cc-to-build-c-code
-                try self.args.append("-fno-sanitize=undefined");
+            // https://github.com/ziglang/zig/wiki/FAQ#why-do-i-get-illegal-instruction-when-using-with-zig-cc-to-build-c-code
+            try self.args.append("-fno-sanitize=undefined");
 
-                // For libmount
-                // try self.args.appendSlice(&[_][]const u8{
-                //     "-DHAVE_CLOSE_RANGE=1",
-                //     "-DHAVE_STATX=1",
-                //     "-DHAVE_OPEN_TREE=1",
-                //     "-DHAVE_MOVE_MOUNT=1",
-                //     "-DHAVE_MOUNT_SETATTR=1",
-                //     "-DHAVE_FSCONFIG=1",
-                //     "-DHAVE_FSOPEN=1",
-                //     "-DHAVE_FSMOUNT=1",
-                //     "-DHAVE_FSPICK=1",
-                // });
-            },
-            else => {},
+            // For libmount
+            // try self.args.appendSlice(&[_][]const u8{
+            //     "-DHAVE_CLOSE_RANGE=1",
+            //     "-DHAVE_STATX=1",
+            //     "-DHAVE_OPEN_TREE=1",
+            //     "-DHAVE_MOVE_MOUNT=1",
+            //     "-DHAVE_MOUNT_SETATTR=1",
+            //     "-DHAVE_FSCONFIG=1",
+            //     "-DHAVE_FSOPEN=1",
+            //     "-DHAVE_FSMOUNT=1",
+            //     "-DHAVE_FSPICK=1",
+            // });
         }
     }
 
@@ -995,7 +1085,8 @@ pub const ZigWrapper = struct {
     }
 
     fn writeFlagsFile(self: *Self) !void {
-        const flags_file_path = self.flags_file_path orelse return;
+        // Do not write flags file if the command is not `cc`, `c++` or `ld`.
+        if (!self.command.isCompiler() and !self.is_linker) return;
 
         // Do not write `@<flags file>` if the size of arguments does not exceed the system limits.
         var argv_size: usize = 8;
@@ -1023,20 +1114,33 @@ pub const ZigWrapper = struct {
             try buffer.appendSlice(" ");
         }
 
-        // Write to file.
-        var file = try std.fs.cwd().createFile(
-            flags_file_path[1..],
-            .{ .truncate = true },
-        );
-        defer file.close();
-        try file.seekTo(0);
-        try file.writeAll(buffer.items);
-        try file.setEndPos(try file.getPos());
+        var at_file_opt: []u8 = undefined;
+        if (self.at_file_opt) |v| {
+            at_file_opt = @constCast(v);
+            // Write to file.
+            var file = try std.fs.cwd().createFile(
+                at_file_opt[1..],
+                .{ .truncate = true },
+            );
+            defer file.close();
+            try file.seekTo(0);
+            try file.writeAll(buffer.items);
+            try file.setEndPos(try file.getPos());
+        } else {
+            var flags_file = try TempFile.init(self.allocator());
+            errdefer flags_file.deinit();
+            try flags_file.write(buffer.items);
+            flags_file.close();
+
+            at_file_opt = try std.fmt.allocPrint(self.allocator(), "@{s}", .{flags_file.getPath()});
+            self.alloc.addString(at_file_opt);
+            self.flags_file = flags_file;
+        }
 
         // Only keep the executable path and the command type.
         self.args.items.len = 2;
         // Set the @<file_path> flag.
-        try self.args.append(flags_file_path);
+        try self.args.append(at_file_opt);
     }
 };
 
