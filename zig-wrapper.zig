@@ -63,11 +63,12 @@ pub const ZigWrapperArgKind = enum {
     skip_lib_paths,
 
     pub const map = std.StaticStringMap(@This()).initComptime(.{
-        .{ "zig", .zig },
-        .{ "zig-target", .zig_target },
-        .{ "clang-target", .clang_target },
-        .{ "skip-libs", .skip_libs },
-        .{ "skip-lib-paths", .skip_lib_paths },
+        .{ "-target", .zig_target },
+        .{ "--zig", .zig },
+        .{ "--zig-target", .zig_target },
+        .{ "--clang-target", .clang_target },
+        .{ "--skip-libs", .skip_libs },
+        .{ "--skip-lib-paths", .skip_lib_paths },
     });
 };
 
@@ -106,9 +107,6 @@ pub const ZigArgFilter = union(enum) {
         .{ "-lmingw32", &.{Self.skip} },
         .{ "-lmingw64", &.{Self.skip} },
         .{ "-lmingwex", &.{Self.skip} },
-        // Cargo crate `windows_x86_64_gnu 0.42`: `libwindows.a` causes
-        //     stack overflow on `windows-gnu` targets.
-        .{ "-lwindows", &.{Self.skip} },
         .{ "-lstdc++", &.{Self.replace_with(&.{"-lc++"})} },
     });
     pub const windows_gnu_skipped_libs = std.StaticStringMap(void).initComptime(.{
@@ -467,10 +465,18 @@ pub const ZigWrapper = struct {
 
         // Write the actual `zig` command line to log.
         self.log.write("    -->");
-        for (self.args.items) |arg| {
-            self.log.write(" ");
-            self.log.write(arg);
+        var args_num: usize = 0;
+        for (self.args.items, 0..) |arg, i| {
+            if (arg.len > 0) {
+                if (args_num != i) {
+                    self.args.items[args_num] = arg;
+                }
+                args_num += 1;
+                self.log.write(" ");
+                self.log.write(arg);
+            }
         }
+        self.args.resize(args_num) catch unreachable;
         self.log.write("\n");
 
         // Write to `@<flags file>` if present.
@@ -589,19 +595,17 @@ pub const ZigWrapper = struct {
         var i: usize = 0;
         while (i < argv.len) : (i += 1) {
             const arg = argv[i];
-            // starts with `--`?
-            if (arg.len > 0 and arg[0] == '-') {
-                if (arg.len < 2 or arg[1] != '-') {
-                    if (self.is_linker and self.command != .ld and
-                        stringsContains(ZigArgFilter.compile_only_opts, &.{arg}))
-                    {
-                        self.is_linker = false;
-                    }
+            // starts with `-`?
+            if (strStartsWith(arg, "-")) {
+                if (self.is_linker and self.command != .ld and
+                    stringsContains(ZigArgFilter.compile_only_opts, &.{arg}))
+                {
+                    self.is_linker = false;
                     continue;
                 }
             }
 
-            var key: []const u8 = arg[2..];
+            var key: []const u8 = arg;
             var value: []const u8 = "";
 
             if (std.mem.indexOf(u8, key, "=")) |pos| {
@@ -612,7 +616,7 @@ pub const ZigWrapper = struct {
             const arg_kind = ZigWrapperArgKind.map.get(key) orelse continue;
             // Consume the argument(s).
             argv[i] = "";
-            if (key.len + 2 == arg.len and i + 1 < argv.len) {
+            if (key.len == arg.len and i + 1 < argv.len) {
                 i += 1;
                 value = argv[i];
                 argv[i] = "";
@@ -745,16 +749,31 @@ pub const ZigWrapper = struct {
                     }
                 }
 
+                var lib_ver = libVersionSplit(lib.name);
                 for (libs.items) |*entry| {
-                    if (strEql(entry.name, lib.name)) {
-                        // Remove the duplicate link library from `args`.
-                        if (entry.kind == .none and lib.kind != .none) {
-                            self.args.items[entry.index] = "";
-                            entry.* = lib;
-                        } else {
-                            self.args.items[i] = "";
+                    if (strStartsWith(entry.name, lib_ver[0])) {
+                        const entry_ver = libVersionSplit(entry.name);
+                        if (strEql(entry_ver[0], lib_ver[0])) {
+                            if (strEql(entry.name, lib.name)) {
+                                // Remove the duplicate link library from `args`.
+                                if (entry.kind == .none and lib.kind != .none) {
+                                    self.args.items[entry.index] = "";
+                                    entry.* = lib;
+                                } else {
+                                    self.args.items[i] = "";
+                                }
+                                continue :outer;
+                            } else if (versionCompare(entry_ver[1], lib_ver[1]) < 0) {
+                                // Sort libraries with the same name in order of their versions.
+                                // Swap `entry` and `lib`.
+                                const tmp = entry.*;
+                                entry.name = lib.name;
+                                entry.kind = lib.kind;
+                                lib.name = tmp.name;
+                                lib.kind = tmp.kind;
+                                lib_ver = entry_ver;
+                            }
                         }
-                        continue :outer;
                     }
                 }
                 try libs.append(lib);
@@ -775,27 +794,33 @@ pub const ZigWrapper = struct {
                 defer self.allocator().free(escaped_path);
 
                 // normalize path
-                var path = try std.fs.path.relative(
+                if (std.fs.path.relative(
                     self.allocator(),
                     ".",
                     strUnescape(escaped_path, true),
-                );
-                defer if (path.len > 0) self.allocator().free(path);
-                _ = std.mem.replace(u8, path, "\\", "/", path);
+                )) |v| {
+                    var path = v;
+                    defer if (path.len > 0) self.allocator().free(path);
+                    _ = std.mem.replace(u8, path, "\\", "/", path);
 
-                for (self.skipped_lib_paths.items) |pattern| {
-                    if (strMatch(pattern, path)) {
-                        // Remove the skipped link path from `args`.
-                        self.args.items[i] = "";
-                        if (!single_opt) self.args.items[i - 1] = "";
-                        continue :outer;
+                    var skipped = false;
+                    for (self.skipped_lib_paths.items) |pattern| {
+                        if (strMatch(pattern, path)) {
+                            skipped = true;
+                            break;
+                        }
                     }
-                }
 
-                if (!stringsContains(paths.items, &.{path})) {
-                    try paths.append(path);
-                    path.len = 0;
-                }
+                    if (!skipped and !stringsContains(paths.items, &.{path})) {
+                        try paths.append(path);
+                        path.len = 0;
+                        continue;
+                    }
+                } else |_| {}
+
+                // Remove the skipped link path from `args`.
+                self.args.items[i] = "";
+                if (!single_opt) self.args.items[i - 1] = "";
                 continue;
             }
         }
@@ -832,9 +857,10 @@ pub const ZigWrapper = struct {
                                     self.alloc.addString(opt);
                                     self.args.items[lib.index] = opt;
                                 } else {
-                                    const lib_path = try std.fs.path.join(
+                                    const lib_path = try std.fmt.allocPrint(
                                         self.allocator(),
-                                        &.{ path, entry.name },
+                                        "{s}/{s}",
+                                        .{ path, entry.name },
                                     );
                                     self.alloc.addString(lib_path);
                                     self.args.items[lib.index] = lib_path;
@@ -1192,15 +1218,14 @@ fn strMatch(pattern: []const u8, string: []const u8) bool {
 
 pub fn versionParse(version: []const u8) [4]u32 {
     var ver = [4]u32{ 0, 0, 0, 0 };
-    var parts = std.mem.splitAny(version, ".");
-    for (parts.iterator(), 0..) |part, i| {
-        if (i < 4) {
-            ver[i] = try std.fmt.parseInt(u32, part, 10) catch 0;
-        } else {
-            break;
-        }
+    var parts = std.mem.splitAny(u8, version, ".");
+    var i: usize = 0;
+    while (parts.next()) |part| {
+        if (i >= 4) break;
+        ver[i] = std.fmt.parseInt(u32, part, 10) catch 0;
+        i += 1;
     }
-    return parts;
+    return ver;
 }
 
 pub fn versionCompare(a: []const u8, b: []const u8) i32 {
@@ -1211,6 +1236,17 @@ pub fn versionCompare(a: []const u8, b: []const u8) i32 {
         if (v1[i] < v2[i]) return -1;
     }
     return 0;
+}
+
+pub fn libVersionSplit(lib: []const u8) [2][]const u8 {
+    var s = lib;
+    while (std.mem.indexOf(u8, s, ".")) |i| {
+        if (i + 1 < s.len and std.ascii.isDigit(s[i + 1])) {
+            return .{ lib[0 .. lib.len - (s.len - i - 1) - 1], s[i + 1 ..] };
+        }
+        s = s[i + 1 ..];
+    }
+    return .{ lib, "" };
 }
 
 fn sysArgMax() usize {
