@@ -287,6 +287,10 @@ pub const ZigLog = struct {
         }
     }
 
+    pub fn is_enabled(self: *Self) bool {
+        return self.file != null;
+    }
+
     pub fn write(self: *Self, bytes: []const u8) void {
         if (self.file) |file| {
             _ = file.writeAll(bytes) catch {};
@@ -332,6 +336,8 @@ pub const ZigWrapper = struct {
 
     /// The arguments to run the Zig command, include the Zig executable and its arguments.
     args: std.ArrayList([]const u8),
+
+    const _REMOVED: []const u8 = "????????";
 
     pub fn init(allocator_: std.mem.Allocator) !Self {
         var self = outer: {
@@ -463,21 +469,27 @@ pub const ZigWrapper = struct {
             try self.fixLinkLibs();
         }
 
-        // Write the actual `zig` command line to log.
-        self.log.write("    -->");
-        var args_num: usize = 0;
+        // Remove all skipped args.
+        var arg_num: usize = 0;
         for (self.args.items, 0..) |arg, i| {
-            if (arg.len > 0) {
-                if (args_num != i) {
-                    self.args.items[args_num] = arg;
+            if (arg.ptr != _REMOVED.ptr) {
+                if (arg_num != i) {
+                    self.args.items[arg_num] = arg;
                 }
-                args_num += 1;
+                arg_num += 1;
+            }
+        }
+        self.args.resize(arg_num) catch unreachable;
+
+        // Write the actual `zig` command line to log.
+        if (self.log.is_enabled()) {
+            self.log.write("    -->");
+            for (self.args.items) |arg| {
                 self.log.write(" ");
                 self.log.write(arg);
             }
+            self.log.write("\n");
         }
-        self.args.resize(args_num) catch unreachable;
-        self.log.write("\n");
 
         // Write to `@<flags file>` if present.
         try self.writeFlagsFile();
@@ -615,11 +627,11 @@ pub const ZigWrapper = struct {
 
             const arg_kind = ZigWrapperArgKind.map.get(key) orelse continue;
             // Consume the argument(s).
-            argv[i] = "";
+            argv[i] = _REMOVED;
             if (key.len == arg.len and i + 1 < argv.len) {
                 i += 1;
                 value = argv[i];
-                argv[i] = "";
+                argv[i] = _REMOVED;
             }
             if (value.len == 0) continue;
 
@@ -641,7 +653,7 @@ pub const ZigWrapper = struct {
                     }
                 },
                 .skip_lib_paths => {
-                    var parts = std.mem.splitAny(u8, value, ",;");
+                    var parts = std.mem.splitAny(u8, value, ";");
                     while (parts.next()) |part| {
                         const v = strTrimRight(part);
                         if (v.len > 0) try self.skipped_lib_paths.append(v);
@@ -678,22 +690,25 @@ pub const ZigWrapper = struct {
         }
     }
 
-    fn getlibExts(self: Self, static_lib: bool) []const []const u8 {
+    fn getlibExts(self: Self, kind: LinkerLibKind) []const []const u8 {
+        const windows_exts = [_][]const u8{ ".dll", ".dll.lib", ".dll.a", ".lib", ".a" };
+        const linux_exts = [_][]const u8{ ".so", ".a" };
+        const apple_exts = [_][]const u8{ ".dylib", ".a" };
+
+        var exts: []const []const u8 = undefined;
         if (self.target_is_windows) {
-            if (static_lib) {
-                return &.{ ".dll.lib", ".dll.a", ".lib", ".a" };
-            } else {
-                return &.{".dll"};
-            }
+            exts = &windows_exts;
+        } else if (self.target_is_apple) {
+            exts = &apple_exts;
         } else {
-            if (static_lib) {
-                return &.{".a"};
-            } else if (self.target_is_apple) {
-                return &.{".dylib"};
-            } else {
-                return &.{".so"};
-            }
+            exts = &linux_exts;
         }
+
+        return switch (kind) {
+            .none => exts,
+            .dynamic => exts[0..1],
+            .static => exts[1..],
+        };
     }
 
     fn libFromFileName(self: Self, file_name: []const u8) LinkerLib {
@@ -708,7 +723,7 @@ pub const ZigWrapper = struct {
         }
 
         for ([_]LinkerLibKind{ .dynamic, .static }) |k| {
-            const exts = self.getlibExts(k == .static);
+            const exts = self.getlibExts(k);
             for (exts) |ext| {
                 if (strEndsWith(name, ext)) {
                     return LinkerLib{
@@ -744,7 +759,7 @@ pub const ZigWrapper = struct {
                 for (self.skipped_libs.items) |pattern| {
                     if (strMatch(pattern, lib.name)) {
                         // Remove the skipped link library from `args`.
-                        self.args.items[i] = "";
+                        self.args.items[i] = _REMOVED;
                         continue :outer;
                     }
                 }
@@ -757,10 +772,10 @@ pub const ZigWrapper = struct {
                             if (strEql(entry.name, lib.name)) {
                                 // Remove the duplicate link library from `args`.
                                 if (entry.kind == .none and lib.kind != .none) {
-                                    self.args.items[entry.index] = "";
+                                    self.args.items[entry.index] = _REMOVED;
                                     entry.* = lib;
                                 } else {
-                                    self.args.items[i] = "";
+                                    self.args.items[i] = _REMOVED;
                                 }
                                 continue :outer;
                             } else if (versionCompare(entry_ver[1], lib_ver[1]) < 0) {
@@ -783,22 +798,14 @@ pub const ZigWrapper = struct {
             // Collect link paths.
             if (strStartsWith(arg, "-L")) {
                 var single_opt = true;
-                const escaped_path = try self.allocator().dupe(
-                    u8,
-                    if (arg.len == 2 and i + 1 < self.args.items.len) blk: {
-                        single_opt = false;
-                        i += 1;
-                        break :blk self.args.items[i];
-                    } else arg[2..],
-                );
-                defer self.allocator().free(escaped_path);
+                const lib_path = if (arg.len == 2 and i + 1 < self.args.items.len) blk: {
+                    single_opt = false;
+                    i += 1;
+                    break :blk self.args.items[i];
+                } else arg[2..];
 
                 // normalize path
-                if (std.fs.path.relative(
-                    self.allocator(),
-                    ".",
-                    strUnescape(escaped_path, true),
-                )) |v| {
+                if (std.fs.path.relative(self.allocator(), ".", lib_path)) |v| {
                     var path = v;
                     defer if (path.len > 0) self.allocator().free(path);
                     _ = std.mem.replace(u8, path, "\\", "/", path);
@@ -819,8 +826,8 @@ pub const ZigWrapper = struct {
                 } else |_| {}
 
                 // Remove the skipped link path from `args`.
-                self.args.items[i] = "";
-                if (!single_opt) self.args.items[i - 1] = "";
+                self.args.items[i] = _REMOVED;
+                if (!single_opt) self.args.items[i - 1] = _REMOVED;
                 continue;
             }
         }
@@ -832,43 +839,40 @@ pub const ZigWrapper = struct {
         //     std.io.getStdErr().writer().print("link-lib: {s} -> {s}\n", .{ lib.name, self.args.items[lib.index] }) catch {};
         // }
 
-        outer: for (paths.items) |path| {
-            var dir = std.fs.cwd().openDir(
-                path,
-                .{ .iterate = true, .no_follow = true },
-            ) catch continue;
-            defer dir.close();
-            var dir_it = dir.iterate();
-            while (dir_it.next() catch continue :outer) |entry| {
-                if (entry.kind == .file or entry.kind == .sym_link) {
-                    const file_ext = std.fs.path.extension(entry.name);
-                    const file_lib = self.libFromFileName(entry.name);
-                    if (file_lib.kind == .none) continue;
+        // Find the library paths and fix link options.
+        {
+            var buf = std.ArrayList(u8).init(self.allocator());
+            defer buf.deinit();
+            const lib_exts = self.getlibExts(.none);
+            outer: for (libs.items) |*lib| {
+                for (paths.items) |path| {
+                    for ([_][]const u8{ "lib", "" }) |prefix| {
+                        for (lib_exts) |file_ext| {
+                            buf.clearRetainingCapacity();
+                            try buf.appendSlice(path);
+                            try buf.append('/');
+                            try buf.appendSlice(prefix);
+                            try buf.appendSlice(lib.name);
+                            try buf.appendSlice(file_ext);
+                            if (std.fs.cwd().access(buf.items, .{})) |_| {
+                                const file_lib = self.libFromFileName(buf.items);
+                                if (lib.kind == .none or lib.kind == file_lib.kind) {
+                                    const lib_opt = if (file_lib.kind == .dynamic)
+                                        try std.fmt.allocPrint(
+                                            self.allocator(),
+                                            "-l{s}",
+                                            .{file_lib.name},
+                                        )
+                                    else
+                                        try self.allocator().dupe(u8, buf.items);
+                                    self.alloc.addString(lib_opt);
+                                    self.args.items[lib.index] = lib_opt;
 
-                    for (libs.items, 0..) |lib, lib_idx| {
-                        if (strEql(lib.name, file_lib.name)) {
-                            if (lib.kind == .none or lib.kind == file_lib.kind) {
-                                if (stringsContains(self.getlibExts(false), &.{file_ext})) {
-                                    const opt = try std.fmt.allocPrint(
-                                        self.allocator(),
-                                        "-l{s}",
-                                        .{file_lib.name},
-                                    );
-                                    self.alloc.addString(opt);
-                                    self.args.items[lib.index] = opt;
-                                } else {
-                                    const lib_path = try std.fmt.allocPrint(
-                                        self.allocator(),
-                                        "{s}/{s}",
-                                        .{ path, entry.name },
-                                    );
-                                    self.alloc.addString(lib_path);
-                                    self.args.items[lib.index] = lib_path;
+                                    // The library is already fixed, so we tag it as removed.
+                                    lib.name.len = 0;
+                                    continue :outer;
                                 }
-                                // The library is already fixed, so remove it from `libs`.
-                                _ = libs.swapRemove(lib_idx);
-                            }
-                            break;
+                            } else |_| {}
                         }
                     }
                 }
@@ -876,10 +880,13 @@ pub const ZigWrapper = struct {
         }
 
         for (libs.items) |lib| {
+            // Skip libaries marked as removed.
+            if (lib.name.len == 0) continue;
+
             if (self.target_is_windows and !self.target_is_msvc and
                 ZigArgFilter.windows_gnu_skipped_libs.getIndex(lib.name) != null)
             {
-                self.args.items[lib.index] = "";
+                self.args.items[lib.index] = _REMOVED;
                 continue;
             }
 
@@ -898,7 +905,7 @@ pub const ZigWrapper = struct {
         switch (self.command) {
             .cc, .cxx => {
                 // Strip quotes
-                var opt = strUnescape(arg, true);
+                var opt = arg;
                 var filters = &ZigArgFilter.cc_filters;
 
                 for (0..3) |loop_for_opt| {
