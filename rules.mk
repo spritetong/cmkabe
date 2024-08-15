@@ -48,8 +48,8 @@ cmake_build_target_deps = $(SHLUTIL) build_target_deps \
     CARGO_TARGET=$(CARGO_TARGET) \
     ZIG_TARGET=$(ZIG_TARGET)
 
-# include $(HOST_SYSTEM).host.mk
-_DOT_HOST_MK = $(TARGET_CMAKE_DIR)/$(HOST_SYSTEM).host.mk
+# include .host@$(HOST_SYSTEM_LOWER).mk
+_DOT_HOST_MK = $(TARGET_CMAKE_DIR)/.host@$(HOST_SYSTEM_LOWER).mk
 ifneq ($(filter cmake-init,$(if $(wildcard $(_DOT_HOST_MK)),,cmake-init) $(MAKECMDGOALS)),)
     ifneq ($(shell $(cmake_build_target_deps) >$(NULL) || echo 1),)
         $(error Failed to build target: $(TARGET))
@@ -58,14 +58,14 @@ endif
 include $(_DOT_HOST_MK)
 
 _DOT_VARS_DIR := $(TARGET_CMAKE_DIR)/$(if $(filter-out native,$(TARGET)),$(TARGET),$(HOST_TARGET).native)
-_DOT_VARS_MK = $(_DOT_VARS_DIR)/$(HOST_SYSTEM).vars.mk
-_DOT_TOOLCHAIN_MK = $(_DOT_VARS_DIR)/$(HOST_SYSTEM).toolchain.mk
+_DOT_VARS_MK = $(_DOT_VARS_DIR)/.vars@$(HOST_SYSTEM_LOWER).mk
+_DOT_TOOLCHAIN_MK = $(_DOT_VARS_DIR)/.toolchain@$(HOST_SYSTEM_LOWER).mk
 
 # Auto rebuild dependencies.
 $(_DOT_VARS_MK): $(addprefix $(CMKABE_HOME)/,shlutilib.py zig-wrapper.zig)
 	@$(cmake_build_target_deps)
 
-# include $(HOST_SYSTEM).vars.mk
+# include .vars@$(HOST_SYSTEM_LOWER).mk
 ifeq ($(wildcard $(_DOT_VARS_MK)),)
     ifneq ($(shell $(cmake_build_target_deps) >$(NULL) || echo 1),)
         $(error Failed to build target: $(TARGET))

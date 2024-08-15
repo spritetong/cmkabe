@@ -190,4 +190,7 @@ ifeq ($(HOST_SYSTEM),Windows)
     WINREG   = $(SHLUTIL) winreg
 endif
 
+# HOST_SYSTEM_LOWER: lowercase version of `HOST_SYSTEM`
+override HOST_SYSTEM_LOWER := $(call lower,$(HOST_SYSTEM))
+
 endif # __ENV_MK__

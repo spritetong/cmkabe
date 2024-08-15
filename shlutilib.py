@@ -860,7 +860,7 @@ class TargetParser(ShellCmd):
         self.target_cmake_dir = self.normpath(os.path.abspath(
             target_cmake_dir or (self.target_dir + '/.cmake')))
         self.cmake_lock_file = self.normpath(os.path.join(
-            self.target_cmake_dir, '{}.cmake.lock'.format(self.host_system)))
+            self.target_cmake_dir, '.cmake@{}.lock'.format(self.host_system.lower())))
         self.cmake_target_prefix = self.normpath(os.path.abspath(
             cmake_target_prefix or (self.target_cmake_dir + '/output')))
         self.cmake_prefix_triple = ''
@@ -1282,7 +1282,7 @@ class TargetParser(ShellCmd):
             os.path.realpath(os.path.dirname(zig_path)))
 
         self.zig_cc_dir = self.normpath(os.path.join(
-            self.target_dir, '.zig', self.host_target))
+            self.target_dir, '.zig', self.host_system.lower()))
         src = self.script_dir + '/zig-wrapper.zig'
         exe = self.zig_cc_dir + '/zig-wrapper' + self.EXE_EXT
         dir = self.zig_cc_dir
@@ -1489,7 +1489,8 @@ class TargetParser(ShellCmd):
                 'endif()\n',
             ])
 
-        with open(os.path.join(self.target_cmake_dir, '{}.host.mk'.format(self.host_system)), 'wb') as f:
+        with open(os.path.join(self.target_cmake_dir,
+                               '.host@{}.mk'.format(self.host_system.lower())), 'wb') as f:
             fwrite(f, 'override HOST_SYSTEM = {}\n'.format(self.host_system))
             fwrite(f, 'override HOST_TARGET = {}\n'.format(self.host_target))
             fwrite(f, 'override HOST_ARCH = {}\n'.format(self.host_arch))
@@ -1507,7 +1508,8 @@ class TargetParser(ShellCmd):
             for key in self.GCC_ENV_KEYS:
                 fwrite(f, 'unexport {}\n'.format(key))
 
-        with open(os.path.join(self.target_cmake_dir, '{}.host.cmake'.format(self.host_system)), 'wb') as f:
+        with open(os.path.join(self.target_cmake_dir,
+                               '.host@{}.cmake'.format(self.host_system.lower())), 'wb') as f:
             fwrite(f, 'set(HOST_SYSTEM "{}")\n'.format(self.host_system))
             fwrite(f, 'set(HOST_TARGET "{}")\n'.format(self.host_target))
             fwrite(f, 'set(HOST_ARCH "{}")\n'.format(self.host_arch))
@@ -1521,7 +1523,8 @@ class TargetParser(ShellCmd):
             fwrite(f, 'set(HOST_PATHSEP "{}")\n'.format(os.pathsep))
             fwrite(f, 'set(HOST_EXE_EXT "{}")\n'.format(self.EXE_EXT))
 
-        with open(os.path.join(self.cmake_target_dir, '{}.vars.mk'.format(self.host_system)), 'wb') as f:
+        with open(os.path.join(self.cmake_target_dir,
+                               '.vars@{}.mk'.format(self.host_system.lower())), 'wb') as f:
             fwrite(f, '# Constants for the target platform\n')
             fwrite(f, 'override TARGET_SEP := $(strip {})\n'.format(
                 '\\' if self.win32 else '/'))
@@ -1618,7 +1621,8 @@ class TargetParser(ShellCmd):
             fwrite(f, 'override TARGET_IS_APPLE = {}\n'.format(onoff(self.apple)))
             fwrite(f, 'override TARGET_IS_IOS = {}\n'.format(onoff(self.ios)))
 
-        with open(os.path.join(self.cmake_target_dir, '{}.vars.cmake'.format(self.host_system)), 'wb') as f:
+        with open(os.path.join(self.cmake_target_dir,
+                               '.vars@{}.cmake'.format(self.host_system.lower())), 'wb') as f:
             fwrite(f, '# Constants for the target platform\n')
             fwrite(f, 'set(TARGET_SEP "{}")\n'.format(
                 '\\\\' if self.win32 else '/'))
@@ -1770,7 +1774,8 @@ class TargetParser(ShellCmd):
             ranlib = cc_prefix + '-ranlib' + cc_ext
             strip = cc_prefix + '-strip' + cc_ext
 
-        with open(os.path.join(self.cmake_target_dir, '{}.toolchain.mk'.format(self.host_system)), 'wb') as f:
+        with open(os.path.join(self.cmake_target_dir,
+                               '.toolchain@{}.mk'.format(self.host_system.lower())), 'wb') as f:
             if cc_exports:
                 for line in cc_exports:
                     [k, v] = list(map(lambda x: x.strip(), line.split('=', 1)))
@@ -1868,7 +1873,8 @@ class TargetParser(ShellCmd):
             fwrite(f, 'export CMKABE_INCLUDE_DIRS = {}\n'.format(
                 os.path.pathsep.join(self.enum_prefix_subdirs_of('include'))))
 
-        with open(os.path.join(self.cmake_target_dir, '{}.toolchain.cmake'.format(self.host_system)), 'wb') as f:
+        with open(os.path.join(self.cmake_target_dir,
+                               '.toolchain@{}.cmake'.format(self.host_system.lower())), 'wb') as f:
             if cc_exports:
                 for line in cc_exports:
                     [k, v] = list(map(lambda x: x.strip(), line.split('=', 1)))

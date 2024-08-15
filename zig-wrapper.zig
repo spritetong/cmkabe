@@ -74,8 +74,8 @@ pub const ZigWrapperArgKind = enum {
         .{ "--zig", .zig },
         .{ "--zig-target", .zig_target },
         .{ "--clang-target", .clang_target },
-        .{ "--skip-libs", .skip_libs },
-        .{ "--skip-lib-paths", .skip_lib_paths },
+        .{ "--skip-lib", .skip_libs },
+        .{ "--skip-lib-path", .skip_lib_paths },
     });
 };
 
@@ -489,11 +489,12 @@ pub const ZigWrapper = struct {
         self.zig_target = self.alloc.getEnvVar("ZIG_WRAPPER_TARGET") catch "";
         self.clang_target = self.alloc.getEnvVar("ZIG_WRAPPER_CLANG_TARGET") catch "";
 
+        // Parse Zig flags in `argv[1..]`.
+        try self.parseArgv(self.sys_argv.items[1..]);
+
         // Parse Zig flags in the environment variables.
         var env_flags = try self.parseEnvFlags();
         defer env_flags.deinit();
-        try self.parseArgv(env_flags.items);
-        try self.parseArgv(self.sys_argv.items[1..]);
         try self.sys_argv.appendSlice(env_flags.items);
 
         // Set default values.
@@ -643,12 +644,22 @@ pub const ZigWrapper = struct {
         var args = std.ArrayList([]const u8).init(self.allocator());
         defer args.deinit();
 
-        // Do not apply the same targets.
-        const array = [_][]const u8{ "", self.zig_target, self.clang_target };
-        const targets = //
-            if (strEql(self.zig_target, self.clang_target)) array[0..2] else array[0..];
+        for (0..3) |target_idx| {
+            // Do not apply the same targets.
+            var target: []const u8 = "";
+            switch (target_idx) {
+                1 => {
+                    if (self.zig_target.len == 0) continue;
+                    target = self.zig_target;
+                },
+                2 => {
+                    if (self.clang_target.len == 0 or
+                        strEql(self.clang_target, self.zig_target)) continue;
+                    target = self.clang_target;
+                },
+                else => unreachable,
+            }
 
-        for (targets) |target| {
             for ([_][]const u8{
                 self.command.toFlagsName() orelse "",
                 if (self.command == .cxx) ZigCommand.cc.toFlagsName().? else "",
@@ -687,6 +698,7 @@ pub const ZigWrapper = struct {
                         !stringsContains(self.sys_argv.items, args.items))
                     {
                         try res.appendSlice(args.items);
+                        try self.parseArgv(args.items);
                     }
                     args.clearRetainingCapacity();
                 }
@@ -1109,9 +1121,9 @@ pub const ZigWrapper = struct {
             argv_size,
         );
         defer buffer.deinit();
-        for (self.args.items[2..]) |arg| {
+        for (self.args.items[2..], 0..) |arg, i| {
+            if (i > 0) try buffer.append(' ');
             try strEscapeAppend(&buffer, arg);
-            try buffer.appendSlice(" ");
         }
 
         var at_file_opt: []u8 = undefined;
@@ -1373,15 +1385,18 @@ fn sysArgMax() usize {
 
 pub fn main() noreturn {
     var status: u8 = 0;
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer {
+        _ = gpa.detectLeaks();
+        _ = gpa.deinit();
         std.process.exit(status);
     }
     errdefer |err| {
+        _ = gpa.detectLeaks();
         _ = std.io.getStdErr().writer().print("error: {}\n", .{err}) catch {};
         std.process.exit(1);
     }
-
-    var zig = try ZigWrapper.init(std.heap.c_allocator);
+    var zig = try ZigWrapper.init(gpa.allocator());
     defer zig.deinit();
     status = try zig.run();
 }

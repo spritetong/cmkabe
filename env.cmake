@@ -24,7 +24,7 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "Debug")
 endif()
 
-# CMAKE_HOST_SYSTEM_PROCESSOR
+# `CMAKE_HOST_SYSTEM_PROCESSOR`
 if(NOT CMAKE_HOST_SYSTEM_PROCESSOR)
     if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Windows")
         set(CMAKE_HOST_SYSTEM_PROCESSOR "$ENV{PROCESSOR_ARCHITECTURE}")
@@ -41,6 +41,9 @@ if(NOT CMAKE_HOST_SYSTEM_PROCESSOR)
         )
     endif()
 endif()
+
+# `CMKABE_HOST_SYSTEM_LOWER`: lowercase version of `CMAKE_HOST_SYSTEM_NAME`
+string(TOLOWER "${CMAKE_HOST_SYSTEM_NAME}" CMKABE_HOST_SYSTEM_LOWER)
 
 # Find the value of a key in a key-value map string.
 function(cmkabe_value_from_map map_string key default result)
