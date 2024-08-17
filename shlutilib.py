@@ -959,15 +959,6 @@ class TargetParser(ShellCmd):
             cxx = stem
         return self.target_cc[:-(len(stem) + len(ext))] + cxx + ext
 
-    def enum_link_dirs(self, quotes=False):
-        return self.enum_prefix_subdirs_of('lib', quotes=quotes)
-        # for dir in self.cmake_prefix_subdirs:
-        #     for subdir in ['lib', 'bin'] if self.win32 else ['lib']:
-        #         if quotes:
-        #             yield '"{}/{}"'.format(dir, subdir)
-        #         else:
-        #             yield '{}/{}'.format(dir, subdir)
-
     def enum_prefix_subdirs_of(self, subdir, quotes=False):
         for dir in self.cmake_prefix_subdirs:
             if quotes:
@@ -1342,8 +1333,12 @@ class TargetParser(ShellCmd):
             return True
 
         def patch_visibility(filename):
+            dll_import = b'__declspec(dllimport)'
+            vis_default = b'__attribute__((visibility("default")))'
+
             insert = b'\n/* XPATCH: do not export symbols. */\n#pragma GCC visibility push(hidden)\n\n'
             append = b'\n/* XPATCH: do not export symbols. */\n#pragma GCC visibility pop\n'
+
             file_map = {
                 'crtexewin.c': b'#include <mbctype.h>\n#endif\n',
                 'wdirent.c': b'#include "dirent.c"\n',
@@ -1354,8 +1349,9 @@ class TargetParser(ShellCmd):
             with open(filename, 'rb') as file:
                 content = file.read()
 
-            content = content.replace(b'__declspec(dllimport)',
-                                      b'__declspec(dllimport) __attribute__((visibility("default")))')
+            if dll_import in content and vis_default not in content:
+                content = content.replace(
+                    dll_import, dll_import + b' ' + vis_default)
 
             insert_position = 0
             search = file_map.get(os.path.basename(filename))
@@ -1656,7 +1652,7 @@ class TargetParser(ShellCmd):
             fwrite(f, 'override CMAKE_PREFIX_BINS = {}\n'.format(
                 ' '.join(self.enum_prefix_subdirs_of('bin'))))
             fwrite(f, 'override CMAKE_PREFIX_LIBS = {}\n'.format(
-                ' '.join(self.enum_link_dirs())))
+                ' '.join(self.enum_prefix_subdirs_of('lib'))))
             fwrite(f, 'override CMAKE_PREFIX_INCLUDES = {}\n'.format(
                 ' '.join(self.enum_prefix_subdirs_of('include'))))
             fwrite(f, '\n')
@@ -1754,7 +1750,7 @@ class TargetParser(ShellCmd):
             fwrite(f, 'set(TARGET_PREFIX_BINS {})\n'.format(
                 ' '.join(self.enum_prefix_subdirs_of('bin', quotes=True))))
             fwrite(f, 'set(TARGET_PREFIX_LIBS {})\n'.format(
-                ' '.join(self.enum_link_dirs(quotes=True))))
+                ' '.join(self.enum_prefix_subdirs_of('lib', quotes=True))))
             fwrite(f, 'set(TARGET_PREFIX_INCLUDES {})\n'.format(
                 ' '.join(self.enum_prefix_subdirs_of('include', quotes=True))))
             fwrite(f, '\n')
@@ -1975,7 +1971,7 @@ class TargetParser(ShellCmd):
             fwrite(f, 'export CMKABE_MINSIZE := $(MINSIZE)\n')
             fwrite(f, 'export CMKABE_DBGINFO := $(DBGINFO)\n')
             fwrite(f, 'export CMKABE_LINK_DIRS = {}\n'.format(
-                os.path.pathsep.join(self.enum_link_dirs())))
+                os.path.pathsep.join(self.enum_prefix_subdirs_of('lib'))))
             fwrite(f, 'export CMKABE_INCLUDE_DIRS = {}\n'.format(
                 os.path.pathsep.join(self.enum_prefix_subdirs_of('include'))))
 
@@ -2042,7 +2038,7 @@ class TargetParser(ShellCmd):
             fwrite(f, '    set(ENV{CMKABE_DBGINFO} ON)\n')
             fwrite(f, 'endif()\n')
             fwrite(f, 'set(ENV{{CMKABE_LINK_DIRS}} "{}")\n'.format(
-                os.path.pathsep.join(self.enum_link_dirs())))
+                os.path.pathsep.join(self.enum_prefix_subdirs_of('lib'))))
             fwrite(f, 'set(ENV{{CMKABE_INCLUDE_DIRS}} "{}")\n'.format(
                 os.path.pathsep.join(self.enum_prefix_subdirs_of('include'))))
 
