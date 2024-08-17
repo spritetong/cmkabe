@@ -1319,25 +1319,95 @@ class TargetParser(ShellCmd):
         import shutil
         import subprocess
         import json
+        import glob
+        import re
 
-        def patch_file(filename, search, insert=''):
+        def patch_file(filename, search, insert=b''):
             with open(filename, 'rb') as file:
-                content = file.read().decode()
+                content = file.read()
             # Find the index of the search string
             index = content.find(search)
             if index < 0:
-                return
+                return False
             # Calculate the position to insert the new text
             insert_position = index + len(search)
             if content[insert_position:insert_position + len(insert)] == insert:
-                return
+                return False
             # Open the file for writing and save the modified content
+            print('Patching {}'.format(filename))
             with open(filename, 'wb') as file:
-                file.write(content[:insert_position].encode())
-                file.write(insert.encode())
-                file.write(content[insert_position:].encode())
-                return True
-            return False
+                file.write(content[:insert_position])
+                file.write(insert)
+                file.write(content[insert_position:])
+            return True
+
+        def patch_visibility(filename):
+            insert = b'\n/* XPATCH: do not export symbols. */\n#pragma GCC visibility push(hidden)\n\n'
+            append = b'\n/* XPATCH: do not export symbols. */\n#pragma GCC visibility pop\n'
+            file_map = {
+                'crtexewin.c': b'#include <mbctype.h>\n#endif\n',
+                'wdirent.c': b'#include "dirent.c"\n',
+                'ucrtexewin.c': b'#include "crtexewin.c"\n',
+                'pseudo-reloc.c': b'# define NO_COPY\n#endif\n',
+            }
+
+            with open(filename, 'rb') as file:
+                content = file.read()
+
+            content = content.replace(b'__declspec(dllimport)',
+                                      b'__declspec(dllimport) __attribute__((visibility("default")))')
+
+            insert_position = 0
+            search = file_map.get(os.path.basename(filename))
+            if search:
+                index = content.find(search)
+                if index >= 0:
+                    insert_position = index + len(search)
+            if insert_position == 0 and (content.find(b'<windows.h>') >= 0 or
+                                         content.find(b'<stdlib.h>') >= 0 or
+                                         content.find(b'<wchar.h>') >= 0):
+                index = content.rfind(b'#include <')
+                if index >= 0:
+                    insert_position = index + content[index:].find(b'\n') + 1
+
+            if content[insert_position:insert_position + len(insert)] == insert:
+                return False
+
+            print('Patching {}'.format(filename))
+            with open(filename, 'wb') as file:
+                file.write(content[:insert_position])
+                file.write(insert)
+                file.write(content[insert_position:])
+                file.write(append)
+            return True
+
+        def patch_visibility_mingw_S(filename):
+            pattern = re.compile(rb'\b__MINGW_USYMBOL\((\w+)\)')
+            symbols = set()
+
+            with open(filename, 'rb') as file:
+                content = file.read()
+            for line in content.splitlines():
+                matches = pattern.findall(line)
+                for match in matches:
+                    symbols.add(match.strip())
+            symbols = list(sorted(symbols)) + \
+                [b'_' + x for x in sorted(symbols)]
+            if not symbols:
+                return False
+            code = b'\n/* XPATCH: do not export symbols. */\n.section .drectve,"yni"\n'
+            code += b'\n'.join(map(lambda x: '.ascii " -exclude-symbols:{} "'.format(
+                x.decode()).encode(), symbols))
+            code += b'\n'
+
+            if content.endswith(code):
+                return False
+
+            print('Patching {}'.format(filename))
+            with open(filename, 'wb') as file:
+                file.write(content)
+                file.write(code)
+            return True
 
         zig_path = shutil.which('zig' + Self.EXE_EXT)
         if not zig_path:
@@ -1345,25 +1415,61 @@ class TargetParser(ShellCmd):
         zig_root = os.path.realpath(os.path.dirname(zig_path))
         any_linux_any = os.path.join(
             zig_root, 'lib', 'libc', 'include', 'any-linux-any')
+        lib_src_patched = False
 
-        # 1. <sys/sysctl.h> is required by ffmpeg 6.0
+        # 1. Set symbol visibility to `hidden` in `libunwind`.
+        libunwind_src = os.path.join(zig_root, 'lib', 'libunwind', 'src')
+        for (file, tag) in [('assembly.h', 'UNWIND_ASSEMBLY_H'),
+                            ('config.h', 'LIBUNWIND_CONFIG_H')]:
+            if patch_file(
+                os.path.join(libunwind_src, file),
+                b'#define ' + tag.encode(),
+                    b'\n\n/* XPATCH: do not export symbols. */\n#define _LIBUNWIND_HIDE_SYMBOLS'):
+                lib_src_patched = True
+        for (search, insert) in [
+            (b'#define _LIBUNWIND_HIDE_SYMBOLS\n',
+             b'''#if defined(__MINGW32__) && defined(_LIBUNWIND_HIDE_SYMBOLS)
+#define XPATCH_HIDDEN_SYMBOL(name)                                             \\
+  .section .drectve,"yni" SEPARATOR                                            \\
+  .ascii " -exclude-symbols:", #name, " " SEPARATOR                            \\
+  .text
+#else
+#define XPATCH_HIDDEN_SYMBOL(name)
+#endif
+'''),
+            (b'''#if defined(__MINGW32__)
+#define WEAK_ALIAS(name, aliasname)                                            \\
+''',
+             b'''  XPATCH_HIDDEN_SYMBOL(aliasname) SEPARATOR                                    \\
+'''),
+            (b'''#else
+#define DEFINE_LIBUNWIND_FUNCTION(name)                                        \\
+''',
+             b'''  XPATCH_HIDDEN_SYMBOL(name) SEPARATOR                                         \\
+'''),
+        ]:
+            if patch_file(os.path.join(libunwind_src, 'assembly.h'), search, insert):
+                lib_src_patched = True
+
+        # 2. Set symbol visibility to `hidden` in `mingw32`.
+        for libc in ['mingw']:
+            zig_libc = os.path.join(zig_root, 'lib', 'libc', libc)
+            mingw_libsrc = '/mingw/libsrc/'
+            for (ext, patch_func) in [('c', patch_visibility), ('S', patch_visibility_mingw_S)]:
+                for file_path in glob.glob('{}/**/*.{}'.format(zig_libc, ext), recursive=True):
+                    if mingw_libsrc not in file_path.replace('\\', '/'):
+                        if patch_func(file_path):
+                            lib_src_patched = True
+
+        # 3. <sys/sysctl.h> is required by ffmpeg 6.0
         sys_ctl_h = os.path.join(any_linux_any, 'sys', 'sysctl.h')
         sys_ctl_h_src = os.path.join(any_linux_any, 'linux', 'sysctl.h')
         if not os.path.exists(sys_ctl_h) and os.path.isfile(sys_ctl_h_src):
             Self.makedirs(os.path.dirname(sys_ctl_h))
             os.symlink(os.path.relpath(
                 sys_ctl_h_src, os.path.dirname(sys_ctl_h)), sys_ctl_h)
-        # 2. define _LIBUNWIND_HIDE_SYMBOLS for `libunwind`.
-        libunwind_src = os.path.join(zig_root, 'lib', 'libunwind', 'src')
-        libunwind_patched = False
-        for (file, tag) in [('assembly.h', 'UNWIND_ASSEMBLY_H'),
-                            ('config.h', 'LIBUNWIND_CONFIG_H')]:
-            libunwind_patched = patch_file(
-                os.path.join(libunwind_src, file),
-                '#define ' + tag,
-                '\n\n/* XPATCH: do not export symbols. */\n#define _LIBUNWIND_HIDE_SYMBOLS'
-            )
-        if libunwind_patched:
+
+        if lib_src_patched:
             zig_env = json.loads(subprocess.run(
                 ['zig' + Self.EXE_EXT, 'env'],
                 capture_output=True, check=True).stdout)

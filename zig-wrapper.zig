@@ -66,16 +66,16 @@ pub const ZigWrapperArgKind = enum {
     zig,
     zig_target,
     clang_target,
-    skip_libs,
-    skip_lib_paths,
+    skip_lib,
+    skip_lib_path,
 
     pub const map = std.StaticStringMap(@This()).initComptime(.{
         .{ "-target", .zig_target },
         .{ "--zig", .zig },
         .{ "--zig-target", .zig_target },
         .{ "--clang-target", .clang_target },
-        .{ "--skip-lib", .skip_libs },
-        .{ "--skip-lib-path", .skip_lib_paths },
+        .{ "--skip-lib", .skip_lib },
+        .{ "--skip-lib-path", .skip_lib_path },
     });
 };
 
@@ -111,6 +111,7 @@ pub const ZigArgFilter = union(enum) {
 
     pub const windows_gnu_cc_filters = FilterTable.initComptime(.{
         .{ "-Wl,--disable-auto-image-base", &.{Self.skip} },
+        .{ "-Wl,--enable-auto-image-base", &.{Self.skip} },
         .{ "-lmingw32", &.{Self.skip} },
         .{ "-lmingw64", &.{Self.skip} },
         .{ "-lmingwex", &.{Self.skip} },
@@ -648,6 +649,7 @@ pub const ZigWrapper = struct {
             // Do not apply the same targets.
             var target: []const u8 = "";
             switch (target_idx) {
+                0 => {},
                 1 => {
                     if (self.zig_target.len == 0) continue;
                     target = self.zig_target;
@@ -750,14 +752,14 @@ pub const ZigWrapper = struct {
                 .clang_target => {
                     if (self.clang_target.len == 0) self.clang_target = value;
                 },
-                .skip_libs => {
+                .skip_lib => {
                     var parts = std.mem.splitAny(u8, value, ",;");
                     while (parts.next()) |part| {
                         const v = strTrimRight(part);
                         if (v.len > 0) try self.skipped_libs.append(v);
                     }
                 },
-                .skip_lib_paths => {
+                .skip_lib_path => {
                     var parts = std.mem.splitAny(u8, value, ";");
                     while (parts.next()) |part| {
                         const v = strTrimRight(part);
@@ -776,6 +778,12 @@ pub const ZigWrapper = struct {
 
             // https://github.com/ziglang/zig/wiki/FAQ#why-do-i-get-illegal-instruction-when-using-with-zig-cc-to-build-c-code
             try self.args.append("-fno-sanitize=undefined");
+            try self.args.append("-Wno-unused-command-line-argument");
+
+            if (self.is_linker) {
+                try self.args.append("-lc++");
+                try self.args.append("-lc++abi");
+            }
 
             // For libmount
             // try self.args.appendSlice(&[_][]const u8{
