@@ -174,10 +174,16 @@ function(cmkabe_set_cxx_standard cxx_standard)
 endfunction()
 
 # Function:
-#   cmkabe_rust_dlls_for_linker(<result> [dll1 dll2 ...])
+#   cmkabe_rust_dlls_for_linker(<result> [name1 name2 ...])
 #
-# On Windows, add a suffix ".dll.lib" to each item of the dll list and return the result list.
+# On Windows MSVC, add a suffix ".dll.lib" to each item of the dll list and return the result list.
 # On other platforms, return the input list directly.
+#
+# Library File Name Format of Rust:
+# Windows MSVC: Shared (`<name>.dll`, `<name>.dll.lib`); Static `<name>.lib`
+# Windows GNU: Shared (`<name>.dll`, `lib<name>.dll.a`); Static `lib<name>.a`
+# Linux: Shared `lib<name>.so`; Static `lib<name>.a`
+# Apple: Shared `lib<name>.dylib`; Static `lib<name>.a`
 function(cmkabe_rust_dlls_for_linker)
     list(POP_FRONT ARGN result)
     if(NOT result)
@@ -185,18 +191,18 @@ function(cmkabe_rust_dlls_for_linker)
     endif()
 
     set(dlls)
-    foreach(item IN LISTS ARGN)
-        if(WIN32)
-            list(APPEND dlls "${item}.dll.lib")
+    foreach(name IN LISTS ARGN)
+        if(WIN32 AND (CMAKE_IMPORT_LIBRARY_SUFFIX STREQUAL ".lib"))
+            list(APPEND dlls "${name}.dll.lib")
         else()
-            list(APPEND dlls "lib${item}${CMAKE_SHARED_LIBRARY_SUFFIX}")
+            list(APPEND dlls "${name}")
         endif()
     endforeach()
     set(${result} ${dlls} PARENT_SCOPE)
 endfunction()
 
 # Function:
-#   cmkabe_target_link_rust_dlls(<target> <INTERFACE|PUBLIC|PRIVATE> [items1...])
+#   cmkabe_target_link_rust_dlls(<target> <INTERFACE|PUBLIC|PRIVATE> [name1 name2 ...])
 #
 # Link the specified Rust DLLs to the <target>.
 function(cmkabe_target_link_rust_dlls)
@@ -220,7 +226,7 @@ function(cmkabe_target_link_rust_dlls)
 endfunction()
 
 # Function:
-#   cmkabe_install_rust_dlls(dll1 dll2 ... [DIRECTORY dir] EXCLUDE_FROM_ALL [COMPONENT component])
+#   cmkabe_install_rust_dlls(name1 name2 ... [DIRECTORY dir] EXCLUDE_FROM_ALL [COMPONENT component])
 #
 # Install the specified DLL files.
 # <dir> is the source directory if specified.
@@ -238,20 +244,23 @@ function(cmkabe_install_rust_dlls)
         list(INSERT component 0 EXCLUDE_FROM_ALL)
     endif()
 
-    foreach(item IN LISTS args_UNPARSED_ARGUMENTS)
+    if(args_DIRECTORY)
+        set(dir "${args_DIRECTORY}/")
+    else()
+        set(dir "")
+    endif()
+    foreach(name IN LISTS args_UNPARSED_ARGUMENTS)
+        set(dll "${CMAKE_SHARED_LIBRARY_PREFIX}${name}${CMAKE_SHARED_LIBRARY_SUFFIX}")
         if(WIN32)
-            if(args_DIRECTORY)
-                set(item "${args_DIRECTORY}/${item}")
+            set(lib "${CMAKE_IMPORT_LIBRARY_PREFIX}${name}${CMAKE_IMPORT_LIBRARY_SUFFIX}")
+            if(CMAKE_IMPORT_LIBRARY_SUFFIX STREQUAL ".lib")
+                install(FILES "${dir}${name}.dll.lib" DESTINATION lib RENAME "${lib}" ${component})
+            else()
+                install(FILES "${dir}${lib}" DESTINATION lib ${component})
             endif()
-            install(FILES "${item}.dll" DESTINATION bin ${component})
-            get_filename_component(name "${item}" NAME_WE)
-            install(FILES "${item}.dll.lib" DESTINATION lib RENAME "${name}.lib" ${component})
+            install(FILES "${dir}${dll}" DESTINATION bin ${component})
         else()
-            set(item "lib${item}")
-            if(args_DIRECTORY)
-                set(item "${args_DIRECTORY}/${item}")
-            endif()
-            install(FILES "${item}${CMAKE_SHARED_LIBRARY_SUFFIX}" DESTINATION lib ${component})
+            install(FILES "${dir}${dll}" DESTINATION lib ${component})
         endif()
     endforeach()
 endfunction()

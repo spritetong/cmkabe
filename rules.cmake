@@ -40,12 +40,12 @@ if(NOT DEFINED TARGET_CC_PIC)
     set(TARGET_CC_PIC ON)
 endif()
 
-if(NOT DEFINED TARGET_CC_VISIBILITY_HIDDEN)
-    set(TARGET_CC_VISIBILITY_HIDDEN ON)
-endif()
-
 if(NOT DEFINED TARGET_CC_NO_DELETE_NULL_POINTER_CHECKS)
     set(TARGET_CC_NO_DELETE_NULL_POINTER_CHECKS ON)
+endif()
+
+if(NOT DEFINED TARGET_CC_VISIBILITY_HIDDEN)
+    set(TARGET_CC_VISIBILITY_HIDDEN ON)
 endif()
 
 if(NOT DEFINED TARGET_MSVC_AFXDLL)
@@ -72,12 +72,12 @@ endif()
 # Define a dummy project.
 project(CMKABE LANGUAGES C CXX ASM)
 
-if(ZIG AND (ZIG_TARGET MATCHES "windows-gnu$"))
-    # Remove the prefix lib from the names of dynamic libraries
+if(ZIG AND (CMAKE_IMPORT_LIBRARY_SUFFIX STREQUAL ".dll.a"))
+    # Change the DLL file name from `lib<name>.dll` to `<name>.dll`
     set(CMAKE_SHARED_LIBRARY_PREFIX "")
     set(CMAKE_SHARED_LIBRARY_SUFFIX ".dll")
-    set(CMAKE_IMPORT_LIBRARY_PREFIX "")
-    set(CMAKE_IMPORT_LIBRARY_SUFFIX ".lib")
+    set(CMAKE_IMPORT_LIBRARY_PREFIX "lib")
+    set(CMAKE_IMPORT_LIBRARY_SUFFIX ".dll.a")
 endif()
 
 if(MSVC)
@@ -89,7 +89,6 @@ endif()
 include(CheckCCompilerFlag)
 check_c_compiler_flag("-s" CC_SUPPORT_STRIP)
 check_c_compiler_flag("-fPIC" CC_SUPPORT_PIC)
-check_c_compiler_flag("-fvisibility=hidden" CC_SUPPORT_VISIBILITY)
 check_c_compiler_flag("-fno-delete-null-pointer-checks" CC_SUPPORT_NO_DELETE_NULL_POINTER_CHECKS)
 
 # Redirect the output directorires to the target directories.
@@ -124,12 +123,14 @@ if(TARGET_CC_PIC AND CC_SUPPORT_PIC)
     add_compile_options("-fPIC")
 endif()
 
-if(TARGET_CC_VISIBILITY_HIDDEN AND CC_SUPPORT_VISIBILITY)
-    add_compile_options("-fvisibility=hidden")
-endif()
-
 if(TARGET_CC_NO_DELETE_NULL_POINTER_CHECKS AND CC_SUPPORT_NO_DELETE_NULL_POINTER_CHECKS)
     add_compile_options("-fno-delete-null-pointer-checks")
+endif()
+
+if(TARGET_CC_VISIBILITY_HIDDEN)
+    set(CMAKE_C_VISIBILITY_PRESET "hidden")
+    set(CMAKE_CXX_VISIBILITY_PRESET "hidden")
+    set(CMAKE_ASM_VISIBILITY_PRESET "hidden")
 endif()
 
 if(TARGET_MSVC_AFXDLL AND MSVC)
