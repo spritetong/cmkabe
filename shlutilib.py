@@ -1769,7 +1769,7 @@ class TargetParser(ShellCmd):
                 self.cargo_target.replace('-', '_').upper()))
             fwrite(f, 'set(CARGO_TARGET_DIR "{}")\n'.format(
                 self.cargo_target_dir))
-            fwrite(f, 'if(CMAKE_BUILD_TYPE MATCHES "^(Debug|debug)$")\n')
+            fwrite(f, 'if(CMAKE_BUILD_TYPE MATCHES "^[Dd]ebug$")\n')
             fwrite(f, '    set(CARGO_TARGET_OUT_DIR "{}debug")\n'.format(
                 _cargo_target_out_dir))
             fwrite(f, 'else()\n')
