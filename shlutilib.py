@@ -557,6 +557,15 @@ class ShellCmd:
             return 1
         return 0
 
+    def run__dll2lib(self):
+        if len(self.args) < 1:
+            print('Please input the DLL file path', file=sys.stderr)
+            return self.EINVAL
+        return TargetParser.zig_dll2lib(self.args[0],
+                                        out_path=self.args[1] if len(
+                                            self.args) >= 2 else None,
+                                        force=self.options.force)
+
     def run__zig_patch(self):
         TargetParser.zig_patch()
         return 0
@@ -1304,6 +1313,72 @@ class TargetParser(ShellCmd):
             cc_cmd_args(self.target_cc), 'c')
         self.cxx_includes = self._get_cc_includes(
             cc_cmd_args(self.target_cxx), 'c++')
+
+    @classmethod
+    def zig_dll2lib(Self, dll_file, out_path=None, force=False):
+        import subprocess
+        try:
+            import pefile
+        except ImportError:
+            print('`pefile` is not installed. Try: pip install pefile',
+                  file=sys.stderr)
+            return Self.EFAIL
+
+        # Load the DLL file
+        pe = pefile.PE(dll_file)
+
+        # Mapping of PE machine types to `dlltool` machine types
+        machine_types = {
+            0x014c: 'i386',         # x86
+            0x8664: 'i386:x86-64',  # x64 (AMD64)"
+            0x01c4: 'arm',          # ARMv7
+            0xaa64: 'arm64',        # ARM64
+        }
+        machine = machine_types.get(pe.FILE_HEADER.Machine, None)
+        if machine is None:
+            print('Unsupported machine type {} in {}'.format(
+                pe.FILE_HEADER.Machine, dll_file), file=sys.stderr)
+            return Self.EFAIL
+
+        # Check if the DLL has an export directory
+        if not hasattr(pe, 'DIRECTORY_ENTRY_EXPORT'):
+            print('No export symbols found in {}'.format(
+                dll_file), file=sys.stderr)
+            return Self.EFAIL
+
+        dll_name = os.path.splitext(os.path.basename(dll_file))[0]
+        out_dir = out_path
+        out_file = dll_name + '.lib'
+        if out_file.endswith('.lib') or out_file.endswith('.a'):
+            out_dir = os.path.dirname(out_file) or '.'
+            out_file = os.path.basename(out_file)
+        def_file = os.path.splitext(out_file)[0] + '.def'
+        if os.path.exists(os.path.join(out_dir, out_file)) and not force:
+            print('"{}" already exists in "{}"'.format(
+                out_file, out_dir), file=sys.stderr)
+            return Self.EFAIL
+
+        with open(os.path.join(out_dir, def_file), 'wb') as f:
+            f.write('LIBRARY {}\r\n'.format(dll_name).encode())
+            f.write(b'EXPORTS\r\n')
+            for symbol in pe.DIRECTORY_ENTRY_EXPORT.symbols:
+                name = symbol.name.decode() if symbol.name else None
+                ordinal = symbol.ordinal if symbol.ordinal else None
+                if name is not None:
+                    if ordinal is not None:
+                        f.write('    {} @{}\r\n'.format(name, ordinal).encode())
+                    else:
+                        f.write('    {}\r\n'.format(name).encode())
+
+        subprocess.run(
+            ['zig' + Self.EXE_EXT,
+             'dlltool',
+             '-m', machine,
+             '-D', dll_file,
+             '-d', os.path.join(out_dir, def_file),
+             '-l', os.path.join(out_dir, out_file)],
+            check=True)
+        return 0
 
     @classmethod
     def zig_patch(Self):
