@@ -1298,7 +1298,7 @@ class TargetParser(ShellCmd):
             os.chmod(exe, 0o755)
             for file in glob.glob(os.path.join(dir, exe + '.*')):
                 os.unlink(file)
-            for name in ['ar', 'cc', 'c++', 'dlltool', 'lib', 'ranlib', 'objcopy', 'rc']:
+            for name in ['ar', 'cc', 'c++', 'dlltool', 'lib', 'ranlib', 'objcopy', 'rc', 'windres']:
                 dst = os.path.join(dir, 'zig-' + name + self.EXE_EXT)
                 os.symlink(os.path.basename(exe), dst)
 

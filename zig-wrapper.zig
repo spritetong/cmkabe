@@ -14,6 +14,7 @@ pub const ZigCommand = enum {
     ranlib,
     rc,
     strip,
+    windres,
 
     fn fromStr(str: []const u8) ?Self {
         const map = std.StaticStringMap(ZigCommand).initComptime(.{
@@ -25,8 +26,9 @@ pub const ZigCommand = enum {
             .{ "lib", .lib },
             .{ "objcopy", .objcopy },
             .{ "ranlib", .ranlib },
-            .{ "strip", .strip },
             .{ "rc", .rc },
+            .{ "strip", .strip },
+            .{ "windres", .windres },
             .{ "clang", .cc },
             .{ "clang++", .cxx },
             .{ "gcc", .cc },
@@ -39,6 +41,7 @@ pub const ZigCommand = enum {
         return switch (self) {
             .cxx => "c++",
             .ld => "ld.lld",
+            .windres => "rc",
             else => @tagName(self),
         };
     }
@@ -330,10 +333,7 @@ pub const TempFile = struct {
         path.appendSlice("zig-wrapper") catch unreachable;
 
         // Create the `zig-wrapper` directory in the `tmp` dir.
-        _ = std.fs.cwd().makeDir(path.items) catch |err| switch (err) {
-            error.PathAlreadyExists => {},
-            else => |e| return e,
-        };
+        try std.fs.cwd().makePath(path.items);
         path.append(std.fs.path.sep) catch unreachable;
         const dir_len = path.items.len;
 
@@ -393,6 +393,44 @@ pub const TempFile = struct {
     }
 };
 
+const SimpleOptionParser = struct {
+    const Self = @This();
+    arg: []const u8,
+    remaining: []const []const u8,
+    value: []const u8 = "",
+
+    fn parse(self: *Self, options: []const []const u8, require_value: bool) bool {
+        for (options) |opt| {
+            if (strEql(self.arg, opt)) {
+                if (!require_value) {
+                    return true;
+                } else if (self.remaining.len > 0) {
+                    self.value = self.remaining[0];
+                    self.remaining = self.remaining[1..];
+                    return true;
+                } else {
+                    return false;
+                }
+            }
+
+            if (!require_value) continue;
+
+            if (strStartsWith(self.arg, opt)) {
+                if (strStartsWith(opt, "--")) {
+                    if (self.arg[opt.len] == '=') {
+                        self.value = self.arg[opt.len + 1 ..];
+                        return true;
+                    }
+                } else {
+                    self.value = self.arg[opt.len..];
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+};
+
 pub const ZigWrapper = struct {
     const Self = @This();
     alloc: BufferedAllocator,
@@ -425,6 +463,8 @@ pub const ZigWrapper = struct {
 
     /// The arguments to run the Zig command, include the Zig executable and its arguments.
     args: std.ArrayList([]const u8),
+    /// Used for `windres` ...
+    named_args: std.StringHashMap([]const u8),
     flags_file: ?TempFile = null,
 
     const _REMOVED: []const u8 = "????????";
@@ -451,6 +491,7 @@ pub const ZigWrapper = struct {
                 .skipped_libs = std.ArrayList([]const u8).init(alloc.allocator()),
                 .skipped_lib_paths = std.ArrayList([]const u8).init(alloc.allocator()),
                 .args = std.ArrayList([]const u8).init(alloc.allocator()),
+                .named_args = std.StringHashMap([]const u8).init(alloc.allocator()),
             };
         };
         errdefer self.deinit();
@@ -461,7 +502,7 @@ pub const ZigWrapper = struct {
             if (self.sys_argv.items.len > 0) {
                 if (strStartsWith(arg, "@")) {
                     // Parse the flags file.
-                    const flags = try Self.parseFileFlags(&self, arg[1..]);
+                    const flags = try self.parseFileFlags(arg[1..]);
                     defer flags.deinit();
                     self.at_file_opt = arg;
                     try self.sys_argv.appendSlice(flags.items);
@@ -599,6 +640,7 @@ pub const ZigWrapper = struct {
             flags_file.deinit();
             self.flags_file = null;
         }
+        self.named_args.deinit();
         self.args.deinit();
         self.skipped_lib_paths.deinit();
         self.skipped_libs.deinit();
@@ -978,7 +1020,7 @@ pub const ZigWrapper = struct {
                                     self.alloc.addString(lib_opt);
                                     self.args.items[lib.index] = lib_opt;
 
-                                    // The library is already fixed, so we tag it as removed.
+                                    // The library is already fixed, so we mark it as removed.
                                     lib.name.len = 0;
                                     continue :outer;
                                 }
@@ -1069,6 +1111,69 @@ pub const ZigWrapper = struct {
                         break;
                     }
                 }
+            },
+            .windres => {
+                var parser = SimpleOptionParser{
+                    .arg = arg,
+                    .remaining = remaining,
+                };
+                if (strStartsWith(parser.arg, "-")) {
+                    if (parser.parse(&.{ "-i", "--input" }, true)) {
+                        try self.named_args.put("input", parser.value);
+                    } else if (parser.parse(&.{ "-o", "--output" }, true)) {
+                        try self.named_args.put("output", parser.value);
+                    } else if (parser.parse(&.{ "-J", "--input-format" }, true)) {
+                        // skip
+                    } else if (parser.parse(&.{ "-O", "--output-format" }, true)) {
+                        // skip
+                    } else if (parser.parse(&.{ "-F", "--target" }, true)) {
+                        // skip
+                    } else if (parser.parse(&.{ "-I", "--include-dir" }, true)) {
+                        try self.args.append("/i");
+                        try self.args.append(parser.value);
+                    } else if (parser.parse(&.{"--preprocessor"}, true)) {
+                        // skip
+                    } else if (parser.parse(&.{"--preprocessor-arg"}, true)) {
+                        // skip
+                    } else if (parser.parse(&.{ "-D", "--define" }, true)) {
+                        try self.args.append("/d");
+                        try self.args.append(parser.value);
+                    } else if (parser.parse(&.{ "-U", "--undefine" }, true)) {
+                        try self.args.append("/u");
+                        try self.args.append(parser.value);
+                    } else if (parser.parse(&.{ "-v", "--verbose" }, false)) {
+                        try self.args.append("/v");
+                    } else if (parser.parse(&.{ "-c", "--codepage" }, true)) {
+                        try self.args.append("/c");
+                        try self.args.append(parser.value);
+                    } else if (parser.parse(&.{ "-l", "--language" }, true)) {
+                        try self.args.append("/ln");
+                        try self.args.append(parser.value);
+                    } else if (parser.parse(&.{"--use-temp-file"}, false)) {
+                        // skip
+                    } else if (parser.parse(&.{"--no-use-temp-file"}, false)) {
+                        // skip
+                    } else if (parser.parse(&.{"-r"}, false)) {
+                        // skip
+                    } else if (parser.parse(&.{ "-h", "--help" }, false)) {
+                        try self.args.append("/h");
+                    }
+                } else {
+                    if (!self.named_args.contains("input")) {
+                        try self.named_args.put("input", parser.arg);
+                    } else if (!self.named_args.contains("output")) {
+                        try self.named_args.put("output", parser.arg);
+                    }
+                }
+                if (parser.remaining.len == 0) {
+                    try self.args.append("--");
+                    for ([_][]const u8{ "input", "output" }) |name| {
+                        if (self.named_args.get(name)) |v| {
+                            try self.args.append(v);
+                        }
+                    }
+                }
+                return remaining.len - parser.remaining.len;
             },
             else => {},
         }
