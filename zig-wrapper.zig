@@ -393,20 +393,65 @@ pub const TempFile = struct {
     }
 };
 
-const SimpleOptionParser = struct {
+const SimpleArgParser = struct {
     const Self = @This();
-    arg: []const u8,
-    remaining: []const []const u8,
+    args: []const []const u8,
+    always_positional: bool = false,
     value: []const u8 = "",
 
-    fn parse(self: *Self, options: []const []const u8, require_value: bool) bool {
+    pub inline fn hasArgument(self: Self) bool {
+        return self.args.len > 0;
+    }
+
+    /// Get the first argument and retain it.
+    pub fn first(self: Self) ?[]const u8 {
+        if (self.hasArgument()) {
+            return self.args[0];
+        }
+        return null;
+    }
+
+    /// Pick the next argument.
+    pub fn next(self: *Self) ?[]const u8 {
+        if (self.hasArgument()) {
+            const arg = self.args[0];
+            self.args = self.args[1..];
+            return arg;
+        }
+        return null;
+    }
+
+    /// Do not consume any argument if failed.
+    pub fn parsePositional(self: *Self) ?[]const u8 {
+        while (self.hasArgument()) {
+            const arg = self.args[0];
+
+            if (self.always_positional or !strStartsWith(arg, "-")) {
+                self.args = self.args[1..];
+                return arg;
+            }
+            if (strEql(arg, "--")) {
+                self.always_positional = true;
+                self.args = self.args[1..];
+                continue;
+            }
+            break;
+        }
+        return null;
+    }
+
+    /// Do not consume any argument if failed.
+    pub fn parseNamed(self: *Self, options: []const []const u8, require_value: bool) bool {
+        const arg = self.first() orelse return false;
+
         for (options) |opt| {
-            if (strEql(self.arg, opt)) {
+            if (strEql(arg, opt)) {
                 if (!require_value) {
+                    self.args = self.args[1..];
                     return true;
-                } else if (self.remaining.len > 0) {
-                    self.value = self.remaining[0];
-                    self.remaining = self.remaining[1..];
+                } else if (self.args.len > 1) {
+                    self.value = self.args[1];
+                    self.args = self.args[2..];
                     return true;
                 } else {
                     return false;
@@ -415,14 +460,16 @@ const SimpleOptionParser = struct {
 
             if (!require_value) continue;
 
-            if (strStartsWith(self.arg, opt)) {
+            if (strStartsWith(arg, opt)) {
                 if (strStartsWith(opt, "--")) {
-                    if (self.arg[opt.len] == '=') {
-                        self.value = self.arg[opt.len + 1 ..];
+                    if (arg[opt.len] == '=') {
+                        self.args = self.args[1..];
+                        self.value = arg[opt.len + 1 ..];
                         return true;
                     }
                 } else {
-                    self.value = self.arg[opt.len..];
+                    self.args = self.args[1..];
+                    self.value = arg[opt.len..];
                     return true;
                 }
             }
@@ -579,22 +626,18 @@ pub const ZigWrapper = struct {
         // `cc`, `c++`: -target <target>
         try self.targetInit(self.zig_target);
 
-        // Parse and write the input command line to log.
-        var skip: usize = 0;
-        self.log.print("{s}", .{self.sys_argv.items[0]});
-        for (self.sys_argv.items[1..], 1..) |arg, i| {
-            self.log.write(" ");
-            self.log.write(arg);
-            if (skip > 0) {
-                skip -= 1;
-            } else {
-                skip = try self.appendArgument(
-                    @constCast(arg),
-                    self.sys_argv.items[i + 1 ..],
-                );
+        // Write the input command line to log.
+        if (self.log.enabled()) {
+            for (self.sys_argv.items) |arg| {
+                self.log.print("{s} ", .{arg});
             }
+            self.log.write("\n");
         }
-        self.log.write("\n");
+        // Parse arguments in `argv[1..]`.
+        var argv_parer = SimpleArgParser{ .args = self.sys_argv.items[1..] };
+        while (argv_parer.hasArgument()) {
+            try self.appendArgument(&argv_parer);
+        }
 
         // Fix link libraries.
         if (self.is_linker) {
@@ -1052,11 +1095,10 @@ pub const ZigWrapper = struct {
         }
     }
 
-    fn appendArgument(self: *Self, arg_: []u8, remaining: []const []const u8) !usize {
-        var arg = arg_;
+    fn appendArgument(self: *Self, parser: *SimpleArgParser) !void {
         switch (self.command) {
             .cc, .cxx => {
-                // Strip quotes
+                var arg = @constCast(parser.next().?);
                 var opt = arg;
                 var filters = &ZigArgFilter.cc_filters;
 
@@ -1080,18 +1122,21 @@ pub const ZigWrapper = struct {
                             for (arg_ops) |arg_op| switch (arg_op) {
                                 .replace => |replacement| {
                                     try self.args.appendSlice(replacement);
-                                    return 0;
+                                    return;
                                 },
                                 .match_next_and_replace => |item| {
                                     // Get the next option.
                                     const next_opt = if (split_kv == 0)
-                                        (if (remaining.len > 0) remaining[0] else "")
+                                        (parser.first() orelse "")
                                     else
                                         opt[this_opt.len + 1 ..];
                                     // Match successfully if the pattern is empty.
                                     if (item[0].len == 0 or strEql(item[0], next_opt)) {
                                         try self.args.appendSlice(item[1]);
-                                        return if (split_kv == 0) 1 else 0;
+                                        if (split_kv == 0) {
+                                            _ = parser.next();
+                                        }
+                                        return;
                                     }
                                 },
                             };
@@ -1111,61 +1156,62 @@ pub const ZigWrapper = struct {
                         break;
                     }
                 }
+
+                try self.args.append(arg);
             },
             .windres => {
-                var parser = SimpleOptionParser{
-                    .arg = arg,
-                    .remaining = remaining,
-                };
-                if (strStartsWith(parser.arg, "-")) {
-                    if (parser.parse(&.{ "-i", "--input" }, true)) {
-                        try self.named_args.put("input", parser.value);
-                    } else if (parser.parse(&.{ "-o", "--output" }, true)) {
-                        try self.named_args.put("output", parser.value);
-                    } else if (parser.parse(&.{ "-J", "--input-format" }, true)) {
-                        // skip
-                    } else if (parser.parse(&.{ "-O", "--output-format" }, true)) {
-                        // skip
-                    } else if (parser.parse(&.{ "-F", "--target" }, true)) {
-                        // skip
-                    } else if (parser.parse(&.{ "-I", "--include-dir" }, true)) {
-                        try self.args.append("/i");
-                        try self.args.append(parser.value);
-                    } else if (parser.parse(&.{"--preprocessor"}, true)) {
-                        // skip
-                    } else if (parser.parse(&.{"--preprocessor-arg"}, true)) {
-                        // skip
-                    } else if (parser.parse(&.{ "-D", "--define" }, true)) {
-                        try self.args.append("/d");
-                        try self.args.append(parser.value);
-                    } else if (parser.parse(&.{ "-U", "--undefine" }, true)) {
-                        try self.args.append("/u");
-                        try self.args.append(parser.value);
-                    } else if (parser.parse(&.{ "-v", "--verbose" }, false)) {
-                        try self.args.append("/v");
-                    } else if (parser.parse(&.{ "-c", "--codepage" }, true)) {
-                        try self.args.append("/c");
-                        try self.args.append(parser.value);
-                    } else if (parser.parse(&.{ "-l", "--language" }, true)) {
-                        try self.args.append("/ln");
-                        try self.args.append(parser.value);
-                    } else if (parser.parse(&.{"--use-temp-file"}, false)) {
-                        // skip
-                    } else if (parser.parse(&.{"--no-use-temp-file"}, false)) {
-                        // skip
-                    } else if (parser.parse(&.{"-r"}, false)) {
-                        // skip
-                    } else if (parser.parse(&.{ "-h", "--help" }, false)) {
-                        try self.args.append("/h");
+                if (parser.parsePositional()) |arg| {
+                    if (!self.named_args.contains("input")) {
+                        try self.named_args.put("input", arg);
+                    } else if (!self.named_args.contains("output")) {
+                        try self.named_args.put("output", arg);
                     }
                 } else {
-                    if (!self.named_args.contains("input")) {
-                        try self.named_args.put("input", parser.arg);
-                    } else if (!self.named_args.contains("output")) {
-                        try self.named_args.put("output", parser.arg);
+                    if (parser.parseNamed(&.{ "-i", "--input" }, true)) {
+                        try self.named_args.put("input", parser.value);
+                    } else if (parser.parseNamed(&.{ "-o", "--output" }, true)) {
+                        try self.named_args.put("output", parser.value);
+                    } else if (parser.parseNamed(&.{ "-J", "--input-format" }, true)) {
+                        // skip
+                    } else if (parser.parseNamed(&.{ "-O", "--output-format" }, true)) {
+                        // skip
+                    } else if (parser.parseNamed(&.{ "-F", "--target" }, true)) {
+                        // skip
+                    } else if (parser.parseNamed(&.{ "-I", "--include-dir" }, true)) {
+                        try self.args.append("/i");
+                        try self.args.append(parser.value);
+                    } else if (parser.parseNamed(&.{"--preprocessor"}, true)) {
+                        // skip
+                    } else if (parser.parseNamed(&.{"--preprocessor-arg"}, true)) {
+                        // skip
+                    } else if (parser.parseNamed(&.{ "-D", "--define" }, true)) {
+                        try self.args.append("/d");
+                        try self.args.append(parser.value);
+                    } else if (parser.parseNamed(&.{ "-U", "--undefine" }, true)) {
+                        try self.args.append("/u");
+                        try self.args.append(parser.value);
+                    } else if (parser.parseNamed(&.{ "-v", "--verbose" }, false)) {
+                        try self.args.append("/v");
+                    } else if (parser.parseNamed(&.{ "-c", "--codepage" }, true)) {
+                        try self.args.append("/c");
+                        try self.args.append(parser.value);
+                    } else if (parser.parseNamed(&.{ "-l", "--language" }, true)) {
+                        try self.args.append("/ln");
+                        try self.args.append(parser.value);
+                    } else if (parser.parseNamed(&.{"--use-temp-file"}, false)) {
+                        // skip
+                    } else if (parser.parseNamed(&.{"--no-use-temp-file"}, false)) {
+                        // skip
+                    } else if (parser.parseNamed(&.{"-r"}, false)) {
+                        // skip
+                    } else if (parser.parseNamed(&.{ "-h", "--help" }, false)) {
+                        try self.args.append("/h");
+                    } else {
+                        _ = parser.next();
                     }
                 }
-                if (parser.remaining.len == 0) {
+
+                if (!parser.hasArgument()) {
                     try self.args.append("--");
                     for ([_][]const u8{ "input", "output" }) |name| {
                         if (self.named_args.get(name)) |v| {
@@ -1173,13 +1219,9 @@ pub const ZigWrapper = struct {
                         }
                     }
                 }
-                return remaining.len - parser.remaining.len;
             },
-            else => {},
+            else => try self.args.append(parser.next().?),
         }
-
-        try self.args.append(arg);
-        return 0;
     }
 
     fn windowsGnuArgFilter(arg: []u8) []u8 {
