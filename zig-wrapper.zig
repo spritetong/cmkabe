@@ -65,23 +65,6 @@ pub const ZigCommand = enum {
     }
 };
 
-pub const ZigWrapperArgKind = enum {
-    zig,
-    zig_target,
-    clang_target,
-    skip_lib,
-    skip_lib_path,
-
-    pub const map = std.StaticStringMap(@This()).initComptime(.{
-        .{ "-target", .zig_target },
-        .{ "--zig", .zig },
-        .{ "--zig-target", .zig_target },
-        .{ "--clang-target", .clang_target },
-        .{ "--skip-lib", .skip_lib },
-        .{ "--skip-lib-path", .skip_lib_path },
-    });
-};
-
 pub const ZigArgFilter = union(enum) {
     const Self = @This();
     replace: []const []const u8,
@@ -461,15 +444,13 @@ const SimpleArgParser = struct {
             if (!require_value) continue;
 
             if (strStartsWith(arg, opt)) {
-                if (strStartsWith(opt, "--")) {
-                    if (arg[opt.len] == '=') {
-                        self.args = self.args[1..];
-                        self.value = arg[opt.len + 1 ..];
-                        return true;
-                    }
-                } else {
+                if (opt.len == 2 and opt[0] == '-') {
                     self.args = self.args[1..];
                     self.value = arg[opt.len..];
+                    return true;
+                } else if (arg[opt.len] == '=') {
+                    self.args = self.args[1..];
+                    self.value = arg[opt.len + 1 ..];
                     return true;
                 }
             }
@@ -514,7 +495,7 @@ pub const ZigWrapper = struct {
     named_args: std.StringHashMap([]const u8),
     flags_file: ?TempFile = null,
 
-    const _REMOVED: []const u8 = "????????";
+    const _REMOVED: []const u8 = "-???";
 
     pub fn init(allocator_: std.mem.Allocator) !Self {
         var self = outer: {
@@ -796,61 +777,51 @@ pub const ZigWrapper = struct {
     }
 
     fn parseArgv(self: *Self, argv: [][]const u8) !void {
-        var i: usize = 0;
-        while (i < argv.len) : (i += 1) {
-            const arg = argv[i];
-            // starts with `-`?
-            if (strStartsWith(arg, "-")) {
-                if (self.is_linker and self.command != .ld and
-                    stringsContains(ZigArgFilter.compile_only_opts, &.{arg}))
-                {
+        var parser = SimpleArgParser{ .args = argv };
+        while (parser.hasArgument()) {
+            const begin = argv.len - parser.args.len;
+
+            if (parser.parsePositional()) |_| {
+                // Skip positional arguments.
+                continue;
+            } else if (parser.parseNamed(ZigArgFilter.compile_only_opts, false)) {
+                if (self.is_linker and self.command != .ld) {
                     self.is_linker = false;
-                    continue;
                 }
+                // Do no consume the argument.
+                continue;
+            } else if (parser.parseNamed(&.{ "-target", "--zig-target" }, true)) {
+                if (self.zig_target.len == 0) {
+                    self.zig_target = parser.value;
+                }
+            } else if (parser.parseNamed(&.{"--zig"}, true)) {
+                if (self.zig_exe.len == 0) {
+                    self.zig_exe = parser.value;
+                }
+            } else if (parser.parseNamed(&.{"--clang-target"}, true)) {
+                if (self.clang_target.len == 0) {
+                    self.clang_target = parser.value;
+                }
+            } else if (parser.parseNamed(&.{"--skip-lib"}, true)) {
+                var parts = std.mem.splitAny(u8, parser.value, ",;");
+                while (parts.next()) |part| {
+                    const v = strTrimRight(part);
+                    if (v.len > 0) try self.skipped_libs.append(v);
+                }
+            } else if (parser.parseNamed(&.{"--skip-lib-path"}, true)) {
+                var parts = std.mem.splitAny(u8, parser.value, ";");
+                while (parts.next()) |part| {
+                    const v = strTrimRight(part);
+                    if (v.len > 0) try self.skipped_lib_paths.append(v);
+                }
+            } else {
+                // Do no consume the argument.
+                _ = parser.next();
+                continue;
             }
 
-            var key: []const u8 = arg;
-            var value: []const u8 = "";
-
-            if (std.mem.indexOf(u8, key, "=")) |pos| {
-                value = key[pos + 1 ..];
-                key = key[0..pos];
-            }
-
-            const arg_kind = ZigWrapperArgKind.map.get(key) orelse continue;
-            // Consume the argument(s).
-            argv[i] = _REMOVED;
-            if (key.len == arg.len and i + 1 < argv.len) {
-                i += 1;
-                value = argv[i];
+            for (begin..argv.len - parser.args.len) |i| {
                 argv[i] = _REMOVED;
-            }
-            if (value.len == 0) continue;
-
-            switch (arg_kind) {
-                .zig => {
-                    if (self.zig_exe.len == 0) self.zig_exe = value;
-                },
-                .zig_target => {
-                    if (self.zig_target.len == 0) self.zig_target = value;
-                },
-                .clang_target => {
-                    if (self.clang_target.len == 0) self.clang_target = value;
-                },
-                .skip_lib => {
-                    var parts = std.mem.splitAny(u8, value, ",;");
-                    while (parts.next()) |part| {
-                        const v = strTrimRight(part);
-                        if (v.len > 0) try self.skipped_libs.append(v);
-                    }
-                },
-                .skip_lib_path => {
-                    var parts = std.mem.splitAny(u8, value, ";");
-                    while (parts.next()) |part| {
-                        const v = strTrimRight(part);
-                        if (v.len > 0) try self.skipped_lib_paths.append(v);
-                    }
-                },
             }
         }
     }
@@ -1166,49 +1137,47 @@ pub const ZigWrapper = struct {
                     } else if (!self.named_args.contains("output")) {
                         try self.named_args.put("output", arg);
                     }
+                } else if (parser.parseNamed(&.{ "-i", "--input" }, true)) {
+                    try self.named_args.put("input", parser.value);
+                } else if (parser.parseNamed(&.{ "-o", "--output" }, true)) {
+                    try self.named_args.put("output", parser.value);
+                } else if (parser.parseNamed(&.{ "-J", "--input-format" }, true)) {
+                    // skip
+                } else if (parser.parseNamed(&.{ "-O", "--output-format" }, true)) {
+                    // skip
+                } else if (parser.parseNamed(&.{ "-F", "--target" }, true)) {
+                    // skip
+                } else if (parser.parseNamed(&.{ "-I", "--include-dir" }, true)) {
+                    try self.args.append("/i");
+                    try self.args.append(parser.value);
+                } else if (parser.parseNamed(&.{"--preprocessor"}, true)) {
+                    // skip
+                } else if (parser.parseNamed(&.{"--preprocessor-arg"}, true)) {
+                    // skip
+                } else if (parser.parseNamed(&.{ "-D", "--define" }, true)) {
+                    try self.args.append("/d");
+                    try self.args.append(parser.value);
+                } else if (parser.parseNamed(&.{ "-U", "--undefine" }, true)) {
+                    try self.args.append("/u");
+                    try self.args.append(parser.value);
+                } else if (parser.parseNamed(&.{ "-v", "--verbose" }, false)) {
+                    try self.args.append("/v");
+                } else if (parser.parseNamed(&.{ "-c", "--codepage" }, true)) {
+                    try self.args.append("/c");
+                    try self.args.append(parser.value);
+                } else if (parser.parseNamed(&.{ "-l", "--language" }, true)) {
+                    try self.args.append("/ln");
+                    try self.args.append(parser.value);
+                } else if (parser.parseNamed(&.{"--use-temp-file"}, false)) {
+                    // skip
+                } else if (parser.parseNamed(&.{"--no-use-temp-file"}, false)) {
+                    // skip
+                } else if (parser.parseNamed(&.{"-r"}, false)) {
+                    // skip
+                } else if (parser.parseNamed(&.{ "-h", "--help" }, false)) {
+                    try self.args.append("/h");
                 } else {
-                    if (parser.parseNamed(&.{ "-i", "--input" }, true)) {
-                        try self.named_args.put("input", parser.value);
-                    } else if (parser.parseNamed(&.{ "-o", "--output" }, true)) {
-                        try self.named_args.put("output", parser.value);
-                    } else if (parser.parseNamed(&.{ "-J", "--input-format" }, true)) {
-                        // skip
-                    } else if (parser.parseNamed(&.{ "-O", "--output-format" }, true)) {
-                        // skip
-                    } else if (parser.parseNamed(&.{ "-F", "--target" }, true)) {
-                        // skip
-                    } else if (parser.parseNamed(&.{ "-I", "--include-dir" }, true)) {
-                        try self.args.append("/i");
-                        try self.args.append(parser.value);
-                    } else if (parser.parseNamed(&.{"--preprocessor"}, true)) {
-                        // skip
-                    } else if (parser.parseNamed(&.{"--preprocessor-arg"}, true)) {
-                        // skip
-                    } else if (parser.parseNamed(&.{ "-D", "--define" }, true)) {
-                        try self.args.append("/d");
-                        try self.args.append(parser.value);
-                    } else if (parser.parseNamed(&.{ "-U", "--undefine" }, true)) {
-                        try self.args.append("/u");
-                        try self.args.append(parser.value);
-                    } else if (parser.parseNamed(&.{ "-v", "--verbose" }, false)) {
-                        try self.args.append("/v");
-                    } else if (parser.parseNamed(&.{ "-c", "--codepage" }, true)) {
-                        try self.args.append("/c");
-                        try self.args.append(parser.value);
-                    } else if (parser.parseNamed(&.{ "-l", "--language" }, true)) {
-                        try self.args.append("/ln");
-                        try self.args.append(parser.value);
-                    } else if (parser.parseNamed(&.{"--use-temp-file"}, false)) {
-                        // skip
-                    } else if (parser.parseNamed(&.{"--no-use-temp-file"}, false)) {
-                        // skip
-                    } else if (parser.parseNamed(&.{"-r"}, false)) {
-                        // skip
-                    } else if (parser.parseNamed(&.{ "-h", "--help" }, false)) {
-                        try self.args.append("/h");
-                    } else {
-                        _ = parser.next();
-                    }
+                    _ = parser.next();
                 }
 
                 if (!parser.hasArgument()) {
