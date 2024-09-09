@@ -1249,19 +1249,20 @@ class TargetParser(ShellCmd):
 
         self.cmake_prefix_triple = '{}/{}'.format(
             self.cmake_target_prefix, self.target)
-        # Add the CMake target as a subdirectory.
-        self.cmake_prefix_subdirs.clear()
-        self.cmake_prefix_subdirs.append(self.cmake_prefix_triple)
-        # If the Cargo target is not equal to the CMake target, add it as a subdirectory.
-        if self.target != self.cargo_target:
-            self.cmake_prefix_subdirs.append(
-                '{}/{}'.format(self.cmake_target_prefix, self.cargo_target))
-        if self.os == 'windows' and self.env == 'gnu':
-            self.cmake_prefix_subdirs.append(
-                '{}/{}'.format(self.cmake_target_prefix,
-                               self.join_triple(self.arch, 'pc', 'windows', 'msvc')))
-        self.cmake_prefix_subdirs.append(
-            '{}/any'.format(self.cmake_target_prefix))
+
+        def _any_prefix_subdirs():
+            # Add the CMake target as a subdirectory.
+            yield self.target
+            # If the Cargo target is not equal to the CMake target, add it as a subdirectory.
+            if self.target != self.cargo_target:
+                yield self.cargo_target
+            yield self.join_triple(self.arch, self.vendor, self.os, 'any')
+            if self.vendor not in ['unknown', '']:
+                yield self.join_triple('any', self.vendor, self.os, 'any')
+            yield self.join_triple('any', '', self.os, 'any')
+            yield 'any'
+        self.cmake_prefix_subdirs = ['{}/{}'.format(self.cmake_target_prefix, x)
+                                     for x in _any_prefix_subdirs()]
         return self
 
     def _cmake_init(self):

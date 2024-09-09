@@ -1,6 +1,8 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const ArgIteratorGeneral = std.process.ArgIteratorGeneral(.{});
+const StringArray = std.ArrayList([]const u8);
+const StringSet = std.StringArrayHashMap(void);
 
 pub const ZigCommand = enum {
     const Self = @This();
@@ -65,45 +67,33 @@ pub const ZigCommand = enum {
     }
 };
 
-pub const ZigArgFilter = union(enum) {
+pub const ZigArgFilter = struct {
     const Self = @This();
-    replace: []const []const u8,
-    match_next_and_replace: struct { []const u8, []const []const u8 },
+    matchers: std.ArrayList(Matcher),
+    replacers: std.ArrayList(Replacer),
 
-    // Options to compile source files only and not to run the linker.
+    pub const Matcher = union(enum) {
+        allow_partial_opt: void,
+        command: []const u8,
+        target: []const u8,
+        match: []const u8,
+        next: void,
+    };
+
+    pub const Replacer = union(enum) {
+        opt_value: void,
+        arg_index: usize,
+        string: []const u8,
+    };
+
+    /// Options to query the compiler version only.
+    pub const query_version_opts: []const []const u8 = &.{ "--help", "--version", "-version", "-qversion", "-V" };
+
+    /// Options to compile source files only and not to run the linker.
     pub const compile_only_opts: []const []const u8 = &.{ "-c", "-E", "-S" };
 
-    pub const FilterTable = std.StaticStringMap([]const Self);
-    pub const cc_filters = FilterTable.initComptime(.{
-        // Linux system include paths
-        .{ "-I/usr/include", &.{Self.replace_with(&.{ "-idirafter", "/usr/include" })} },
-        .{ "-I/usr/local/include", &.{Self.replace_with(&.{ "-idirafter", "/usr/local/include" })} },
-        // MSVC
-        .{ "-Xlinker", &.{
-            Self.skip_next("/MANIFEST:EMBED"),
-            Self.skip_next("/version:0.0"),
-        } },
-        // --target <target>
-        .{ "--target", &.{Self.skip_two} },
-        // -m <target>, unknown Clang option: '-m'
-        .{ "-m", &.{Self.skip_two} },
-        // strip local symbols
-        .{ "-Wl,-x", &.{Self.replace_with(&.{"-Wl,--strip-all"})} },
-        .{ "-Wl,-v", &.{Self.skip} },
-        // x265
-        .{ "-march=i586", &.{Self.skip} },
-        .{ "-march=i686", &.{Self.skip} },
-    });
-
-    pub const windows_gnu_cc_filters = FilterTable.initComptime(.{
-        .{ "-Wl,--disable-auto-image-base", &.{Self.skip} },
-        .{ "-Wl,--enable-auto-image-base", &.{Self.skip} },
-        .{ "-lmingw32", &.{Self.skip} },
-        .{ "-lmingw64", &.{Self.skip} },
-        .{ "-lmingwex", &.{Self.skip} },
-        .{ "-lstdc++", &.{Self.replace_with(&.{"-lc++"})} },
-    });
-    pub const windows_gnu_skipped_libs = std.StaticStringMap(void).initComptime(.{
+    /// Define libraries that should be skipped only if they are not in library paths.
+    pub const windows_gnu_weak_libs = std.StaticStringMap(void).initComptime(.{
         .{"gcc"},
         .{"gcc_eh"},
         .{"msvcrt"},
@@ -112,19 +102,299 @@ pub const ZigArgFilter = union(enum) {
         .{"synchronization"},
     });
 
-    const skip: Self = .{ .replace = &.{} };
-    const skip_two: Self = .{ .match_next_and_replace = .{ "", &.{} } };
+    pub fn initFilterMap(ctx: *ZigWrapper, map: *ZigArgFilterMap) void {
+        if (ctx.command == .cc or ctx.command == .cxx) {
+            // Linux system include paths
+            map.initFilters("-I", 2).allowPartialOpt()
+                .match("/usr/include").replaceWith(&.{"-idirafter"}).replaceWithOptValue().eof()
+                .match("/usr/local/include").replaceWith(&.{"-idirafter"}).replaceWithOptValue().done();
+            // MSVC
+            map.initFilters("-Xlinker", 2)
+                .match("/MANIFEST:EMBED").eof()
+                .match("/version:0.0").done();
+            // --target <target>
+            map.initFilter("--target").match("*").done();
+            // -m <target>, unknown Clang option: '-m'
+            map.initFilter("-m").match("*").done();
+            // -Wl,[...]
+            map.initFilters("-Wl,", 2)
+                .match("-v").eof()
+                .match("-x").replaceWith(&.{"-Wl,--strip-all"}).done();
+            // Invalid CPU types
+            map.initFilters("-march", 3)
+                .target("x86_64*").match("i386").eof()
+                .target("x86_64*").match("i586").eof()
+                .target("x86_64*").match("i686").done();
 
-    fn replace_with(comptime args: []const []const u8) Self {
-        return .{ .replace = args };
+            // Windows GNU
+            if (ctx.target_is_windows and !ctx.target_is_msvc) {
+                // -Wl,[...]
+                map.initFilters("-Wl,", 2)
+                    .match("--disable-auto-image-base").eof()
+                    .match("--enable-auto-image-base").done();
+                map.initFilters("-l", 4).allowPartialOpt()
+                    .match("mingw32").eof()
+                    .match("mingw64").eof()
+                    .match("mingwex").eof()
+                    .match("stdc++").replaceWith(&.{ "-lc++", "-lc++abi" }).done();
+            }
+        }
     }
 
-    fn skip_next(comptime next_arg: []const u8) Self {
-        return .{ .match_next_and_replace = .{ next_arg, &.{} } };
+    pub fn isWeakLib(ctx: *ZigWrapper, lib: []const u8) bool {
+        if (ctx.target_is_windows and !ctx.target_is_msvc) {
+            return windows_gnu_weak_libs.getIndex(lib) != null;
+        }
+        return false;
     }
 
-    fn replace_next(comptime next_arg: []const u8, comptime replacement: []const []const u8) Self {
-        return .{ .match_next_and_replace = .{ next_arg, replacement } };
+    pub fn init(allocator: std.mem.Allocator) Self {
+        return .{
+            .matchers = std.ArrayList(Matcher).init(allocator),
+            .replacers = std.ArrayList(Replacer).init(allocator),
+        };
+    }
+
+    pub fn deinit(self: Self) void {
+        self.matchers.deinit();
+        self.replacers.deinit();
+    }
+
+    pub inline fn done(self: *Self) void {
+        _ = self;
+    }
+
+    /// Set the end of the current filter, and return the next one.
+    pub inline fn eof(self: *Self) *Self {
+        const p: [*]Self = @ptrCast(self);
+        return &p[1];
+    }
+
+    pub fn allowPartialOpt(self: *Self) *Self {
+        self.matchers.append(.{ .allow_partial_opt = {} }) catch unreachable;
+        return self;
+    }
+
+    pub fn target(self: *Self, pattern: []const u8) *Self {
+        self.matchers.append(.{ .target = pattern }) catch unreachable;
+        return self;
+    }
+
+    pub fn command(self: *Self, pattern: []const u8) *Self {
+        self.matchers.append(.{ .command = pattern }) catch unreachable;
+        return self;
+    }
+
+    /// Match the current argument with the given pattern.
+    pub fn match(self: *Self, pattern: []const u8) *Self {
+        self.matchers.append(.{ .match = pattern }) catch unreachable;
+        return self;
+    }
+
+    /// Move to the next argument.
+    pub fn next(self: *Self) *Self {
+        self.matchers.append(.{ .next = {} }) catch unreachable;
+        return self;
+    }
+
+    pub fn replaceWith(self: *Self, replacement: []const []const u8) *Self {
+        self.replacers.ensureUnusedCapacity(replacement.len) catch unreachable;
+        for (replacement) |s| {
+            self.replacers.appendAssumeCapacity(.{ .string = s });
+        }
+        return self;
+    }
+
+    pub fn replaceWithOptValue(self: *Self) *Self {
+        self.replacers.append(.{ .opt_value = {} }) catch unreachable;
+        return self;
+    }
+
+    pub fn replaceWithArg(self: *Self, arg_index: usize) *Self {
+        self.replacers.append(.{ .arg_index = arg_index }) catch unreachable;
+        return self;
+    }
+};
+
+pub const ZigArgFilterMap = struct {
+    const Self = @This();
+    map: std.StringArrayHashMap(std.ArrayList(ZigArgFilter)),
+
+    pub fn init(allocator: std.mem.Allocator) Self {
+        return .{
+            .map = std.StringArrayHashMap(std.ArrayList(ZigArgFilter)).init(allocator),
+        };
+    }
+
+    pub fn deinit(self: *Self) void {
+        for (self.map.values()) |filters| {
+            for (filters.items) |filter| {
+                filter.deinit();
+            }
+            filters.deinit();
+        }
+        self.map.deinit();
+    }
+
+    pub inline fn initFilter(self: *Self, option: []const u8) *ZigArgFilter {
+        return self.initFilters(option, 1);
+    }
+
+    pub fn initFilters(self: *Self, option: []const u8, count: usize) *ZigArgFilter {
+        const entry = self.map.getPtr(option) orelse blk: {
+            self.map.put(
+                option,
+                std.ArrayList(ZigArgFilter).init(self.map.allocator),
+            ) catch unreachable;
+            break :blk self.map.getPtr(option).?;
+        };
+
+        const start = entry.items.len;
+        entry.ensureUnusedCapacity(count) catch unreachable;
+        for (0..count) |_| {
+            entry.appendAssumeCapacity(ZigArgFilter.init(self.map.allocator));
+        }
+        return &entry.items.ptr[start];
+    }
+
+    pub fn process(self: *Self, ctx: *ZigWrapper, input: *SimpleOptionParser, output: *StringArray) !void {
+        try output.ensureUnusedCapacity(input.args.len);
+        while (try self.next(ctx, input, output)) |_| {}
+    }
+
+    fn next(self: *Self, ctx: *ZigWrapper, input: *SimpleOptionParser, output: *StringArray) !?void {
+        const opt = input.next() orelse return null;
+
+        if (strStartsWith(opt, "-")) {
+            for (0..4) |loop| {
+                var opt_value: []const u8 = undefined;
+                var opt_value_valid = false;
+                var opt_partial = false;
+                var allow_partial_opt = false;
+
+                const filters: []const ZigArgFilter = blk: {
+                    switch (loop) {
+                        0 => if (self.map.getPtr(opt)) |v| {
+                            // match [-|--]<key>
+                            break :blk v.items;
+                        },
+                        1 => if (std.mem.indexOf(u8, opt, "=")) |i| {
+                            // match [-|--]<key>=<value>
+                            if (self.map.getPtr(opt[0..i])) |v| {
+                                opt_value = opt[i + 1 ..];
+                                opt_value_valid = true;
+                                break :blk v.items;
+                            }
+                        },
+                        2 => if (std.mem.indexOf(u8, opt, ",")) |i| {
+                            // match [-|--]<key>,<value>
+                            if (self.map.getPtr(opt[0 .. i + 1])) |v| {
+                                opt_value = opt[i + 1 ..];
+                                opt_value_valid = true;
+                                break :blk v.items;
+                            }
+                        },
+                        3 => if (opt.len > 2 and opt[1] != '-') {
+                            // match -<letter><value>
+                            if (self.map.getPtr(opt[0..2])) |v| {
+                                opt_value = opt[2..];
+                                opt_value_valid = true;
+                                opt_partial = true;
+                                break :blk v.items;
+                            }
+                        },
+                        else => unreachable,
+                    }
+                    continue;
+                };
+
+                filter: for (filters) |filter| {
+                    var consumed: usize = 0;
+
+                    const Matcher = struct {
+                        fn call(pattern: []const u8, string: []const u8) bool {
+                            if (strStartsWith(pattern, "!")) {
+                                return !strMatch(pattern[1..], string);
+                            } else {
+                                return strMatch(pattern, string);
+                            }
+                        }
+                    };
+                    for (filter.matchers.items) |matcher| {
+                        switch (matcher) {
+                            .allow_partial_opt => {
+                                allow_partial_opt = true;
+                            },
+                            .command => |pattern| {
+                                if (!Matcher.call(pattern, @tagName(ctx.command))) {
+                                    continue :filter;
+                                }
+                            },
+                            .target => |pattern| {
+                                if (!Matcher.call(pattern, ctx.zig_target)) {
+                                    continue :filter;
+                                }
+                            },
+                            .match => |pattern| {
+                                const arg = if (opt_value_valid and consumed == 0)
+                                    opt_value
+                                else blk: {
+                                    if (consumed == 0) consumed += 1;
+                                    if (consumed - 1 >= input.args.len) {
+                                        continue :filter;
+                                    }
+                                    const s = input.args[consumed - 1];
+                                    if (!opt_value_valid and consumed == 1) {
+                                        opt_value = input.args[0];
+                                        opt_value_valid = true;
+                                    }
+                                    break :blk s;
+                                };
+                                if (!Matcher.call(pattern, arg)) {
+                                    continue :filter;
+                                }
+                            },
+                            .next => {
+                                if (consumed >= input.args.len) {
+                                    continue :filter;
+                                }
+                                consumed += 1;
+                            },
+                        }
+                    }
+
+                    if (opt_partial and !allow_partial_opt) {
+                        continue :filter;
+                    }
+
+                    for (filter.replacers.items) |replacer| {
+                        switch (replacer) {
+                            .opt_value => {
+                                if (opt_value_valid) {
+                                    try output.append(opt_value);
+                                }
+                            },
+                            .arg_index => |arg_index| {
+                                if (arg_index == 0) {
+                                    try output.append(opt);
+                                } else if (arg_index <= consumed) {
+                                    try output.append(input.args[arg_index - 1]);
+                                }
+                            },
+                            .string => |str| {
+                                try output.append(str);
+                            },
+                        }
+                    }
+                    // consume the input arguments
+                    input.advance(consumed);
+                    return;
+                }
+            }
+        }
+
+        try output.append(opt);
+        return;
     }
 };
 
@@ -376,10 +646,12 @@ pub const TempFile = struct {
     }
 };
 
-const SimpleArgParser = struct {
+const SimpleOptionParser = struct {
     const Self = @This();
     args: []const []const u8,
     always_positional: bool = false,
+    consumed: []const []const u8 = &[_][]const u8{},
+    option: []const u8 = "",
     value: []const u8 = "",
 
     pub inline fn hasArgument(self: Self) bool {
@@ -397,61 +669,69 @@ const SimpleArgParser = struct {
     /// Pick the next argument.
     pub fn next(self: *Self) ?[]const u8 {
         if (self.hasArgument()) {
-            const arg = self.args[0];
-            self.args = self.args[1..];
-            return arg;
+            self.advance(1);
+            return self.consumed.ptr[0];
         }
         return null;
     }
 
-    /// Do not consume any argument if failed.
-    pub fn parsePositional(self: *Self) ?[]const u8 {
-        while (self.hasArgument()) {
-            const arg = self.args[0];
+    /// Skip the next `count` arguments.
+    pub fn advance(self: *Self, count: usize) void {
+        self.consumed = self.args[0..count];
+        self.args = self.args[count..];
+    }
 
+    /// Do not consume any argument if failed.
+    pub fn parsePositional(self: *Self, accept_double_dash: bool) ?[]const u8 {
+        while (self.first()) |arg| {
             if (self.always_positional or !strStartsWith(arg, "-")) {
-                self.args = self.args[1..];
+                self.advance(1);
                 return arg;
             }
             if (strEql(arg, "--")) {
                 self.always_positional = true;
-                self.args = self.args[1..];
-                continue;
+                self.advance(1);
+                if (accept_double_dash) return arg;
+            } else {
+                break;
             }
-            break;
         }
         return null;
     }
 
     /// Do not consume any argument if failed.
     pub fn parseNamed(self: *Self, options: []const []const u8, require_value: bool) bool {
-        const arg = self.first() orelse return false;
-
-        for (options) |opt| {
-            if (strEql(arg, opt)) {
-                if (!require_value) {
-                    self.args = self.args[1..];
-                    return true;
-                } else if (self.args.len > 1) {
-                    self.value = self.args[1];
-                    self.args = self.args[2..];
-                    return true;
-                } else {
-                    return false;
+        if (self.first()) |arg| {
+            for (options) |opt| {
+                if (strEql(arg, opt)) {
+                    if (!require_value) {
+                        self.option = arg;
+                        self.advance(1);
+                        return true;
+                    } else if (self.args.len > 1) {
+                        self.option = arg;
+                        self.value = self.args[1];
+                        self.advance(2);
+                        return true;
+                    } else {
+                        return false;
+                    }
                 }
-            }
 
-            if (!require_value) continue;
+                if (!require_value) continue;
 
-            if (strStartsWith(arg, opt)) {
-                if (opt.len == 2 and opt[0] == '-') {
-                    self.args = self.args[1..];
-                    self.value = arg[opt.len..];
-                    return true;
-                } else if (arg[opt.len] == '=') {
-                    self.args = self.args[1..];
-                    self.value = arg[opt.len + 1 ..];
-                    return true;
+                if (strStartsWith(arg, opt)) {
+                    if (opt.len == 2 and opt[0] == '-') {
+                        self.option = arg[0..opt.len];
+                        self.value = arg[opt.len..];
+                        self.advance(1);
+                        return true;
+                    } else if (arg[opt.len] == '=') {
+                        self.option = arg[0..opt.len];
+                        self.value = arg[opt.len + 1 ..];
+                        self.advance(1);
+                        return true;
+                    }
                 }
             }
         }
@@ -463,12 +743,14 @@ pub const ZigWrapper = struct {
     const Self = @This();
     alloc: BufferedAllocator,
     log: ZigLog,
-    sys_argv: std.ArrayList([]const u8),
+    sys_argv0: []const u8 = "",
+    sys_argv: StringArray,
     zig_exe: []const u8 = "",
 
     /// The current Zig command.
     command: ZigCommand = ZigCommand.cc,
 
+    is_quering_version: bool = false,
     /// If the Zig command is running as a linker.
     is_linker: bool = false,
     /// <arch>-<os>-<abi>
@@ -476,9 +758,10 @@ pub const ZigWrapper = struct {
     /// <arch>-<vendor>-<os>-<abi>
     clang_target: []const u8 = "",
     /// -l<lib> options not to be passed to the linker.
-    skipped_libs: std.ArrayList([]const u8),
+    skipped_libs: StringSet,
+    skipped_lib_patterns: StringArray,
     /// -L<lib path> options not to be passed to the linker.
-    skipped_lib_paths: std.ArrayList([]const u8),
+    skipped_lib_paths: StringSet,
 
     target_is_windows: bool = false,
     target_is_android: bool = false,
@@ -489,13 +772,12 @@ pub const ZigWrapper = struct {
     target_is_musl: bool = false,
     at_file_opt: ?[]const u8 = null,
 
+    arg_filter: ZigArgFilterMap,
     /// The arguments to run the Zig command, include the Zig executable and its arguments.
-    args: std.ArrayList([]const u8),
+    args: StringArray,
     /// Used for `windres` ...
     named_args: std.StringHashMap([]const u8),
     flags_file: ?TempFile = null,
-
-    const _REMOVED: []const u8 = "-???";
 
     pub fn init(allocator_: std.mem.Allocator) !Self {
         var self = outer: {
@@ -515,38 +797,51 @@ pub const ZigWrapper = struct {
             break :outer Self{
                 .alloc = alloc,
                 .log = log,
-                .sys_argv = std.ArrayList([]const u8).init(alloc.allocator()),
-                .skipped_libs = std.ArrayList([]const u8).init(alloc.allocator()),
-                .skipped_lib_paths = std.ArrayList([]const u8).init(alloc.allocator()),
-                .args = std.ArrayList([]const u8).init(alloc.allocator()),
+                .sys_argv = StringArray.init(alloc.allocator()),
+                .skipped_libs = StringSet.init(alloc.allocator()),
+                .skipped_lib_patterns = StringArray.init(alloc.allocator()),
+                .skipped_lib_paths = StringSet.init(alloc.allocator()),
+                .arg_filter = ZigArgFilterMap.init(alloc.allocator()),
+                .args = StringArray.init(alloc.allocator()),
                 .named_args = std.StringHashMap([]const u8).init(alloc.allocator()),
             };
         };
         errdefer self.deinit();
 
         // Collect `argv[0..]`...
-        var arg_iter = try self.alloc.sysArgvIterator();
-        while (arg_iter.next()) |arg| {
-            if (self.sys_argv.items.len > 0) {
-                if (strStartsWith(arg, "@")) {
-                    // Parse the flags file.
-                    const flags = try self.parseFileFlags(arg[1..]);
-                    defer flags.deinit();
-                    self.at_file_opt = arg;
-                    try self.sys_argv.appendSlice(flags.items);
-                    continue;
-                }
+        var argv = StringArray.init(self.allocator());
+        defer argv.deinit();
 
-                // If the flags file is not the last argument, ignore it.
-                if (self.at_file_opt != null) {
-                    self.at_file_opt = null;
-                }
+        var arg_iter = try self.alloc.sysArgvIterator();
+        if (arg_iter.next()) |argv0| {
+            self.sys_argv0 = argv0;
+        }
+        while (arg_iter.next()) |arg| {
+            if (strStartsWith(arg, "@")) {
+                // Parse the flags file.
+                try self.parseFileFlags(arg[1..], &argv);
+                self.at_file_opt = arg;
+                continue;
             }
-            try self.sys_argv.append(arg);
+
+            // If the flags file is not the last argument, ignore it.
+            if (self.at_file_opt != null) {
+                self.at_file_opt = null;
+            }
+            try argv.append(arg);
+        }
+
+        // Write the input command line to log.
+        if (self.log.enabled()) {
+            self.log.print("{s}", .{self.sys_argv0});
+            for (argv.items) |arg| {
+                self.log.print(" {s}", .{arg});
+            }
+            self.log.write("\n");
         }
 
         // Parse the command type from `argv[0]`.
-        const stem = std.fs.path.stem(self.sys_argv.items[0]);
+        const stem = std.fs.path.stem(self.sys_argv0);
         self.command = ZigCommand.fromStr(
             stem[if (std.mem.lastIndexOfScalar(u8, stem, '-')) |s| s + 1 else 0..],
         ) orelse return error.InvalidZigCommand;
@@ -560,22 +855,39 @@ pub const ZigWrapper = struct {
         self.clang_target = self.alloc.getEnvVar("ZIG_WRAPPER_CLANG_TARGET") catch "";
 
         // Parse Zig flags in `argv[1..]`.
-        try self.parseArgv(self.sys_argv.items[1..]);
+        try self.sys_argv.ensureUnusedCapacity(argv.items.len);
+        try self.parseCustomArgs(argv.items, &self.sys_argv);
+        argv.clearRetainingCapacity();
 
         // Parse Zig flags in the environment variables.
-        var env_flags = try self.parseEnvFlags();
-        defer env_flags.deinit();
-        try self.sys_argv.appendSlice(env_flags.items);
+        try self.parseEnvFlags(&argv);
+        if (!stringsContains(self.sys_argv.items, argv.items)) {
+            try self.sys_argv.appendSlice(argv.items);
+        }
+        argv.clearRetainingCapacity();
 
         // Set default values.
         if (self.zig_exe.len == 0) {
-            const str = try std.fmt.allocPrint(
-                self.alloc.allocator(),
+            const s = try std.fmt.allocPrint(
+                self.allocator(),
                 "zig{s}",
                 .{builtin.os.tag.exeFileExt(builtin.cpu.arch)},
             );
-            self.alloc.addString(str);
-            self.zig_exe = str;
+            self.alloc.addString(s);
+            self.zig_exe = s;
+        }
+        if (self.zig_target.len == 0) {
+            const s = try std.fmt.allocPrint(
+                self.allocator(),
+                "{s}-{s}-{s}",
+                .{
+                    @tagName(builtin.target.cpu.arch),
+                    @tagName(builtin.target.os.tag),
+                    @tagName(builtin.target.abi),
+                },
+            );
+            self.alloc.addString(s);
+            self.zig_target = s;
         }
         if (self.clang_target.len == 0) {
             self.clang_target = self.zig_target;
@@ -592,7 +904,24 @@ pub const ZigWrapper = struct {
         self.target_is_msvc = strEndsWith(self.clang_target, "-msvc");
         self.target_is_musl = strEndsWith(self.clang_target, "-musl");
 
+        ZigArgFilter.initFilterMap(&self, &self.arg_filter);
         return self;
+    }
+
+    pub fn deinit(self: *Self) void {
+        if (self.flags_file) |*flags_file| {
+            flags_file.deinit();
+            self.flags_file = null;
+        }
+        self.named_args.deinit();
+        self.args.deinit();
+        self.arg_filter.deinit();
+        self.skipped_lib_paths.deinit();
+        self.skipped_lib_patterns.deinit();
+        self.skipped_libs.deinit();
+        self.log.deinit();
+        self.sys_argv.deinit();
+        self.alloc.deinit();
     }
 
     pub inline fn allocator(self: *Self) std.mem.Allocator {
@@ -605,37 +934,28 @@ pub const ZigWrapper = struct {
         // Zig command
         try self.args.append(self.command.toName());
         // `cc`, `c++`: -target <target>
-        try self.targetInit(self.zig_target);
-
-        // Write the input command line to log.
-        if (self.log.enabled()) {
-            for (self.sys_argv.items) |arg| {
-                self.log.print("{s} ", .{arg});
-            }
-            self.log.write("\n");
+        if (self.command.isCompiler() and self.zig_target.len > 0) {
+            try self.args.appendSlice(&[_][]const u8{ "-target", self.zig_target });
         }
+
+        var argv = try StringArray.initCapacity(self.alloc.allocator(), self.sys_argv.items.len);
+        defer argv.deinit();
+        std.mem.swap(StringArray, &self.sys_argv, &argv);
+        for (argv.items) |arg| {
+            try self.fixCommandFlag(@constCast(arg), &self.sys_argv);
+        }
+        argv.clearRetainingCapacity();
+
         // Parse arguments in `argv[1..]`.
-        var argv_parer = SimpleArgParser{ .args = self.sys_argv.items[1..] };
+        var argv_parer = SimpleOptionParser{ .args = self.sys_argv.items };
         while (argv_parer.hasArgument()) {
-            try self.appendArgument(&argv_parer);
+            try self.parseArgument(&argv_parer);
         }
 
         // Fix link libraries.
         if (self.is_linker) {
             try self.fixLinkLibs();
         }
-
-        // Remove all skipped args.
-        var arg_num: usize = 0;
-        for (self.args.items, 0..) |arg, i| {
-            if (arg.ptr != _REMOVED.ptr) {
-                if (arg_num != i) {
-                    self.args.items[arg_num] = arg;
-                }
-                arg_num += 1;
-            }
-        }
-        self.args.resize(arg_num) catch unreachable;
 
         // Write the actual `zig` command line to log.
         if (self.log.enabled()) {
@@ -659,21 +979,7 @@ pub const ZigWrapper = struct {
         return term.Exited;
     }
 
-    pub fn deinit(self: *Self) void {
-        if (self.flags_file) |*flags_file| {
-            flags_file.deinit();
-            self.flags_file = null;
-        }
-        self.named_args.deinit();
-        self.args.deinit();
-        self.skipped_lib_paths.deinit();
-        self.skipped_libs.deinit();
-        self.log.deinit();
-        self.sys_argv.deinit();
-        self.alloc.deinit();
-    }
-
-    pub fn parseFileFlags(self: *Self, path: []const u8) !std.ArrayList([]const u8) {
+    pub fn parseFileFlags(self: *Self, path: []const u8, dest: *StringArray) !void {
         // Open the file for reading
         var file = try std.fs.cwd().openFile(path, .{});
         defer file.close();
@@ -688,27 +994,25 @@ pub const ZigWrapper = struct {
         // Read the file content into the buffer
         _ = try file.readAll(flags_str);
 
-        var args = std.ArrayList([]const u8).init(self.alloc.allocator());
-        errdefer args.deinit();
-
         // Parse the flags
         var arg_iter = try self.alloc.argIteratorTakeOwnership(flags_str);
         self.alloc.forgetString(flags_str);
         while (arg_iter.next()) |arg| {
-            try args.append(arg);
+            try dest.append(arg);
         }
-        return args;
     }
 
-    fn parseEnvFlags(self: *Self) !std.ArrayList([]const u8) {
-        var res = std.ArrayList([]const u8).init(self.allocator());
-        errdefer res.deinit();
+    fn parseEnvFlags(self: *Self, dest: *StringArray) !void {
+        // Do not use environment variables if we are querying the compiler version.
+        if (self.is_quering_version) {
+            return;
+        }
 
         const buf = try self.allocator().alloc(u8, 32 +
             @max(self.zig_target.len, self.clang_target.len));
         defer self.allocator().free(buf);
 
-        var args = std.ArrayList([]const u8).init(self.allocator());
+        var args = StringArray.init(self.allocator());
         defer args.deinit();
 
         for (0..3) |target_idx| {
@@ -762,34 +1066,32 @@ pub const ZigWrapper = struct {
                     }
 
                     // Do not append the same flags.
-                    if (!stringsContains(res.items, args.items) and
-                        !stringsContains(self.sys_argv.items, args.items))
-                    {
-                        try res.appendSlice(args.items);
-                        try self.parseArgv(args.items);
+                    if (!stringsContains(dest.items, args.items)) {
+                        try self.parseCustomArgs(args.items, dest);
                     }
                     args.clearRetainingCapacity();
                 }
             }
         }
-
-        return res;
     }
 
-    fn parseArgv(self: *Self, argv: [][]const u8) !void {
-        var parser = SimpleArgParser{ .args = argv };
+    fn parseCustomArgs(self: *Self, args: []const []const u8, dest: *StringArray) !void {
+        var parser = SimpleOptionParser{ .args = args };
         while (parser.hasArgument()) {
-            const begin = argv.len - parser.args.len;
-
-            if (parser.parsePositional()) |_| {
+            if (parser.parsePositional(true)) |arg| {
                 // Skip positional arguments.
-                continue;
+                try dest.append(arg);
+            } else if (parser.parseNamed(ZigArgFilter.query_version_opts, false)) {
+                self.is_quering_version = true;
+                self.is_linker = false;
+                // Do no consume the argument.
+                try dest.append(parser.option);
             } else if (parser.parseNamed(ZigArgFilter.compile_only_opts, false)) {
                 if (self.is_linker and self.command != .ld) {
                     self.is_linker = false;
                 }
                 // Do no consume the argument.
-                continue;
+                try dest.append(parser.option);
             } else if (parser.parseNamed(&.{ "-target", "--zig-target" }, true)) {
                 if (self.zig_target.len == 0) {
                     self.zig_target = parser.value;
@@ -806,54 +1108,82 @@ pub const ZigWrapper = struct {
                 var parts = std.mem.splitAny(u8, parser.value, ",;");
                 while (parts.next()) |part| {
                     const v = strTrimRight(part);
-                    if (v.len > 0) try self.skipped_libs.append(v);
+                    if (v.len > 0) {
+                        const res = try self.skipped_libs.getOrPut(v);
+                        if (!res.found_existing and
+                            std.mem.indexOfAny(u8, v, "?*") != null)
+                        {
+                            try self.skipped_lib_patterns.append(v);
+                        }
+                    }
                 }
             } else if (parser.parseNamed(&.{"--skip-lib-path"}, true)) {
                 var parts = std.mem.splitAny(u8, parser.value, ";");
                 while (parts.next()) |part| {
                     const v = strTrimRight(part);
-                    if (v.len > 0) try self.skipped_lib_paths.append(v);
+                    if (v.len > 0) {
+                        _ = try self.skipped_lib_paths.getOrPut(v);
+                    }
                 }
             } else {
                 // Do no consume the argument.
-                _ = parser.next();
-                continue;
-            }
-
-            for (begin..argv.len - parser.args.len) |i| {
-                argv[i] = _REMOVED;
+                try dest.append(parser.next().?);
             }
         }
     }
 
-    fn targetInit(self: *Self, target: []const u8) !void {
-        if (self.command.isCompiler()) {
-            if (target.len > 0) {
-                try self.args.appendSlice(&[_][]const u8{ "-target", target });
+    fn fixLibFlag(self: *Self, arg: []u8) []u8 {
+        // `-l<lib>`
+        if (self.is_linker and strStartsWith(arg, "-l")) {
+            const lib = arg[2..];
+
+            // Trim prefix `winapi_` if the target is Windows.
+            if (self.target_is_windows and strStartsWith(lib, "winapi_")) {
+                return std.fmt.bufPrint(arg, "-l{s}", .{lib[7..]}) catch unreachable;
             }
-
-            // https://github.com/ziglang/zig/wiki/FAQ#why-do-i-get-illegal-instruction-when-using-with-zig-cc-to-build-c-code
-            try self.args.append("-fno-sanitize=undefined");
-            try self.args.append("-Wno-unused-command-line-argument");
-
-            if (self.is_linker) {
-                try self.args.append("-lc++");
-                try self.args.append("-lc++abi");
-            }
-
-            // For libmount
-            // try self.args.appendSlice(&[_][]const u8{
-            //     "-DHAVE_CLOSE_RANGE=1",
-            //     "-DHAVE_STATX=1",
-            //     "-DHAVE_OPEN_TREE=1",
-            //     "-DHAVE_MOVE_MOUNT=1",
-            //     "-DHAVE_MOUNT_SETATTR=1",
-            //     "-DHAVE_FSCONFIG=1",
-            //     "-DHAVE_FSOPEN=1",
-            //     "-DHAVE_FSMOUNT=1",
-            //     "-DHAVE_FSPICK=1",
-            // });
         }
+        return arg;
+    }
+
+    fn fixCommandFlag(self: *Self, arg: []u8, dest: *StringArray) !void {
+        // `-Wl,<linker flags>`
+        if (self.is_linker and strStartsWith(arg, "-Wl,")) {
+            const buf = arg[4..];
+            var buf_used: usize = 0;
+
+            var parts = std.mem.splitAny(u8, buf, ",");
+            while (parts.next()) |flag| {
+                if (strEndsWith(flag, ".def")) {
+                    // `/DEF:<lib>.def`
+                    var def_file = flag;
+                    if (strStartsWith(def_file, "/DEF:")) {
+                        def_file = def_file[5..];
+                    }
+                    const s = try self.allocator().dupe(u8, def_file);
+                    self.alloc.addString(s);
+                    try dest.append(s);
+                } else if (strStartsWith(flag, "-l")) {
+                    // `-l<lib>`
+                    const s = try self.allocator().dupe(u8, flag);
+                    self.alloc.addString(s);
+                    try dest.append(self.fixLibFlag(s));
+                } else if (flag.len > 0) {
+                    if (buf_used > 0) {
+                        buf[buf_used] = ',';
+                        buf_used += 1;
+                    }
+                    std.mem.copyForwards(u8, buf[buf_used..], flag);
+                    buf_used += flag.len;
+                }
+            }
+
+            if (buf_used > 0) {
+                try dest.append(arg[0 .. 4 + buf_used]);
+            }
+            return;
+        }
+
+        return try dest.append(self.fixLibFlag(arg));
     }
 
     fn getlibExts(self: Self, kind: LinkerLibKind) []const []const u8 {
@@ -903,115 +1233,117 @@ pub const ZigWrapper = struct {
     }
 
     fn fixLinkLibs(self: *Self) !void {
-        var libs = std.ArrayList(LinkerLib).init(self.allocator());
-        defer libs.deinit();
-
-        var paths = std.ArrayList([]const u8).init(self.allocator());
+        const INVALID_PTR: [*]const u8 = @ptrFromInt(std.math.maxInt(usize));
+        var args = try StringArray.initCapacity(
+            self.allocator(),
+            self.args.items.len,
+        );
+        var lib_map = std.StringArrayHashMap(std.ArrayList(LinkerLib)).init(
+            self.allocator(),
+        );
+        var path_set = std.StringArrayHashMap(void).init(self.allocator());
         defer {
-            for (paths.items) |path| {
+            args.deinit();
+            for (lib_map.values()) |array| {
+                array.deinit();
+            }
+            lib_map.deinit();
+            for (path_set.keys()) |path| {
                 self.allocator().free(path);
             }
-            paths.deinit();
+            path_set.deinit();
         }
 
-        var i: usize = 0;
-        outer: while (i < self.args.items.len) : (i += 1) {
-            // Collect link libraries.
-            const arg = self.args.items[i];
-            if (strStartsWith(arg, "-l")) {
-                var lib = self.libFromFileName(arg[2..]);
-                lib.index = i;
+        var parser = SimpleOptionParser{ .args = self.args.items };
+        outer: while (parser.hasArgument()) {
+            if (parser.parseNamed(&.{"-l"}, false)) {
+                // This option is invalid, skip.
+            } else if (parser.parseNamed(&.{"-l"}, true)) {
+                var lib = self.libFromFileName(parser.value);
+                lib.index = args.items.len;
 
-                for (self.skipped_libs.items) |pattern| {
+                if (self.skipped_libs.contains(lib.name)) continue;
+                for (self.skipped_lib_patterns.items) |pattern| {
                     if (strMatch(pattern, lib.name)) {
-                        // Remove the skipped link library from `args`.
-                        self.args.items[i] = _REMOVED;
                         continue :outer;
                     }
                 }
 
                 var lib_ver = libVersionSplit(lib.name);
-                for (libs.items) |*entry| {
-                    if (strStartsWith(entry.name, lib_ver[0])) {
+                if (lib_map.getPtr(lib_ver[0])) |libs| {
+                    for (libs.items) |*entry| {
                         const entry_ver = libVersionSplit(entry.name);
-                        if (strEql(entry_ver[0], lib_ver[0])) {
-                            if (strEql(entry.name, lib.name)) {
-                                // Remove the duplicate link library from `args`.
-                                if (entry.kind == .none and lib.kind != .none) {
-                                    self.args.items[entry.index] = _REMOVED;
-                                    entry.* = lib;
-                                } else {
-                                    self.args.items[i] = _REMOVED;
-                                }
-                                continue :outer;
-                            } else if (versionCompare(entry_ver[1], lib_ver[1]) < 0) {
-                                // Sort libraries with the same name in order of their versions.
-                                // Swap `entry` and `lib`.
-                                const tmp = entry.*;
-                                entry.name = lib.name;
+                        if (strEql(entry.name, lib.name)) {
+                            // Drop the duplicate link library.
+                            if (entry.kind == .none and lib.kind != .none) {
                                 entry.kind = lib.kind;
-                                lib.name = tmp.name;
-                                lib.kind = tmp.kind;
-                                lib_ver = entry_ver;
                             }
+                            continue :outer;
+                        }
+                        if (versionCompare(entry_ver[1], lib_ver[1]) < 0) {
+                            // Sort libraries with the same name in order of their versions.
+                            // Swap `entry` and `lib`.
+                            const tmp = entry.*;
+                            entry.name = lib.name;
+                            entry.kind = lib.kind;
+                            lib.name = tmp.name;
+                            lib.kind = tmp.kind;
+                            lib_ver = entry_ver;
                         }
                     }
+                    try libs.append(lib);
+                } else {
+                    var libs = try std.ArrayList(LinkerLib).initCapacity(self.allocator(), 4);
+                    errdefer libs.deinit();
+                    try libs.append(lib);
+                    try lib_map.put(lib_ver[0], libs);
                 }
-                try libs.append(lib);
-                continue;
-            }
-
-            // Collect link paths.
-            if (strStartsWith(arg, "-L")) {
-                var single_opt = true;
-                const lib_path = if (arg.len == 2 and i + 1 < self.args.items.len) blk: {
-                    single_opt = false;
-                    i += 1;
-                    break :blk self.args.items[i];
-                } else arg[2..];
-
+            } else if (parser.parseNamed(&.{"-L"}, true)) {
                 // normalize path
-                if (std.fs.path.relative(self.allocator(), ".", lib_path)) |v| {
-                    var path = v;
-                    defer if (path.len > 0) self.allocator().free(path);
+                if (std.fs.path.relative(
+                    self.allocator(),
+                    ".",
+                    parser.value,
+                )) |path| {
+                    var ok = false;
+                    defer if (!ok) self.allocator().free(path);
                     _ = std.mem.replace(u8, path, "\\", "/", path);
 
-                    var skipped = false;
-                    for (self.skipped_lib_paths.items) |pattern| {
+                    if (path_set.contains(path)) continue;
+                    for (self.skipped_lib_paths.keys()) |pattern| {
                         if (strMatch(pattern, path)) {
-                            skipped = true;
-                            break;
+                            continue :outer;
                         }
                     }
 
-                    if (!skipped and !stringsContains(paths.items, &.{path})) {
-                        try paths.append(path);
-                        path.len = 0;
-                        continue;
-                    }
+                    try path_set.put(path, {});
+                    ok = true;
                 } else |_| {}
-
-                // Remove the skipped link path from `args`.
-                self.args.items[i] = _REMOVED;
-                if (!single_opt) self.args.items[i - 1] = _REMOVED;
-                continue;
+            } else {
+                parser.advance(1);
             }
+            try args.appendSlice(parser.consumed);
         }
 
-        // for (paths.items) |path| {
+        // for (path_set.keys()) |path| {
         //     std.io.getStdErr().writer().print("link-path: {s}\n", .{path}) catch {};
         // }
-        // for (libs.items) |lib| {
-        //     std.io.getStdErr().writer().print("link-lib: {s} -> {s}\n", .{ lib.name, self.args.items[lib.index] }) catch {};
+        // for (lib_map.values()) |libs| {
+        //     for (libs.items) |lib| {
+        //         std.io.getStdErr().writer().print(
+        //             "link-lib: {s} -> {s}\n",
+        //             .{ lib.name, args.items[lib.index] },
+        //         ) catch {};
+        //     }
         // }
 
         // Find the library paths and fix link options.
-        {
-            var buf = std.ArrayList(u8).init(self.allocator());
-            defer buf.deinit();
-            const lib_exts = self.getlibExts(.none);
-            outer: for (libs.items) |*lib| {
-                for (paths.items) |path| {
+        var buf = std.ArrayList(u8).init(self.allocator());
+        defer buf.deinit();
+        const lib_exts = self.getlibExts(.none);
+        for (lib_map.values()) |libs| {
+            next_lib: for (libs.items) |lib| {
+                for (path_set.keys()) |path| {
                     for ([_][]const u8{ "lib", "" }) |prefix| {
                         for (lib_exts) |file_ext| {
                             buf.clearRetainingCapacity();
@@ -1032,106 +1364,46 @@ pub const ZigWrapper = struct {
                                     else
                                         try self.allocator().dupe(u8, buf.items);
                                     self.alloc.addString(lib_opt);
-                                    self.args.items[lib.index] = lib_opt;
-
-                                    // The library is already fixed, so we mark it as removed.
-                                    lib.name.len = 0;
-                                    continue :outer;
+                                    args.items[lib.index] = lib_opt;
+                                    continue :next_lib;
                                 }
                             } else |_| {}
                         }
                     }
                 }
-            }
-        }
 
-        for (libs.items) |lib| {
-            // Skip libaries marked as removed.
-            if (lib.name.len == 0) continue;
-
-            if (self.target_is_windows and !self.target_is_msvc and
-                ZigArgFilter.windows_gnu_skipped_libs.getIndex(lib.name) != null)
-            {
-                self.args.items[lib.index] = _REMOVED;
-                continue;
-            }
-
-            const opt = try std.fmt.allocPrint(
-                self.allocator(),
-                "-l{s}",
-                .{lib.name},
-            );
-            self.alloc.addString(opt);
-            self.args.items[lib.index] = opt;
-        }
-    }
-
-    fn appendArgument(self: *Self, parser: *SimpleArgParser) !void {
-        switch (self.command) {
-            .cc, .cxx => {
-                var arg = @constCast(parser.next().?);
-                var opt = arg;
-                var filters = &ZigArgFilter.cc_filters;
-
-                for (0..3) |loop_for_opt| {
-                    for (0..2) |split_kv| {
-                        // Get this option
-                        const this_opt = if (split_kv == 0) opt else blk: {
-                            var opt_kv = std.mem.splitAny(
-                                u8,
-                                opt,
-                                if (self.target_is_msvc and
-                                    opt.len > 0 and opt[0] == '/') ":" else "=",
-                            );
-                            const s = opt_kv.next().?;
-                            // Do not continue if the delimiter is not found.
-                            if (s.len == opt.len) continue;
-                            break :blk s;
-                        };
-
-                        if (filters.get(this_opt)) |arg_ops| {
-                            for (arg_ops) |arg_op| switch (arg_op) {
-                                .replace => |replacement| {
-                                    try self.args.appendSlice(replacement);
-                                    return;
-                                },
-                                .match_next_and_replace => |item| {
-                                    // Get the next option.
-                                    const next_opt = if (split_kv == 0)
-                                        (parser.first() orelse "")
-                                    else
-                                        opt[this_opt.len + 1 ..];
-                                    // Match successfully if the pattern is empty.
-                                    if (item[0].len == 0 or strEql(item[0], next_opt)) {
-                                        try self.args.appendSlice(item[1]);
-                                        if (split_kv == 0) {
-                                            _ = parser.next();
-                                        }
-                                        return;
-                                    }
-                                },
-                            };
-                        }
-                    }
-
-                    // Continue for `<arch>-windows-gnu`, break for other targets.
-                    if (self.target_is_windows and !self.target_is_msvc) {
-                        filters = &ZigArgFilter.windows_gnu_cc_filters;
-                        if (loop_for_opt == 1) {
-                            const new_opt = Self.windowsGnuArgFilter(opt);
-                            if (std.mem.eql(u8, opt, new_opt)) break;
-                            opt = new_opt;
-                            arg = new_opt;
-                        }
-                    } else {
-                        break;
-                    }
+                if (ZigArgFilter.isWeakLib(self, lib.name)) {
+                    args.items[lib.index].ptr = INVALID_PTR;
+                    continue;
                 }
 
-                try self.args.append(arg);
-            },
+                // Try to fix `-l:<file>` options.
+                buf.clearRetainingCapacity();
+                try buf.appendSlice("-l");
+                try buf.appendSlice(lib.name);
+                if (!strEql(buf.items, args.items[lib.index])) {
+                    const opt = try self.allocator().dupe(u8, buf.items);
+                    self.alloc.addString(opt);
+                    args.items[lib.index] = opt;
+                }
+            }
+        }
+
+        // Apply the fixed arguments.
+        var arg_num: usize = 0;
+        for (args.items) |arg| {
+            if (arg.ptr != INVALID_PTR) {
+                self.args.items.ptr[arg_num] = arg;
+                arg_num += 1;
+            }
+        }
+        self.args.items.len = arg_num;
+    }
+
+    fn parseArgument(self: *Self, parser: *SimpleOptionParser) !void {
+        switch (self.command) {
             .windres => {
-                if (parser.parsePositional()) |arg| {
+                if (parser.parsePositional(false)) |arg| {
                     if (!self.named_args.contains("input")) {
                         try self.named_args.put("input", arg);
                     } else if (!self.named_args.contains("output")) {
@@ -1153,7 +1425,20 @@ pub const ZigWrapper = struct {
                 } else if (parser.parseNamed(&.{"--preprocessor"}, true)) {
                     // skip
                 } else if (parser.parseNamed(&.{"--preprocessor-arg"}, true)) {
-                    // skip
+                    if (self.named_args.fetchRemove("preprocessor-arg")) |kv| {
+                        const pre_arg = kv.value;
+                        if (strEql(pre_arg, "-MF")) {
+                            try self.named_args.put("depfile", parser.value);
+                        }
+                    } else if (strEql(parser.value, "-MD")) {
+                        if (!self.named_args.contains("depfile")) {
+                            try self.named_args.put("depfile", "");
+                        }
+                    } else if (strEql(parser.value, "-MF")) {
+                        try self.named_args.put("preprocessor-arg", parser.value);
+                    } else {
+                        // Skip other processor arguments.
+                    }
                 } else if (parser.parseNamed(&.{ "-D", "--define" }, true)) {
                     try self.args.append("/d");
                     try self.args.append(parser.value);
@@ -1181,6 +1466,24 @@ pub const ZigWrapper = struct {
                 }
 
                 if (!parser.hasArgument()) {
+                    if (self.named_args.get("depfile")) |depfile| blk: {
+                        var path = depfile;
+                        if (depfile.len == 0) {
+                            const input = self.named_args.get("input") orelse break :blk;
+                            path = try std.fmt.allocPrint(
+                                self.allocator(),
+                                "{s}.d",
+                                .{input[0 .. input.len - std.fs.path.extension(input).len]},
+                            );
+                        }
+                        defer if (depfile.len == 0) self.allocator().free(path);
+                        // Create a pseudo dependency file.
+                        (try std.fs.cwd().createFile(
+                            path,
+                            .{ .truncate = true },
+                        )).close();
+                    }
+
                     try self.args.append("--");
                     for ([_][]const u8{ "input", "output" }) |name| {
                         if (self.named_args.get(name)) |v| {
@@ -1189,35 +1492,10 @@ pub const ZigWrapper = struct {
                     }
                 }
             },
-            else => try self.args.append(parser.next().?),
+            else => {
+                try self.arg_filter.process(self, parser, &self.args);
+            },
         }
-    }
-
-    fn windowsGnuArgFilter(arg: []u8) []u8 {
-        // `-Wl,/DEF:<lib>.def`
-        if (strStartsWith(arg, "-Wl,") and
-            strEndsWith(arg, ".def"))
-        {
-            var opt = arg[4..];
-            if (strStartsWith(opt, "/DEF:")) {
-                opt = opt[5..];
-            }
-            std.mem.copyForwards(u8, arg, opt);
-            return arg[0..opt.len];
-        }
-
-        // `-l<lib>`
-        if (strStartsWith(arg, "-l")) {
-            var lib = arg[2..];
-
-            // Trim prefix `winapi_`.
-            if (strStartsWith(lib, "winapi_")) {
-                lib = lib[7..];
-            }
-
-            return std.fmt.bufPrint(arg, "-l{s}", .{lib}) catch unreachable;
-        }
-        return arg;
     }
 
     fn writeFlagsFile(self: *Self) !void {
