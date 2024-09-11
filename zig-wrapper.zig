@@ -12,6 +12,7 @@ pub const ZigCommand = enum {
     dlltool,
     ld,
     lib,
+    link,
     objcopy,
     ranlib,
     rc,
@@ -26,6 +27,7 @@ pub const ZigCommand = enum {
             .{ "dlltool", .dlltool },
             .{ "ld", .ld },
             .{ "lib", .lib },
+            .{ "link", .link },
             .{ "objcopy", .objcopy },
             .{ "ranlib", .ranlib },
             .{ "rc", .rc },
@@ -43,12 +45,13 @@ pub const ZigCommand = enum {
         return switch (self) {
             .cxx => "c++",
             .ld => "ld.lld",
+            .link => "lld-link",
             .windres => "rc",
             else => @tagName(self),
         };
     }
 
-    fn toFlagsName(self: Self) ?[]const u8 {
+    fn envNameOfFlags(self: Self) ?[]const u8 {
         return switch (self) {
             .ar => "ARFLAGS",
             .cc => "CFLAGS",
@@ -112,14 +115,17 @@ pub const ZigArgFilter = struct {
             map.initFilters("-Xlinker", 2)
                 .match("/MANIFEST:EMBED").eof()
                 .match("/version:0.0").done();
-            // --target <target>
-            map.initFilter("--target").match("*").done();
             // -m <target>, unknown Clang option: '-m'
             map.initFilter("-m").match("*").done();
+            // -verbose
+            map.initFilter("-verbose").replaceWith(&.{"-v"}).done();
             // -Wl,[...]
             map.initFilters("-Wl,", 2)
                 .match("-v").eof()
                 .match("-x").replaceWith(&.{"-Wl,--strip-all"}).done();
+            // Autoconfig
+            map.initFilter("-link").done();
+            map.initFilter("-dll").replaceWith(&.{"-shared"}).done();
             // Invalid CPU types
             map.initFilters("-march", 3)
                 .target("x86_64*").match("i386").eof()
@@ -129,15 +135,19 @@ pub const ZigArgFilter = struct {
             // Windows GNU
             if (ctx.target_is_windows and !ctx.target_is_msvc) {
                 // -Wl,[...]
-                map.initFilters("-Wl,", 2)
+                map.initFilters("-Wl,", 3)
                     .match("--disable-auto-image-base").eof()
-                    .match("--enable-auto-image-base").done();
+                    .match("--enable-auto-image-base").eof()
+                    .match("--add-stdcall-alias").done();
                 map.initFilters("-l", 4).allowPartialOpt()
                     .match("mingw32").eof()
                     .match("mingw64").eof()
                     .match("mingwex").eof()
                     .match("stdc++").replaceWith(&.{ "-lc++", "-lc++abi" }).done();
             }
+        } else if (ctx.command == .link) {
+            map.initFilter("--help").replaceWith(&.{"-help"}).done();
+            map.initFilter("-v").replaceWith(&.{"--version"}).done();
         }
     }
 
@@ -775,9 +785,16 @@ pub const ZigWrapper = struct {
     arg_filter: ZigArgFilterMap,
     /// The arguments to run the Zig command, include the Zig executable and its arguments.
     args: StringArray,
-    /// Used for `windres` ...
-    named_args: std.StringHashMap([]const u8),
     flags_file: ?TempFile = null,
+
+    // windres
+    windres_input: ?[]const u8 = null,
+    windres_output: ?[]const u8 = null,
+    windres_preprocessor_arg: ?[]const u8 = null,
+    windres_depfile: ?[]const u8 = null,
+    // CC linker
+    cc_dll_lib: ?[]const u8 = null,
+    cc_dll_a: ?[]const u8 = null,
 
     pub fn init(allocator_: std.mem.Allocator) !Self {
         var self = outer: {
@@ -803,7 +820,6 @@ pub const ZigWrapper = struct {
                 .skipped_lib_paths = StringSet.init(alloc.allocator()),
                 .arg_filter = ZigArgFilterMap.init(alloc.allocator()),
                 .args = StringArray.init(alloc.allocator()),
-                .named_args = std.StringHashMap([]const u8).init(alloc.allocator()),
             };
         };
         errdefer self.deinit();
@@ -913,7 +929,6 @@ pub const ZigWrapper = struct {
             flags_file.deinit();
             self.flags_file = null;
         }
-        self.named_args.deinit();
         self.args.deinit();
         self.arg_filter.deinit();
         self.skipped_lib_paths.deinit();
@@ -972,11 +987,12 @@ pub const ZigWrapper = struct {
 
         // Execute the command.
         var proc = std.process.Child.init(self.args.items, self.allocator());
-        const term = try proc.spawnAndWait();
-        if (term.Exited != 0) {
-            self.log.print("***** error code: {d}\n", .{term.Exited});
+        const exit_code = (try proc.spawnAndWait()).Exited;
+        try self.postProcess(exit_code == 0);
+        if (exit_code != 0) {
+            self.log.print("***** error code: {d}\n", .{exit_code});
         }
-        return term.Exited;
+        return exit_code;
     }
 
     pub fn parseFileFlags(self: *Self, path: []const u8, dest: *StringArray) !void {
@@ -1033,8 +1049,8 @@ pub const ZigWrapper = struct {
             }
 
             for ([_][]const u8{
-                self.command.toFlagsName() orelse "",
-                if (self.command == .cxx) ZigCommand.cc.toFlagsName().? else "",
+                self.command.envNameOfFlags() orelse "",
+                if (self.command == .cxx) ZigCommand.cc.envNameOfFlags().? else "",
             }) |flags_name| {
                 if (flags_name.len == 0) continue;
 
@@ -1078,21 +1094,58 @@ pub const ZigWrapper = struct {
     fn parseCustomArgs(self: *Self, args: []const []const u8, dest: *StringArray) !void {
         var parser = SimpleOptionParser{ .args = args };
         while (parser.hasArgument()) {
-            if (parser.parsePositional(true)) |arg| {
+            if (parser.parsePositional(true)) |_| {
                 // Skip positional arguments.
-                try dest.append(arg);
+                try dest.appendSlice(parser.consumed);
             } else if (parser.parseNamed(ZigArgFilter.query_version_opts, false)) {
                 self.is_quering_version = true;
                 self.is_linker = false;
                 // Do no consume the argument.
-                try dest.append(parser.option);
+                try dest.appendSlice(parser.consumed);
             } else if (parser.parseNamed(ZigArgFilter.compile_only_opts, false)) {
                 if (self.is_linker and self.command != .ld) {
                     self.is_linker = false;
                 }
                 // Do no consume the argument.
-                try dest.append(parser.option);
-            } else if (parser.parseNamed(&.{ "-target", "--zig-target" }, true)) {
+                try dest.appendSlice(parser.consumed);
+            } else if (parser.parseNamed(&.{"-o"}, true)) {
+                // Autoconfig uses `zig-cc` to compile DLL, but outputs the imported library file.
+                // We fix it to the output the DLL file.
+                if (parser.consumed.len == 2 and self.command.isCompiler() and
+                    (strEndsWith(parser.value, ".dll.a") or
+                    strEndsWith(parser.value, ".lib")))
+                {
+                    const lib = if (strEndsWith(parser.value, ".a"))
+                        parser.value[0 .. parser.value.len - 6]
+                    else
+                        parser.value[0 .. parser.value.len - 4];
+
+                    const dll_a = try std.fmt.allocPrint(
+                        self.allocator(),
+                        "{s}.dll.a",
+                        .{lib},
+                    );
+                    const dll = dll_a[0 .. dll_a.len - 2];
+                    errdefer self.allocator().free(dll_a);
+
+                    const lib_opt = try std.fmt.allocPrint(
+                        self.allocator(),
+                        "-Wl,--out-implib={s}.lib",
+                        .{lib},
+                    );
+                    const dll_lib = lib_opt[17..];
+                    errdefer self.allocator().free(lib_opt);
+
+                    try dest.appendSlice(&.{ "-shared", "-o", dll, lib_opt });
+                    self.alloc.addString(dll_a);
+                    self.alloc.addString(lib_opt);
+                    self.cc_dll_a = dll_a;
+                    self.cc_dll_lib = dll_lib;
+                } else {
+                    // Do no consume the argument.
+                    try dest.appendSlice(parser.consumed);
+                }
+            } else if (parser.parseNamed(&.{ "-target", "--target" }, true)) {
                 if (self.zig_target.len == 0) {
                     self.zig_target = parser.value;
                 }
@@ -1404,15 +1457,15 @@ pub const ZigWrapper = struct {
         switch (self.command) {
             .windres => {
                 if (parser.parsePositional(false)) |arg| {
-                    if (!self.named_args.contains("input")) {
-                        try self.named_args.put("input", arg);
-                    } else if (!self.named_args.contains("output")) {
-                        try self.named_args.put("output", arg);
+                    if (self.windres_input == null) {
+                        self.windres_input = arg;
+                    } else if (self.windres_output == null) {
+                        self.windres_output = arg;
                     }
                 } else if (parser.parseNamed(&.{ "-i", "--input" }, true)) {
-                    try self.named_args.put("input", parser.value);
+                    self.windres_input = parser.value;
                 } else if (parser.parseNamed(&.{ "-o", "--output" }, true)) {
-                    try self.named_args.put("output", parser.value);
+                    self.windres_output = parser.value;
                 } else if (parser.parseNamed(&.{ "-J", "--input-format" }, true)) {
                     // skip
                 } else if (parser.parseNamed(&.{ "-O", "--output-format" }, true)) {
@@ -1425,17 +1478,17 @@ pub const ZigWrapper = struct {
                 } else if (parser.parseNamed(&.{"--preprocessor"}, true)) {
                     // skip
                 } else if (parser.parseNamed(&.{"--preprocessor-arg"}, true)) {
-                    if (self.named_args.fetchRemove("preprocessor-arg")) |kv| {
-                        const pre_arg = kv.value;
+                    if (self.windres_preprocessor_arg) |pre_arg| {
+                        self.windres_preprocessor_arg = null;
                         if (strEql(pre_arg, "-MF")) {
-                            try self.named_args.put("depfile", parser.value);
+                            self.windres_depfile = parser.value;
                         }
                     } else if (strEql(parser.value, "-MD")) {
-                        if (!self.named_args.contains("depfile")) {
-                            try self.named_args.put("depfile", "");
+                        if (self.windres_depfile == null) {
+                            self.windres_depfile = "";
                         }
                     } else if (strEql(parser.value, "-MF")) {
-                        try self.named_args.put("preprocessor-arg", parser.value);
+                        self.windres_preprocessor_arg = parser.value;
                     } else {
                         // Skip other processor arguments.
                     }
@@ -1466,30 +1519,9 @@ pub const ZigWrapper = struct {
                 }
 
                 if (!parser.hasArgument()) {
-                    if (self.named_args.get("depfile")) |depfile| blk: {
-                        var path = depfile;
-                        if (depfile.len == 0) {
-                            const input = self.named_args.get("input") orelse break :blk;
-                            path = try std.fmt.allocPrint(
-                                self.allocator(),
-                                "{s}.d",
-                                .{input[0 .. input.len - std.fs.path.extension(input).len]},
-                            );
-                        }
-                        defer if (depfile.len == 0) self.allocator().free(path);
-                        // Create a pseudo dependency file.
-                        (try std.fs.cwd().createFile(
-                            path,
-                            .{ .truncate = true },
-                        )).close();
-                    }
-
                     try self.args.append("--");
-                    for ([_][]const u8{ "input", "output" }) |name| {
-                        if (self.named_args.get(name)) |v| {
-                            try self.args.append(v);
-                        }
-                    }
+                    if (self.windres_input) |v| try self.args.append(v);
+                    if (self.windres_output) |v| try self.args.append(v);
                 }
             },
             else => {
@@ -1555,6 +1587,42 @@ pub const ZigWrapper = struct {
         self.args.items.len = 2;
         // Set the @<file_path> flag.
         try self.args.append(at_file_opt);
+    }
+
+    fn postProcess(self: *Self, success: bool) !void {
+        switch (self.command) {
+            .cc, .cxx => {
+                const dll_lib = self.cc_dll_lib orelse return;
+                const dll_a = self.cc_dll_a orelse return;
+                if (success) {
+                    const cwd = std.fs.cwd();
+                    try cwd.copyFile(dll_lib, cwd, dll_a, .{});
+                }
+            },
+            .windres => {
+                if (self.windres_depfile) |depfile| {
+                    var path = depfile;
+                    if (depfile.len == 0) {
+                        const input = self.windres_input orelse return;
+                        path = try std.fmt.allocPrint(
+                            self.allocator(),
+                            "{s}.d",
+                            .{input[0 .. input.len - std.fs.path.extension(input).len]},
+                        );
+                    }
+                    defer if (depfile.len == 0) self.allocator().free(path);
+                    if (success) {
+                        // Create a pseudo dependency file.
+                        (try std.fs.cwd().createFile(path, .{
+                            .truncate = true,
+                        })).close();
+                    } else {
+                        std.fs.cwd().deleteFile(path) catch {};
+                    }
+                }
+            },
+            else => {},
+        }
     }
 };
 

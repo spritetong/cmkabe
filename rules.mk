@@ -49,29 +49,29 @@ cmake_build_target_deps = $(SHLUTIL) build_target_deps \
     ZIG_TARGET=$(ZIG_TARGET)
 
 # include .host@$(HOST_SYSTEM_LOWER).mk
-_DOT_HOST_MK = $(TARGET_CMAKE_DIR)/.host@$(HOST_SYSTEM_LOWER).mk
-ifneq ($(filter cmake-init,$(if $(wildcard $(_DOT_HOST_MK)),,cmake-init) $(MAKECMDGOALS)),)
+_X_DOT_HOST_MK = $(TARGET_CMAKE_DIR)/.host@$(HOST_SYSTEM_LOWER).mk
+ifneq ($(filter cmake-init,$(if $(wildcard $(_X_DOT_HOST_MK)),,cmake-init) $(MAKECMDGOALS)),)
     ifneq ($(shell $(cmake_build_target_deps) >$(NULL) || echo 1),)
         $(error Failed to build target: $(TARGET))
     endif
 endif
-include $(_DOT_HOST_MK)
+include $(_X_DOT_HOST_MK)
 
-_DOT_VARS_DIR := $(TARGET_CMAKE_DIR)/$(if $(filter-out native,$(TARGET)),$(TARGET),$(HOST_TARGET).native)
-_DOT_VARS_MK = $(_DOT_VARS_DIR)/.vars@$(HOST_SYSTEM_LOWER).mk
-_DOT_TOOLCHAIN_MK = $(_DOT_VARS_DIR)/.toolchain@$(HOST_SYSTEM_LOWER).mk
+_X_DOT_VARS_DIR := $(TARGET_CMAKE_DIR)/$(if $(filter-out native,$(TARGET)),$(TARGET),$(HOST_TARGET).native)
+_X_DOT_VARS_MK = $(_X_DOT_VARS_DIR)/.vars@$(HOST_SYSTEM_LOWER).mk
+_X_DOT_TOOLCHAIN_MK = $(_X_DOT_VARS_DIR)/.toolchain@$(HOST_SYSTEM_LOWER).mk
 
 # Auto rebuild dependencies.
-$(_DOT_VARS_MK): $(addprefix $(CMKABE_HOME)/,shlutilib.py zig-wrapper.zig)
+$(_X_DOT_VARS_MK): $(addprefix $(CMKABE_HOME)/,shlutilib.py zig-wrapper.zig)
 	@$(cmake_build_target_deps)
 
 # include .vars@$(HOST_SYSTEM_LOWER).mk
-ifeq ($(wildcard $(_DOT_VARS_MK)),)
+ifeq ($(wildcard $(_X_DOT_VARS_MK)),)
     ifneq ($(shell $(cmake_build_target_deps) >$(NULL) || echo 1),)
         $(error Failed to build target: $(TARGET))
     endif
 endif
-include $(_DOT_VARS_MK)
+include $(_X_DOT_VARS_MK)
 ifeq ($(CMAKE_TARGET_DIR),)
     $(error Can not parse target: $(TARGET))
 endif
@@ -126,33 +126,35 @@ CMAKE_OUTPUT_DIRS +=
 CMAKE_OUTPUT_FILE_PATTERNS +=
 #! CMake definitions, such as `FOO=bar`
 CMAKE_DEFS ?=
+#! CMake initialization options
+CMAKE_INIT_OPTS ?=
 #! CMake additional options
 CMAKE_OPTS ?=
 #! If automatically clean the $(CMAKE_TARGET_PREFIX) directory
 CMAKE_AUTO_CLEAN_TARGET ?= ON
 
-CMAKE_INIT = cmake -B "$(CMAKE_BUILD_DIR)"
-CMAKE_INIT += $(if $(CMAKE_GENERATOR),-G "$(CMAKE_GENERATOR)",)
-CMAKE_INIT += -D "TARGET:STRING=$(CMKABE_TARGET)"
-CMAKE_INIT += -D "TARGET_DIR:FILEPATH=$(TARGET_DIR)"
-CMAKE_INIT += -D "TARGET_CMAKE_DIR:FILEPATH=$(TARGET_CMAKE_DIR)"
-# CMAKE_INIT += -D "TARGET_PREFIX:FILEPATH=$(CMAKE_TARGET_PREFIX)"
-# CMAKE_INIT += -D "TARGET_CC:STRING=$(TARGET_CC)"
-# CMAKE_INIT += -D "CARGO_TARGET:STRING=$(CARGO_TARGET)"
-# CMAKE_INIT += -D "ZIG_TARGET:STRING=$(ZIG_TARGET)"
-CMAKE_INIT += -D "CMAKE_BUILD_TYPE:STRING=$(CMAKE_BUILD_TYPE)"
-CMAKE_INIT += -D "CMAKE_VERBOSE_MAKEFILE:BOOL=$(VERBOSE)"
-CMAKE_INIT += $(if $(CMAKE_SYSTEM_VERSION),-D "CMAKE_SYSTEM_VERSION:STRING=$(CMAKE_SYSTEM_VERSION)",)
-CMAKE_INIT += $(if $(TARGET_CC),-D "TARGET_CC:STRING=$(TARGET_CC)",)
+_X_CMAKE_INIT = cmake -B "$(CMAKE_BUILD_DIR)"
+_X_CMAKE_INIT += $(if $(CMAKE_GENERATOR),-G "$(CMAKE_GENERATOR)",)
+_X_CMAKE_INIT += -D "TARGET:STRING=$(CMKABE_TARGET)"
+_X_CMAKE_INIT += -D "TARGET_DIR:FILEPATH=$(TARGET_DIR)"
+_X_CMAKE_INIT += -D "TARGET_CMAKE_DIR:FILEPATH=$(TARGET_CMAKE_DIR)"
+# _X_CMAKE_INIT += -D "TARGET_PREFIX:FILEPATH=$(CMAKE_TARGET_PREFIX)"
+# _X_CMAKE_INIT += -D "TARGET_CC:STRING=$(TARGET_CC)"
+# _X_CMAKE_INIT += -D "CARGO_TARGET:STRING=$(CARGO_TARGET)"
+# _X_CMAKE_INIT += -D "ZIG_TARGET:STRING=$(ZIG_TARGET)"
+_X_CMAKE_INIT += -D "CMAKE_BUILD_TYPE:STRING=$(CMAKE_BUILD_TYPE)"
+_X_CMAKE_INIT += -D "CMAKE_VERBOSE_MAKEFILE:BOOL=$(VERBOSE)"
+_X_CMAKE_INIT += $(if $(CMAKE_SYSTEM_VERSION),-D "CMAKE_SYSTEM_VERSION:STRING=$(CMAKE_SYSTEM_VERSION)",)
+_X_CMAKE_INIT += $(if $(TARGET_CC),-D "TARGET_CC:STRING=$(TARGET_CC)",)
 ifeq ($(TARGET_IS_ANDROID),ON)
-    CMAKE_INIT += -D "ANDROID_SDK_VERSION:STRING=$(ANDROID_SDK_VERSION)"
-    CMAKE_INIT += $(if $(ANDROID_ARM_MODE),-D "ANDROID_ARM_MODE:STRING=$(call bool,$(ANDROID_ARM_MODE))",)
-    CMAKE_INIT += $(if $(ANDROID_ARM_NEON),-D "ANDROID_ARM_NEON:BOOL=$(ANDROID_ARM_NEON)",)
-    CMAKE_INIT += $(if $(ANDROID_STL),-D "ANDROID_STL:STRING=$(ANDROID_STL)",)
+    _X_CMAKE_INIT += -D "ANDROID_SDK_VERSION:STRING=$(ANDROID_SDK_VERSION)"
+    _X_CMAKE_INIT += $(if $(ANDROID_ARM_MODE),-D "ANDROID_ARM_MODE:STRING=$(call bool,$(ANDROID_ARM_MODE))",)
+    _X_CMAKE_INIT += $(if $(ANDROID_ARM_NEON),-D "ANDROID_ARM_NEON:BOOL=$(ANDROID_ARM_NEON)",)
+    _X_CMAKE_INIT += $(if $(ANDROID_STL),-D "ANDROID_STL:STRING=$(ANDROID_STL)",)
 endif
-CMAKE_INIT += $(addprefix -D,$(CMAKE_DEFS))
+_X_CMAKE_INIT += $(addprefix -D,$(CMAKE_DEFS))
 
-cmake_init = $(CMAKE_INIT) $(CMAKE_INIT_OPTS)
+cmake_init = $(_X_CMAKE_INIT) $(CMAKE_INIT_OPTS)
 cmake_build = cmake --build "$(CMAKE_BUILD_DIR)" $(addprefix --target ,$(CMAKE_TARGETS)) --config $(CMAKE_BUILD_TYPE) --parallel $(CMAKE_OPTS)
 cmake_install = cmake --install "$(CMAKE_BUILD_DIR)" $(addprefix --component ,$(CMAKE_COMPONENTS)) --config $(CMAKE_BUILD_TYPE) $(CMAKE_OPTS)
 ifeq ($(if $(filter --prefix,$(CMAKE_OPTS)),1,)$(if $(CMAKE_INSTALL_TARGET_PREFIX),,1),)
@@ -180,25 +182,31 @@ CARGO_TARGET ?=
 #! Cargo toolchain
 CARGO_TOOLCHAIN +=
 #! Extra options passed to "cargo build" or "cargo run"
-CARGO_OPTS += $(call bsel,$(TARGET_IS_NATIVE),,--target $(CARGO_TARGET))
-CARGO_OPTS += $(call bsel,$(DEBUG),,--release)
-CARGO_OPTS += --target-dir $(CARGO_TARGET_DIR)
+CARGO_OPTS +=
+#! Arguments passed "cargo run", "cargo test" or "cargo bench"
+CARGO_RUN_ARGS ?= $(RUN_ARGS)
 #! Cargo binary crates
 CARGO_EXECUTABLES +=
 #! Cargo library crates
 CARGO_LIBRARIES +=
 
+_X_CARGO_OPTS = $(call bsel,$(TARGET_IS_NATIVE),,--target $(CARGO_TARGET))
+_X_CARGO_OPTS += $(call bsel,$(DEBUG),,--release)
+_X_CARGO_OPTS += --target-dir $(CARGO_TARGET_DIR)
+_X_CARGO_OPTS += $(CARGO_OPTS)
+_X_CARGO_RUN_ARGS = $(if $(CARGO_RUN_ARGS),-- $(CARGO_RUN_ARGS),)
+
 # cargo_command(<command:str>)
-cargo_command = cargo $(CARGO_TOOLCHAIN) $(1) $(CARGO_OPTS)
+cargo_command = cargo $(CARGO_TOOLCHAIN) $(1) $(_X_CARGO_OPTS)
 
 # cargo_build(<crate:str>,<options:str>)
-cargo_build = cargo $(CARGO_TOOLCHAIN) build --bin $(1) $(CARGO_OPTS) $(2)
+cargo_build = cargo $(CARGO_TOOLCHAIN) build --bin $(1) $(_X_CARGO_OPTS) $(2)
 
 # cargo_build_lib(<options:str>)
-cargo_build_lib = cargo $(CARGO_TOOLCHAIN) build --lib $(CARGO_OPTS) $(1)
+cargo_build_lib = cargo $(CARGO_TOOLCHAIN) build --lib $(_X_CARGO_OPTS) $(1)
 
 # cargo_run(<crate:str>,<options:str>)
-cargo_run = cargo $(CARGO_TOOLCHAIN) run --bin $(1) $(CARGO_OPTS) $(2)
+cargo_run = cargo $(CARGO_TOOLCHAIN) run --bin $(1) $(_X_CARGO_OPTS) $(2) $(_X_CARGO_RUN_ARGS)
 
 # cargo_upgrade(<excludes:str>,<options:str>)
 cargo_upgrade = cargo upgrade --incompatible $(1)
@@ -262,15 +270,15 @@ cmake-clean-output:
 
 # Cargo command
 cargo:
-	@$(call cargo_command,$(CARGO_CMD))
+	@$(call cargo_command,$(CARGO_CMD)) $(_X_CARGO_RUN_ARGS)
 
 # Cargo bench
 cargo-bench: cmake-before-build
-	@$(call cargo_command,bench)
+	@$(call cargo_command,bench) $(_X_CARGO_RUN_ARGS)
 
 # Cargo build
 cargo-build: cmake-before-build
-	@cargo $(CARGO_TOOLCHAIN) build $(CARGO_OPTS)
+	@cargo $(CARGO_TOOLCHAIN) build $(_X_CARGO_OPTS)
 
 # Cargo check
 cargo-check: cmake-before-build
@@ -290,7 +298,7 @@ cargo-lib: cmake-before-build
 
 # Cargo test
 cargo-test: cmake-before-build
-	@$(call cargo_command,test)
+	@$(call cargo_command,test) $(_X_CARGO_RUN_ARGS)
 
 # Upgrade dependencies
 cargo-upgrade:
@@ -320,7 +328,7 @@ define _cargo_cmake_rules_tpl_
         override BIN := $$(call sel,$$(BIN),$$(CARGO_EXECUTABLES),$$(BIN))
     endif
 
-    .PHONY: build run lib clean clean-cmake upgrade help
+    .PHONY: build run lib clean clean-cmake help
 
     build: cmake-before-build
     ifneq ($$(BIN),)
@@ -337,8 +345,6 @@ define _cargo_cmake_rules_tpl_
     cargo-clean: cmake-clean-output
     clean: cargo-clean
     clean-cmake: cmake-clean-root
-
-    upgrade: cargo-upgrade
 
     help:
     ifeq ($$(HOST_SYSTEM),Windows)
@@ -409,30 +415,30 @@ cmake_update_libs_rule = $(eval $(call _cmake_update_libs_rule_tpl_,$(call eithe
 define _cmake_update_libs_rule_tpl_
     _saved_default_goal := $(.DEFAULT_GOAL)
 
-    $(1)__target := $(1)
-    $(1)__local_repo := $$(call either,$(3),../$$(notdir $$(basename $(2))))
-	$(1)__local_file := $$(call either,$(6),$(5))
-    $(1)__tmp_dir := $$(call either,$(7),.libs)
-    $(1)__rebuild := $$(call bool,$$(if $(8),$$($(8)),))
+    $(1)_x_target := $(1)
+    $(1)_x_local_repo := $$(call either,$(3),../$$(notdir $$(basename $(2))))
+	$(1)_x_local_file := $$(call either,$(6),$(5))
+    $(1)_x_tmp_dir := $$(call either,$(7),.libs)
+    $(1)_x_rebuild := $$(call bool,$$(if $(8),$$($(8)),))
 
-    cmake-before-build: $$($(1)__local_file)
-    .PHONY: $$($(1)__target)
-    $$($(1)__target): cmake-clean-output
-    $$($(1)__target) $$($(1)__local_file):
-		@$$(RM) -rf $$($(1)__tmp_dir)
-    ifeq ($$($(1)__rebuild),ON)
-		@$$(CD) $$($(1)__local_repo) && make DEBUG=0
+    cmake-before-build: $$($(1)_x_local_file)
+    .PHONY: $$($(1)_x_target)
+    $$($(1)_x_target): cmake-clean-output
+    $$($(1)_x_target) $$($(1)_x_local_file):
+		@$$(RM) -rf $$($(1)_x_tmp_dir)
+    ifeq ($$($(1)_x_rebuild),ON)
+		@$$(CD) $$($(1)_x_local_repo) && make DEBUG=0
 		@$$(MKDIR) $(5)
-		@$$(CP) -rfP $$(addprefix $$($(1)__local_repo),$(4)) $(5)/ && $$(FIXLINK) $(5)/
+		@$$(CP) -rfP $$(addprefix $$($(1)_x_local_repo),$(4)) $(5)/ && $$(FIXLINK) $(5)/
     else ifneq ($$(wildcard $(2)),)
 		@echo Copy from "$(2)" ...
 		@$$(MKDIR) $(5)
 		@$$(CP) -rfP $$(addprefix $(2)/,$(4)) $(5)/ && $$(FIXLINK) $(5)/
     else
-		@git clone --depth 1 --branch master $(2) $$($(1)__tmp_dir)
+		@git clone --depth 1 --branch master $(2) $$($(1)_x_tmp_dir)
 		@$$(MKDIR) $(5)
-		@$$(CP) -rfP $$(addprefix $$($(1)__tmp_dir)/,$(4)) $(5)/ && $$(FIXLINK) $(5)/
-		@$$(RM) -rf $$($(1)__tmp_dir)
+		@$$(CP) -rfP $$(addprefix $$($(1)_x_tmp_dir)/,$(4)) $(5)/ && $$(FIXLINK) $(5)/
+		@$$(RM) -rf $$($(1)_x_tmp_dir)
     endif
 
     .DEFAULT_GOAL := $(_saved_default_goal)
