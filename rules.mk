@@ -225,92 +225,112 @@ endif
 # ==============================================================================
 # = Rules
 
-.PHONY: cmake-before-build \
-        cmake cmake-init cmake-build cmake-rebuild cmake-install \
-        cmake-clean cmake-distclean cmake-clean-root cmake-clean-output \
-        cargo-bench cargo-build cargo-check cargo-clean cargo-clippy cargo-lib cargo-test \
-
+.PHONY: cmake
 cmake: cmake-build
 
 # Do something before building
+.PHONY: cmake-before-build
 cmake-before-build:
 
 # Initialize the cmake build directory.
+.PHONY: cmake-init
 cmake-init $(CMAKE_BUILD_DIR): cmake-before-build
 	@$(call cmake_init)
 
-# Build the target 
+# Build the target
+.PHONY: cmake-build
 cmake-build: $(CMAKE_BUILD_DIR)
 	@$(call cmake_build)
 
 # Clean the target and rebuild it.
+.PHONY: cmake-rebuild
 cmake-rebuild: cmake-clean cmake-build
 
 # Install the target.
+.PHONY: cmake-install
 cmake-install: $(CMAKE_BUILD_DIR)
 	@$(call cmake_install)
 
 # Clean the target.
+.PHONY: cmake-clean
 cmake-clean: cmake-clean-output
 	@$(call exists,"$(CMAKE_BUILD_DIR)") && $(call cmake_clean) || $(OK)
 
 # Clean the target and erase the build directory.
+.PHONY: cmake-distclean
 cmake-distclean: cmake-clean-output
 	@$(RM) -rf "$(CMAKE_BUILD_DIR)" || $(OK)
 
 # Clean the root directory of all targets.
+.PHONY: cmake-clean-root
 cmake-clean-root: cmake-clean-output
 	@$(RM) -rf "$(TARGET_CMAKE_DIR)" "$(TARGET_DIR)/.zig" || $(OK)
 
 # Clean extra output files.
+.PHONY: cmake-clean-output
 cmake-clean-output:
 	@$(if $(CMAKE_OUTPUT_DIRS),$(call git_remove_ignored,$(CMAKE_OUTPUT_DIRS),$(CMAKE_OUTPUT_FILE_PATTERNS)) || $(OK),$(OK))
 	@$(RM) -rf $(CMAKE_OUTPUT_FILES) "$(WORKSPACE_DIR)/-" || $(OK)
 	@$(call exists,"$(WORKSPACE_DIR)/CMakeLists.txt") && $(TOUCH) "$(WORKSPACE_DIR)/CMakeLists.txt" || $(OK)
 
 # Cargo command
+.PHONY: cargo
 cargo:
 	@$(call cargo_command,$(CARGO_CMD)) $(_X_CARGO_RUN_ARGS)
 
 # Cargo bench
+.PHONY: cargo-bench
 cargo-bench: cmake-before-build
 	@$(call cargo_command,bench) $(_X_CARGO_RUN_ARGS)
 
 # Cargo build
+.PHONY: cargo-build
 cargo-build: cmake-before-build
 	@cargo $(CARGO_TOOLCHAIN) build $(_X_CARGO_OPTS)
 
 # Cargo check
+.PHONY: cargo-check
 cargo-check: cmake-before-build
 	@$(call cargo_command,check)
 
 # Clean all Cargo targets
+.PHONY: cargo-clean
 cargo-clean:
 	-@cargo clean
 
 # Cargo clippy
+.PHONY: cargo-clippy
 cargo-clippy: cmake-before-build
 	@$(call cargo_command,clippy)
 
 # Build all Rust libraries
+.PHONY: cargo-lib
 cargo-lib: cmake-before-build
 	@$(call cargo_build_lib)
 
 # Cargo test
+.PHONY: cargo-test
 cargo-test: cmake-before-build
 	@$(call cargo_command,test) $(_X_CARGO_RUN_ARGS)
 
 # Upgrade dependencies
+.PHONY: cargo-upgrade
 cargo-upgrade:
 	@cargo update
 	@$(call cargo_upgrade)
 
+.PHONY: zig-patch
 zig-patch:
 	@$(SHLUTIL) zig_patch
 
 # Execute a shell command
+.PHONY: shell
 shell:
-	$(CMD)
+    ifeq ($(HOST_SYSTEM),Windows)
+		@cmd.exe /k set PROMPT=(make) %PROMPT%
+    else
+		@$(SHELL)
+    endif
 
 # Disable parallel execution
 .NOTPARALLEL:
@@ -328,8 +348,7 @@ define _cargo_cmake_rules_tpl_
         override BIN := $$(call sel,$$(BIN),$$(CARGO_EXECUTABLES),$$(BIN))
     endif
 
-    .PHONY: build run lib clean clean-cmake help
-
+    .PHONY: build
     build: cmake-before-build
     ifneq ($$(BIN),)
 		@$$(call cargo_build,$$(BIN))
@@ -337,18 +356,22 @@ define _cargo_cmake_rules_tpl_
 		@$$(call cargo_build_lib)
     endif
 
+    .PHONY: run
     run: cmake-before-build
 		@$$(call cargo_run,$$(BIN))
 
+    .PHONY: lib
     lib: cargo-lib
 
+    .PHONY: clean clean-cmake
     cargo-clean: cmake-clean-output
     clean: cargo-clean
     clean-cmake: cmake-clean-root
 
+    .PHONY: help
     help:
     ifeq ($$(HOST_SYSTEM),Windows)
-		@cmd /c "$$(CMKABE_HOME)/README.md"
+		@cmd.exe /c "$$(CMKABE_HOME)/README.md"
     else
 		@$(call less,"$$(CMKABE_HOME)/README.md")
     endif
