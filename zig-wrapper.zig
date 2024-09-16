@@ -267,12 +267,7 @@ pub const ZigArgFilterMap = struct {
         return &entry.items.ptr[start];
     }
 
-    pub fn process(self: *Self, ctx: *ZigWrapper, input: *SimpleOptionParser, output: *StringArray) !void {
-        try output.ensureUnusedCapacity(input.args.len);
-        while (try self.next(ctx, input, output)) |_| {}
-    }
-
-    fn next(self: *Self, ctx: *ZigWrapper, input: *SimpleOptionParser, output: *StringArray) !?void {
+    pub fn next(self: *Self, ctx: *ZigWrapper, input: *SimpleOptionParser, output: *StringArray) !?void {
         const opt = input.next() orelse return null;
 
         if (strStartsWith(opt, "-")) {
@@ -475,6 +470,18 @@ pub const BufferedAllocator = struct {
         if (self._removeString(string)) |v| {
             v.deinit();
         }
+    }
+
+    pub fn dupeString(self: *Self, source: []const u8) std.mem.Allocator.Error![]u8 {
+        const value = try self.allocator().dupe(u8, source);
+        self.addString(value);
+        return value;
+    }
+
+    pub fn allocPrint(self: *Self, comptime fmt: []const u8, args: anytype) std.fmt.AllocPrintError![]u8 {
+        const value = try std.fmt.allocPrint(self.allocator(), fmt, args);
+        self.addString(value);
+        return value;
     }
 
     /// Remove a string from the registry but do not free it.
@@ -763,10 +770,18 @@ pub const ZigWrapper = struct {
     is_quering_version: bool = false,
     /// If the Zig command is running as a linker.
     is_linker: bool = false,
+    /// If the Zig compiler is running as a proprocessor.
+    is_preprocessor: bool = false,
+    /// If the output file is a shared library.
+    is_shared_lib: bool = false,
     /// <arch>-<os>-<abi>
     zig_target: []const u8 = "",
     /// <arch>-<vendor>-<os>-<abi>
     clang_target: []const u8 = "",
+    /// -march=<cpu> or -mcpu=<cpu>
+    zig_cpu_opts: StringArray,
+    /// -mtune=<tune>
+    zig_cpu_tune_opts: StringArray,
     /// -l<lib> options not to be passed to the linker.
     skipped_libs: StringSet,
     skipped_lib_patterns: StringArray,
@@ -815,6 +830,8 @@ pub const ZigWrapper = struct {
                 .alloc = alloc,
                 .log = log,
                 .sys_argv = StringArray.init(alloc.allocator()),
+                .zig_cpu_opts = StringArray.init(alloc.allocator()),
+                .zig_cpu_tune_opts = StringArray.init(alloc.allocator()),
                 .skipped_libs = StringSet.init(alloc.allocator()),
                 .skipped_lib_patterns = StringArray.init(alloc.allocator()),
                 .skipped_lib_paths = StringSet.init(alloc.allocator()),
@@ -884,17 +901,13 @@ pub const ZigWrapper = struct {
 
         // Set default values.
         if (self.zig_exe.len == 0) {
-            const s = try std.fmt.allocPrint(
-                self.allocator(),
+            self.zig_exe = try self.alloc.allocPrint(
                 "zig{s}",
                 .{builtin.os.tag.exeFileExt(builtin.cpu.arch)},
             );
-            self.alloc.addString(s);
-            self.zig_exe = s;
         }
         if (self.zig_target.len == 0) {
-            const s = try std.fmt.allocPrint(
-                self.allocator(),
+            self.zig_target = try self.alloc.allocPrint(
                 "{s}-{s}-{s}",
                 .{
                     @tagName(builtin.target.cpu.arch),
@@ -902,8 +915,6 @@ pub const ZigWrapper = struct {
                     @tagName(builtin.target.abi),
                 },
             );
-            self.alloc.addString(s);
-            self.zig_target = s;
         }
         if (self.clang_target.len == 0) {
             self.clang_target = self.zig_target;
@@ -934,6 +945,8 @@ pub const ZigWrapper = struct {
         self.skipped_lib_paths.deinit();
         self.skipped_lib_patterns.deinit();
         self.skipped_libs.deinit();
+        self.zig_cpu_tune_opts.deinit();
+        self.zig_cpu_opts.deinit();
         self.log.deinit();
         self.sys_argv.deinit();
         self.alloc.deinit();
@@ -948,9 +961,25 @@ pub const ZigWrapper = struct {
         try self.args.append(self.zig_exe);
         // Zig command
         try self.args.append(self.command.toName());
-        // `cc`, `c++`: -target <target>
-        if (self.command.isCompiler() and self.zig_target.len > 0) {
+        // `cc`, `c++`: -target <target> [-march=<cpu>] [-mtune=<cpu>]
+        if (self.command.isCompiler()) {
             try self.args.appendSlice(&[_][]const u8{ "-target", self.zig_target });
+            for (&[_]*StringArray{ &self.zig_cpu_opts, &self.zig_cpu_tune_opts }) |options| {
+                for (options.items) |opt| {
+                    // Fix the Zig CC bug about CPU architecture:
+                    //    '-' -> '_' for compiler;
+                    //    '_' -> '-' for preprocessor.
+                    if (!self.is_preprocessor) {
+                        const s = @constCast(opt[1..]);
+                        _ = std.mem.replace(u8, s, "-", "_", s);
+                    }
+                    _ = try self.arg_filter.next(
+                        self,
+                        @constCast(&.{ .args = &.{opt} }),
+                        &self.args,
+                    );
+                }
+            }
         }
 
         var argv = try StringArray.initCapacity(self.alloc.allocator(), self.sys_argv.items.len);
@@ -1103,51 +1132,40 @@ pub const ZigWrapper = struct {
                 // Do no consume the argument.
                 try dest.appendSlice(parser.consumed);
             } else if (parser.parseNamed(ZigArgFilter.compile_only_opts, false)) {
-                if (self.is_linker and self.command != .ld) {
+                if (self.command.isCompiler()) {
                     self.is_linker = false;
+                    self.is_preprocessor = strEql(parser.consumed[0], "-E");
                 }
                 // Do no consume the argument.
                 try dest.appendSlice(parser.consumed);
-            } else if (parser.parseNamed(&.{"-o"}, true)) {
-                // Autoconfig uses `zig-cc` to compile DLL, but outputs the imported library file.
-                // We fix it to the output the DLL file.
-                if (parser.consumed.len == 2 and self.command.isCompiler() and
-                    (strEndsWith(parser.value, ".dll.a") or
-                    strEndsWith(parser.value, ".lib")))
-                {
-                    const lib = if (strEndsWith(parser.value, ".a"))
-                        parser.value[0 .. parser.value.len - 6]
-                    else
-                        parser.value[0 .. parser.value.len - 4];
-
-                    const dll_a = try std.fmt.allocPrint(
-                        self.allocator(),
-                        "{s}.dll.a",
-                        .{lib},
-                    );
-                    const dll = dll_a[0 .. dll_a.len - 2];
-                    errdefer self.allocator().free(dll_a);
-
-                    const lib_opt = try std.fmt.allocPrint(
-                        self.allocator(),
-                        "-Wl,--out-implib={s}.lib",
-                        .{lib},
-                    );
-                    const dll_lib = lib_opt[17..];
-                    errdefer self.allocator().free(lib_opt);
-
-                    try dest.appendSlice(&.{ "-shared", "-o", dll, lib_opt });
-                    self.alloc.addString(dll_a);
-                    self.alloc.addString(lib_opt);
-                    self.cc_dll_a = dll_a;
-                    self.cc_dll_lib = dll_lib;
+            } else if (parser.parseNamed(&.{ "-shared", "-dll" }, false)) {
+                if (self.command.isCompiler()) {
+                    self.is_linker = true;
+                    self.is_shared_lib = true;
+                }
+                // Do no consume the argument.
+                try dest.appendSlice(parser.consumed);
+            } else if (parser.parseNamed(&.{ "-target", "--target" }, true)) {
+                if (self.zig_target.len == 0) {
+                    self.zig_target = parser.value;
+                }
+            } else if (parser.parseNamed(&.{ "-march", "-mcpu" }, true)) {
+                if (self.command.isCompiler()) {
+                    if (parser.consumed.len == 1) {
+                        try self.zig_cpu_opts.append(parser.consumed[0]);
+                    }
                 } else {
                     // Do no consume the argument.
                     try dest.appendSlice(parser.consumed);
                 }
-            } else if (parser.parseNamed(&.{ "-target", "--target" }, true)) {
-                if (self.zig_target.len == 0) {
-                    self.zig_target = parser.value;
+            } else if (parser.parseNamed(&.{"-mtune"}, true)) {
+                if (self.command.isCompiler()) {
+                    if (parser.consumed.len == 1) {
+                        try self.zig_cpu_tune_opts.append(parser.consumed[0]);
+                    }
+                } else {
+                    // Do no consume the argument.
+                    try dest.appendSlice(parser.consumed);
                 }
             } else if (parser.parseNamed(&.{"--zig"}, true)) {
                 if (self.zig_exe.len == 0) {
@@ -1177,6 +1195,29 @@ pub const ZigWrapper = struct {
                     if (v.len > 0) {
                         _ = try self.skipped_lib_paths.getOrPut(v);
                     }
+                }
+            } else if (parser.parseNamed(&.{"-o"}, true)) {
+                // Autoconfig uses `zig-cc` to compile DLL, wrongly builds out `.dll.a` instead of `.dll`.
+                // We fix it to output the `.dll` file.
+                if (parser.consumed.len == 2 and self.command.isCompiler() and
+                    strEndsWith(parser.value, ".dll.a"))
+                {
+                    const dll_a = parser.value;
+                    const dll = dll_a[0 .. dll_a.len - 2];
+                    const lib_name = dll_a[0 .. dll_a.len - 6];
+
+                    const lib_opt = try self.alloc.allocPrint(
+                        "-Wl,--out-implib={s}.lib",
+                        .{lib_name},
+                    );
+                    const dll_lib = lib_opt[17..];
+
+                    try dest.appendSlice(&.{ "-shared", "-o", dll, lib_opt });
+                    self.cc_dll_a = dll_a;
+                    self.cc_dll_lib = dll_lib;
+                } else {
+                    // Do no consume the argument.
+                    try dest.appendSlice(parser.consumed);
                 }
             } else {
                 // Do no consume the argument.
@@ -1212,13 +1253,11 @@ pub const ZigWrapper = struct {
                     if (strStartsWith(def_file, "/DEF:")) {
                         def_file = def_file[5..];
                     }
-                    const s = try self.allocator().dupe(u8, def_file);
-                    self.alloc.addString(s);
+                    const s = try self.alloc.dupeString(def_file);
                     try dest.append(s);
                 } else if (strStartsWith(flag, "-l")) {
                     // `-l<lib>`
-                    const s = try self.allocator().dupe(u8, flag);
-                    self.alloc.addString(s);
+                    const s = try self.alloc.dupeString(flag);
                     try dest.append(self.fixLibFlag(s));
                 } else if (flag.len > 0) {
                     if (buf_used > 0) {
@@ -1360,8 +1399,8 @@ pub const ZigWrapper = struct {
                 )) |path| {
                     var ok = false;
                     defer if (!ok) self.allocator().free(path);
-                    _ = std.mem.replace(u8, path, "\\", "/", path);
 
+                    _ = std.mem.replace(u8, path, "\\", "/", path);
                     if (path_set.contains(path)) continue;
                     for (self.skipped_lib_paths.keys()) |pattern| {
                         if (strMatch(pattern, path)) {
@@ -1378,17 +1417,12 @@ pub const ZigWrapper = struct {
             try args.appendSlice(parser.consumed);
         }
 
-        // for (path_set.keys()) |path| {
-        //     std.io.getStdErr().writer().print("link-path: {s}\n", .{path}) catch {};
-        // }
-        // for (lib_map.values()) |libs| {
-        //     for (libs.items) |lib| {
-        //         std.io.getStdErr().writer().print(
-        //             "link-lib: {s} -> {s}\n",
-        //             .{ lib.name, args.items[lib.index] },
-        //         ) catch {};
-        //     }
-        // }
+        // Add "." to the library paths.
+        if (!path_set.contains(".")) {
+            const cwd = try self.allocator().dupe(u8, ".");
+            errdefer self.allocator().free(cwd);
+            try path_set.put(cwd, {});
+        }
 
         // Find the library paths and fix link options.
         var buf = std.ArrayList(u8).init(self.allocator());
@@ -1409,14 +1443,9 @@ pub const ZigWrapper = struct {
                                 const file_lib = self.libFromFileName(buf.items);
                                 if (lib.kind == .none or lib.kind == file_lib.kind) {
                                     const lib_opt = if (file_lib.kind == .dynamic)
-                                        try std.fmt.allocPrint(
-                                            self.allocator(),
-                                            "-l{s}",
-                                            .{file_lib.name},
-                                        )
+                                        try self.alloc.allocPrint("-l{s}", .{file_lib.name})
                                     else
-                                        try self.allocator().dupe(u8, buf.items);
-                                    self.alloc.addString(lib_opt);
+                                        try self.alloc.dupeString(buf.items);
                                     args.items[lib.index] = lib_opt;
                                     continue :next_lib;
                                 }
@@ -1435,8 +1464,7 @@ pub const ZigWrapper = struct {
                 try buf.appendSlice("-l");
                 try buf.appendSlice(lib.name);
                 if (!strEql(buf.items, args.items[lib.index])) {
-                    const opt = try self.allocator().dupe(u8, buf.items);
-                    self.alloc.addString(opt);
+                    const opt = try self.alloc.dupeString(buf.items);
                     args.items[lib.index] = opt;
                 }
             }
@@ -1525,7 +1553,7 @@ pub const ZigWrapper = struct {
                 }
             },
             else => {
-                try self.arg_filter.process(self, parser, &self.args);
+                _ = try self.arg_filter.next(self, parser, &self.args);
             },
         }
     }
@@ -1578,8 +1606,7 @@ pub const ZigWrapper = struct {
             try flags_file.write(buffer.items);
             flags_file.close();
 
-            at_file_opt = try std.fmt.allocPrint(self.allocator(), "@{s}", .{flags_file.getPath()});
-            self.alloc.addString(at_file_opt);
+            at_file_opt = try self.alloc.allocPrint("@{s}", .{flags_file.getPath()});
             self.flags_file = flags_file;
         }
 
@@ -1592,11 +1619,14 @@ pub const ZigWrapper = struct {
     fn postProcess(self: *Self, success: bool) !void {
         switch (self.command) {
             .cc, .cxx => {
-                const dll_lib = self.cc_dll_lib orelse return;
-                const dll_a = self.cc_dll_a orelse return;
                 if (success) {
-                    const cwd = std.fs.cwd();
-                    try cwd.copyFile(dll_lib, cwd, dll_a, .{});
+                    // Copy `.lib` file to `.dll.a` file.
+                    if (self.cc_dll_lib) |dll_lib| {
+                        if (self.cc_dll_a) |dll_a| {
+                            const cwd = std.fs.cwd();
+                            try cwd.copyFile(dll_lib, cwd, dll_a, .{});
+                        }
+                    }
                 }
             },
             .windres => {
@@ -1604,13 +1634,11 @@ pub const ZigWrapper = struct {
                     var path = depfile;
                     if (depfile.len == 0) {
                         const input = self.windres_input orelse return;
-                        path = try std.fmt.allocPrint(
-                            self.allocator(),
+                        path = try self.alloc.allocPrint(
                             "{s}.d",
                             .{input[0 .. input.len - std.fs.path.extension(input).len]},
                         );
                     }
-                    defer if (depfile.len == 0) self.allocator().free(path);
                     if (success) {
                         // Create a pseudo dependency file.
                         (try std.fs.cwd().createFile(path, .{
