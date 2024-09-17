@@ -1968,10 +1968,11 @@ class TargetParser(ShellCmd):
             if cc:
                 fwrite(f, '# LINKER\n')
                 fwrite(f, 'export {}_LINKER = {}\n'.format(cargo_target, linker))
-                fwrite(f, 'override {}_RUSTFLAGS := {} $(TARGET_RUSTFLAGS)\n'.format(
-                    cargo_target, ' '.join(linker_options)))
-                fwrite(f, 'export {}_RUSTFLAGS\n'.format(cargo_target))
-                fwrite(f, '\n')
+            fwrite(f, '# RUSTFLAGS\n')
+            fwrite(f, 'override {}_RUSTFLAGS := {} $(TARGET_RUSTFLAGS)\n'.format(
+                cargo_target, ' '.join(linker_options)))
+            fwrite(f, 'export {}_RUSTFLAGS\n'.format(cargo_target))
+            fwrite(f, '\n')
 
             cargo_target = self.cargo_target.replace('-', '_')
             if cc:
@@ -1982,21 +1983,20 @@ class TargetParser(ShellCmd):
                 fwrite(f, 'export RANLIB_{} = {}\n'.format(cargo_target, ranlib))
                 fwrite(f, 'export STRIP_{} = {}\n'.format(cargo_target, strip))
                 fwrite(f, '\n')
-
-                fwrite(f, '# ARFLAGS, CFLAGS, CXXFLAGS, RANLIBFLAGS\n')
-                fwrite(f, 'override ARFLAGS_{} := $(TARGET_ARFLAGS)\n'.format(
-                    cargo_target))
-                fwrite(f, 'export ARFLAGS_{}\n'.format(cargo_target))
-                fwrite(f, 'override CFLAGS_{} := {} $(TARGET_CFLAGS)\n'.format(
-                    cargo_target, ' '.join(cc_options)))
-                fwrite(f, 'export CFLAGS_{}\n'.format(cargo_target))
-                fwrite(f, 'override CXXFLAGS_{} := {} $(TARGET_CXXFLAGS)\n'.format(
-                    cargo_target, ' '.join(cc_options)))
-                fwrite(f, 'export CXXFLAGS_{}\n'.format(cargo_target))
-                fwrite(f, 'override RANLIBFLAGS_{} := $(TARGET_RANLIBFLAGS)\n'.format(
-                    cargo_target))
-                fwrite(f, 'export RANLIBFLAGS_{}\n'.format(cargo_target))
-                fwrite(f, '\n')
+            fwrite(f, '# ARFLAGS, CFLAGS, CXXFLAGS, RANLIBFLAGS\n')
+            fwrite(f, 'override ARFLAGS_{} := $(TARGET_ARFLAGS)\n'.format(
+                cargo_target))
+            fwrite(f, 'export ARFLAGS_{}\n'.format(cargo_target))
+            fwrite(f, 'override CFLAGS_{} := {} $(TARGET_CFLAGS)\n'.format(
+                cargo_target, ' '.join(cc_options)))
+            fwrite(f, 'export CFLAGS_{}\n'.format(cargo_target))
+            fwrite(f, 'override CXXFLAGS_{} := {} $(TARGET_CXXFLAGS)\n'.format(
+                cargo_target, ' '.join(cc_options)))
+            fwrite(f, 'export CXXFLAGS_{}\n'.format(cargo_target))
+            fwrite(f, 'override RANLIBFLAGS_{} := $(TARGET_RANLIBFLAGS)\n'.format(
+                cargo_target))
+            fwrite(f, 'export RANLIBFLAGS_{}\n'.format(cargo_target))
+            fwrite(f, '\n')
 
             fwrite(f, '# For Rust bingen + libclang\n')
             bindgen_includes = [
@@ -2016,14 +2016,11 @@ class TargetParser(ShellCmd):
 
             fwrite(f, '# Set system paths.\n')
             if self.target_is_runnable:
-                if self.host_is_windows:
-                    fwrite(f, make_export_paths('PATH', [
-                        '$(CARGO_TARGET_OUT_DIR)'] + join_paths(self.cmake_prefix_subdirs, ['bin', 'lib'])))
-                else:
-                    fwrite(f, make_export_paths('PATH',
-                                                ['$(CARGO_TARGET_OUT_DIR)'] + join_paths(self.cmake_prefix_subdirs, ['bin'])))
-                    fwrite(f, make_export_paths('LD_LIBRARY_PATH',
-                                                ['$(CARGO_TARGET_OUT_DIR)'] + join_paths(self.cmake_prefix_subdirs, ['lib'])))
+                fwrite(f, make_export_paths('PATH', [
+                    '$(CARGO_TARGET_OUT_DIR)'] + join_paths(self.cmake_prefix_subdirs, ['bin'])))
+                if not self.host_is_windows:
+                    fwrite(f, make_export_paths('LD_LIBRARY_PATH', [
+                        '$(CARGO_TARGET_OUT_DIR)'] + join_paths(self.cmake_prefix_subdirs, ['lib'])))
             fwrite(f, '\n')
 
             fwrite(f, '# Export variables for Cargo build.rs and CMake\n')

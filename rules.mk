@@ -24,7 +24,7 @@ ifndef WORKSPACE_DIR
     $(error WORKSPACE_DIR is not defined)
 endif
 
-_saved_default_goal := $(.DEFAULT_GOAL)
+_x_saved_default_goal := $(.DEFAULT_GOAL)
 
 # ==============================================================================
 # Target definitions
@@ -117,7 +117,7 @@ CMAKE_SYSTEM_VERSION ?=
 #! The CMake output directory exclude the tailing triple.
 CMAKE_TARGET_PREFIX ?= $(TARGET_CMAKE_DIR)/output
 #! The CMake components to be installed.
-CMAKE_COMPONENTS ?=
+CMAKE_COMPONENTS +=
 #! The CMake targets (libraries and executables) to be built.
 CMAKE_TARGETS +=
 #! CMake output directories to be cleaned.
@@ -125,11 +125,11 @@ CMAKE_OUTPUT_DIRS +=
 #! CMake output file patterns to be cleaned.
 CMAKE_OUTPUT_FILE_PATTERNS +=
 #! CMake definitions, such as `FOO=bar`
-CMAKE_DEFS ?=
+CMAKE_DEFS +=
 #! CMake initialization options
-CMAKE_INIT_OPTS ?=
+CMAKE_INIT_OPTS +=
 #! CMake additional options
-CMAKE_OPTS ?=
+CMAKE_OPTS +=
 #! If automatically clean the $(CMAKE_TARGET_PREFIX) directory
 CMAKE_AUTO_CLEAN_TARGET ?= ON
 
@@ -184,7 +184,7 @@ CARGO_TOOLCHAIN +=
 #! Extra options passed to "cargo build" or "cargo run"
 CARGO_OPTS +=
 #! Arguments passed "cargo run", "cargo test" or "cargo bench"
-CARGO_RUN_ARGS ?= $(RUN_ARGS)
+CARGO_RUN_ARGS ?= $(ARGS)
 #! Cargo binary crates
 CARGO_EXECUTABLES +=
 #! Cargo library crates
@@ -336,12 +336,12 @@ shell:
 .NOTPARALLEL:
 
 # Do not change the default goal.
-.DEFAULT_GOAL := $(_saved_default_goal)
-undefine _saved_default_goal
+.DEFAULT_GOAL := $(_x_saved_default_goal)
+undefine _x_saved_default_goal
 
 # Generate common rules for Cargo and CMake.
-cargo_cmake_rules = $(eval $(_cargo_cmake_rules_tpl_))
-define _cargo_cmake_rules_tpl_
+cmakabe_cargo_rules = $(eval $(_x_cmakabe_cargo_rules_tpl))
+define _x_cmakabe_cargo_rules_tpl
     ifeq ($$(BIN),)
         BIN = $$(call kv_value,$$(firstword $$(CARGO_EXECUTABLES)))
     else
@@ -377,15 +377,15 @@ define _cargo_cmake_rules_tpl_
     endif
 
     $$(foreach I,$$(CARGO_EXECUTABLES),\
-        $$(eval $$(call _cargo_build_tpl_,$$(call kv_key,$$I),$$(call kv_value,$$I))))
+        $$(eval $$(call _x_cargo_build_tpl,$$(call kv_key,$$I),$$(call kv_value,$$I))))
 
     $$(foreach I,$$(CARGO_EXECUTABLES),\
-        $$(eval $$(call _cargo_run_tpl_,$$(call kv_key,$$I),$$(call kv_value,$$I))))
+        $$(eval $$(call _x_cargo_run_tpl,$$(call kv_key,$$I),$$(call kv_value,$$I))))
 
     $$(foreach I,$$(CARGO_LIBRARIES),\
-        $$(eval $$(call _cargo_build_lib_tpl_,$$(call kv_key,$$I),$$(call kv_value,$$I))))
+        $$(eval $$(call _x_cargo_build_lib_tpl,$$(call kv_key,$$I),$$(call kv_value,$$I))))
 endef
-define _cargo_build_tpl_
+define _x_cargo_build_tpl
     ifneq ($(1),$(2))
         .PHONY: $(1)
         $(1): $(2)
@@ -394,7 +394,7 @@ define _cargo_build_tpl_
     $(2): cmake-before-build
 		@$$(call cargo_build,$(2))
 endef
-define _cargo_run_tpl_
+define _x_cargo_run_tpl
     ifneq ($(1),$(2))
         .PHONY: run-$(1)
         run-$(1): run-$(2)
@@ -403,7 +403,7 @@ define _cargo_run_tpl_
     run-$(2): cmake-before-build
 		@$$(call cargo_run,$(2))
 endef
-define _cargo_build_lib_tpl_
+define _x_cargo_build_lib_tpl
     ifneq ($(1),$(2))
         .PHONY: $(1)
         $(1): $(2)
@@ -414,7 +414,7 @@ define _cargo_build_lib_tpl_
 endef
 
 # Download external libraries for CMake.
-# cmake_update_libs_rule(
+# cmakabe_update_libs(
 # $(1) Target name, defaults (an empty string) to "update-libs".
 #	 target:str=update-libs,
 # $(2) Either a URL to the remote source repository or a local path.
@@ -434,9 +434,9 @@ endef
 #      the local source repository $(3), leave it empty if you don't want to rebuild.
 #    rebuild_var:str=,
 # )
-cmake_update_libs_rule = $(eval $(call _cmake_update_libs_rule_tpl_,$(call either,$(1),update-libs),$(2),$(3),$(4),$(5),$(6),$(7),$(8)))
-define _cmake_update_libs_rule_tpl_
-    _saved_default_goal := $(.DEFAULT_GOAL)
+cmakabe_update_libs = $(eval $(call _x_cmakabe_update_libs_tpl,$(call either,$(1),update-libs),$(2),$(3),$(4),$(5),$(6),$(7),$(8)))
+define _x_cmakabe_update_libs_tpl
+    _x_saved_default_goal := $(.DEFAULT_GOAL)
 
     $(1)_x_target := $(1)
     $(1)_x_local_repo := $$(call either,$(3),../$$(notdir $$(basename $(2))))
@@ -464,8 +464,8 @@ define _cmake_update_libs_rule_tpl_
 		@$$(RM) -rf $$($(1)_x_tmp_dir)
     endif
 
-    .DEFAULT_GOAL := $(_saved_default_goal)
-    undefine _saved_default_goal
+    .DEFAULT_GOAL := $(_x_saved_default_goal)
+    undefine _x_saved_default_goal
 endef
 
 endif # __RULES_MK__

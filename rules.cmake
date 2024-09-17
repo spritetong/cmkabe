@@ -165,4 +165,8 @@ if(TARGET_PREFIX_LIBS)
     link_directories(${TARGET_PREFIX_LIBS})
 endif()
 
+if(CARGO_TARGET_UNDERSCORE AND (NOT ZIG))
+    cmkabe_add_env_compiler_flags(${CARGO_TARGET_UNDERSCORE} C CXX)
+endif()
+
 endif()

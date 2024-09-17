@@ -31,7 +31,7 @@
 
     Delete the CMake build directory, including all caches and artifacts.
 
-    e.g. `make clean-make` (The directory `target/cmake/` has been erased)
+    e.g. `make clean-make` (The directory `target/.cmake/` has been erased)
 
 - ***cmake*** | ***cmake-build***
 
@@ -43,13 +43,13 @@
 
     Run CMake clean.
 
-    e.g. `make cmake-clean` (The directory `target/cmake/x86_64-pc-windows-msvc/Debug/` is existent)
+    e.g. `make cmake-clean` (The directory `target/.cmake/<TARGET_TRIPLE>/<Configuration>/` is existent)
 
 - ***cmake-distclean***
 
     Run CMake clean and delete caches and artifacts of the current configuration.
 
-    e.g. `make cmake-distclean` (The directory `target/cmake/x86_64-pc-windows-msvc/Debug/` has been erased)
+    e.g. `make cmake-distclean` (The directory `target/.cmake/<TARGET_TRIPLE>/<Configuration>/` has been erased)
 
 - ***cmake-rebuild***
 
@@ -59,7 +59,7 @@
 
 - ***cmake-init***
 
-    Re-generate CMake build files in the directory `target/cmake/<TARGET_TRIPLE>/<Configuration>/`.
+    Re-generate CMake build files in the directory `target/.cmake/<TARGET_TRIPLE>/<Configuration>/`.
 
     e.g. `make cmake-init`
 

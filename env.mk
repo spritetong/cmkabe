@@ -15,7 +15,7 @@ ifndef __ENV_MK__
 __ENV_MK__ = $(abspath $(lastword $(MAKEFILE_LIST)))
 CMKABE_HOME := $(abspath $(dir $(__ENV_MK__)))
 
-CMKABE_VERSION = 0.7.6
+CMKABE_VERSION = 0.8.0
 
 # ==============================================================================
 # = Environment Variables
@@ -27,12 +27,16 @@ override HOST_SYSTEM := $(if $(filter Windows_NT,$(OS)),Windows,$(shell uname -s
 # = Utilities
 
 # cmkabe_version_required(version:str)
-cmkabe_version_required = $(eval $(call _cmkabe_version_check_,$(1)))
-define _cmkabe_version_check_
+cmkabe_version_required = $(eval $(call _x_cmkabe_version_check,$(1)))
+define _x_cmkabe_version_check
     ifeq ($$(call version_compare,$(1),$$(CMKABE_VERSION)),+)
         $$(error Please upgrade cmake-abe to >=$(1). Try: git submodule update --init)
     endif
 endef
+
+# cmkabe_parse_target()
+#    Parse the target triplet, compiler and apply to the toolchain.
+cmkabe_parse_target = $(eval include $(CMKABE_HOME)/rules.mk)
 
 # cmkabe_update_toolchain()
 #    Apply variables to the toolchain of the current target.

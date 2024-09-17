@@ -774,6 +774,8 @@ pub const ZigWrapper = struct {
     is_preprocessor: bool = false,
     /// If the output file is a shared library.
     is_shared_lib: bool = false,
+    /// Disallow to parse the compiler flags from `<LANG>FLAGS_<TARGET>` environment variables.
+    allow_target_env_flags: bool = true,
     /// <arch>-<os>-<abi>
     zig_target: []const u8 = "",
     /// <arch>-<vendor>-<os>-<abi>
@@ -1059,6 +1061,8 @@ pub const ZigWrapper = struct {
 
         var args = StringArray.init(self.allocator());
         defer args.deinit();
+        var tmp = StringArray.init(self.allocator());
+        defer tmp.deinit();        
 
         for (0..3) |target_idx| {
             // Do not apply the same targets.
@@ -1081,7 +1085,9 @@ pub const ZigWrapper = struct {
                 self.command.envNameOfFlags() orelse "",
                 if (self.command == .cxx) ZigCommand.cc.envNameOfFlags().? else "",
             }) |flags_name| {
-                if (flags_name.len == 0) continue;
+                if (flags_name.len == 0 or (target.len > 0 and !self.allow_target_env_flags)) {
+                    continue;
+                }
 
                 // Get the compiler flags from the environment variable.
                 const key = (if (target.len > 0) std.fmt.bufPrint(
@@ -1107,17 +1113,19 @@ pub const ZigWrapper = struct {
                     self.alloc.forgetString(flags_str);
 
                     while (arg_iter.next()) |arg| {
-                        try args.append(arg);
+                        try tmp.append(arg);
                     }
 
                     // Do not append the same flags.
-                    if (!stringsContains(dest.items, args.items)) {
-                        try self.parseCustomArgs(args.items, dest);
+                    if (!stringsContains(args.items, tmp.items)) {
+                        try args.appendSlice(tmp.items);
                     }
-                    args.clearRetainingCapacity();
+                    tmp.clearRetainingCapacity();
                 }
             }
         }
+
+        try self.parseCustomArgs(args.items, dest);
     }
 
     fn parseCustomArgs(self: *Self, args: []const []const u8, dest: *StringArray) !void {
@@ -1196,6 +1204,8 @@ pub const ZigWrapper = struct {
                         _ = try self.skipped_lib_paths.getOrPut(v);
                     }
                 }
+            } else if (parser.parseNamed(&.{"--deny-target-env-flags"}, false)) {
+                self.allow_target_env_flags = false;
             } else if (parser.parseNamed(&.{"-o"}, true)) {
                 // Autoconfig uses `zig-cc` to compile DLL, wrongly builds out `.dll.a` instead of `.dll`.
                 // We fix it to output the `.dll` file.
