@@ -1968,7 +1968,7 @@ class TargetParser(ShellCmd):
             if cc:
                 fwrite(f, '# LINKER\n')
                 fwrite(f, 'export {}_LINKER = {}\n'.format(cargo_target, linker))
-                fwrite(f, 'override {}_RUSTFLAGS += {}\n'.format(
+                fwrite(f, 'override {}_RUSTFLAGS := {} $(TARGET_RUSTFLAGS)\n'.format(
                     cargo_target, ' '.join(linker_options)))
                 fwrite(f, 'export {}_RUSTFLAGS\n'.format(cargo_target))
                 fwrite(f, '\n')
