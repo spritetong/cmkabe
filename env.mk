@@ -197,4 +197,11 @@ endif
 # HOST_SYSTEM_LOWER: lowercase version of `HOST_SYSTEM`
 override HOST_SYSTEM_LOWER := $(call lower,$(HOST_SYSTEM))
 
+# export CMKABE_COMPLETED_PORJECTS which is from command line.
+ifeq ($(origin CMKABE_COMPLETED_PORJECTS),command line)
+    export CMKABE_COMPLETED_PORJECTS
+else
+    unexport CMKABE_COMPLETED_PORJECTS
+endif
+
 endif # __ENV_MK__

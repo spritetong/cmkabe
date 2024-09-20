@@ -327,10 +327,22 @@ zig-patch:
 .PHONY: shell
 shell:
     ifeq ($(HOST_SYSTEM),Windows)
-		@cmd.exe /k set PROMPT=(make) %PROMPT%
+		-@cmd.exe /k set PROMPT=(make) %PROMPT%
     else
-		@$(SHELL)
+		-@bash --norc
     endif
+
+# Show target information
+.PHONY: show
+show:
+	@echo "TARGET:              $(TARGET)"
+	@echo "CARGO_TARGET:        $(CARGO_TARGET)"
+	@echo "TARGET_CC:           $(TARGET_CC)"
+	@echo "CMAKE_BUILD_TYPE:    $(CMAKE_BUILD_TYPE)"
+	@echo "WORKSPACE_DIR:       $(WORKSPACE_DIR)"
+	@echo "TARGET_DIR:          $(TARGET_DIR)"
+	@echo "TARGET_CMAKE_DIR:    $(TARGET_CMAKE_DIR)"
+	@echo "CMAKE_TARGET_PREFIX: $(CMAKE_TARGET_PREFIX)"
 
 # Disable parallel execution
 .NOTPARALLEL:
@@ -340,8 +352,8 @@ shell:
 undefine _x_saved_default_goal
 
 # Generate common rules for Cargo and CMake.
-cmakabe_cargo_rules = $(eval $(_x_cmakabe_cargo_rules_tpl))
-define _x_cmakabe_cargo_rules_tpl
+cmkabe_cargo_rules = $(eval $(_x_cmkabe_cargo_rules_tpl))
+define _x_cmkabe_cargo_rules_tpl
     ifeq ($$(BIN),)
         BIN = $$(call kv_value,$$(firstword $$(CARGO_EXECUTABLES)))
     else
@@ -414,35 +426,38 @@ define _x_cargo_build_lib_tpl
 endef
 
 # Download external libraries for CMake.
-# cmakabe_update_libs(
-# $(1) Target name, defaults (an empty string) to "update-libs".
-#	 target:str=update-libs,
-# $(2) Either a URL to the remote source repository or a local path.
-#    git_repo_url:str,
-# $(3) Path to the local source repository which is used to rebuild the libraries,
-#      defaults (an empty string) to "../$(notdir $(basename $(git_repo_url)))".
-#    local_repo_dir:str=,
-# $(4) Files and directories to be copyed from the source repository to the destination directory.
-#    git_sources:list<str>,
-# $(5) The destination directory in the local workspace.
-#    local_destination_dir:str,
-# $(6) The local target file or directory for make, defaults (an empty string) to $(5).
-#    local_target_file:str=,
-# $(7) The temporary directory.
-#    tmp_dir:str=.libs,
-# $(8) The Make variable name to determine whether to rebuild the libraries in 
-#      the local source repository $(3), leave it empty if you don't want to rebuild.
-#    rebuild_var:str=,
+# cmkabe_update_libs(
+# NAME=<make_target_name:str>
+#    Target name, defaults (an empty string) to "update-libs".
+# URL=<git_repo_url:str>
+#    Either a URL to the remote source repository or a local path.
+# LOCAL_REPO=<local_repo_dir:str>
+#    Path to the local source repository which is used to rebuild the libraries,
+#    defaults (an empty string) to "../$(notdir $(basename $(git_repo_url)))".
+# FILES=<git_source_files:list<str>>
+#    Files (and directories) to be copyed from the source repository to the destination directory.
+# DEST_DIR=<local_destination_dir:str>
+#    The destination directory in the local workspace.
+# TARGET_FILE=<local_target_file:str>
+#    The local target file or directory for make, defaults (an empty string) to `<DEST_DIR>`.
+# TMP_DIR=<tmp_dir:str>
+#    The temporary directory, defaults to `.libs`
+# REBUILD=<rebuild_var_name:str>
+#    The Make variable name to determine whether to rebuild the libraries in 
+#    the local source repository `<LOCAL_REPO>`, leave it empty if you don't want to rebuild.
 # )
-cmakabe_update_libs = $(eval $(call _x_cmakabe_update_libs_tpl,$(call either,$(1),update-libs),$(2),$(3),$(4),$(5),$(6),$(7),$(8)))
-define _x_cmakabe_update_libs_tpl
+cmkabe_update_libs = $(eval $(call _x_cmkabe_update_libs_tpl,$(call sel,NAME,$(word 1,$(1)),update-libs),$(1)))
+define _x_cmkabe_update_libs_tpl
     _x_saved_default_goal := $(.DEFAULT_GOAL)
 
+    $$(foreach I,$(2),$$(eval $(1)_x_$$(I)))
+    $(1)_x_FILES := $$(subst ;, ,$$($(1)_x_FILES))
+
     $(1)_x_target := $(1)
-    $(1)_x_local_repo := $$(call either,$(3),../$$(notdir $$(basename $(2))))
-	$(1)_x_local_file := $$(call either,$(6),$(5))
-    $(1)_x_tmp_dir := $$(call either,$(7),.libs)
-    $(1)_x_rebuild := $$(call bool,$$(if $(8),$$($(8)),))
+    $(1)_x_local_repo := $$(call either,$$($(1)_x_LOCAL_REPO),../$$(notdir $$(basename $$($(1)_x_URL))))
+	$(1)_x_local_file := $$(call either,$$($(1)_x_TARGET_FILE),$$($(1)_x_DEST_DIR))
+    $(1)_x_tmp_dir := $$(call either,$$($(1)_x_TMP_DIR),.libs)
+    $(1)_x_rebuild := $$(call bool,$$(if $$($(1)_x_REBUILD),$$($$($(1)_x_REBUILD)),))
 
     cmake-before-build: $$($(1)_x_local_file)
     .PHONY: $$($(1)_x_target)
@@ -451,16 +466,16 @@ define _x_cmakabe_update_libs_tpl
 		@$$(RM) -rf $$($(1)_x_tmp_dir)
     ifeq ($$($(1)_x_rebuild),ON)
 		@$$(CD) $$($(1)_x_local_repo) && make DEBUG=0
-		@$$(MKDIR) $(5)
-		@$$(CP) -rfP $$(addprefix $$($(1)_x_local_repo),$(4)) $(5)/ && $$(FIXLINK) $(5)/
-    else ifneq ($$(wildcard $(2)),)
-		@echo Copy from "$(2)" ...
-		@$$(MKDIR) $(5)
-		@$$(CP) -rfP $$(addprefix $(2)/,$(4)) $(5)/ && $$(FIXLINK) $(5)/
+		@$$(MKDIR) $$($(1)_x_DEST_DIR)
+		@$$(CP) -rfP $$(addprefix $$($(1)_x_local_repo),$$($(1)_x_FILES)) $$($(1)_x_DEST_DIR)/ && $$(FIXLINK) $$($(1)_x_DEST_DIR)/
+    else ifneq ($$(wildcard $$($(1)_x_URL)),)
+		@echo Copy from "$$($(1)_x_URL)" ...
+		@$$(MKDIR) $$($(1)_x_DEST_DIR)
+		@$$(CP) -rfP $$(addprefix $$($(1)_x_URL)/,$$($(1)_x_FILES)) $$($(1)_x_DEST_DIR)/ && $$(FIXLINK) $$($(1)_x_DEST_DIR)/
     else
-		@git clone --depth 1 --branch master $(2) $$($(1)_x_tmp_dir)
-		@$$(MKDIR) $(5)
-		@$$(CP) -rfP $$(addprefix $$($(1)_x_tmp_dir)/,$(4)) $(5)/ && $$(FIXLINK) $(5)/
+		@git clone --depth 1 --branch master $$($(1)_x_URL) $$($(1)_x_tmp_dir)
+		@$$(MKDIR) $$($(1)_x_DEST_DIR)
+		@$$(CP) -rfP $$(addprefix $$($(1)_x_tmp_dir)/,$$($(1)_x_FILES)) $$($(1)_x_DEST_DIR)/ && $$(FIXLINK) $$($(1)_x_DEST_DIR)/
 		@$$(RM) -rf $$($(1)_x_tmp_dir)
     endif
 

@@ -271,11 +271,29 @@ function(cmkabe_install_rust_dlls)
 endfunction()
 
 # Function:
-# cmkabe_make_options(result)
-#
-# Returns the common options to pass to the `make` command.
-function(cmkabe_make_options result)
-    set(${result}
+# cmkabe_add_make_target(
+#     Name [ALL]
+#     TARGETS target1 [target2...]
+#     [ENVIRONMENT [env1...]]
+#     [DEPENDS depend depend depend ... ]
+#     [BYPRODUCTS [files...]]
+#     [WORKING_DIRECTORY dir]
+#     [COMMENT comment]
+#     [JOB_POOL job_pool]
+#     [JOB_SERVER_AWARE <bool>]
+#     [VERBATIM] [USES_TERMINAL]
+#     [COMMAND_EXPAND_LISTS]
+#     [SOURCES src1 [src2...]]
+# )
+function(cmkabe_add_make_target)
+    set(options ALL VERBATIM USES_TERMINAL COMMAND_EXPAND_LISTS)
+    set(one_value_args WORKING_DIRECTORY COMMENT JOB_POOL JOB_SERVER_AWARE)
+    set(multi_value_args DEPENDS BYPRODUCTS SOURCES)
+    cmake_parse_arguments(PARSE_ARGV 0 args 
+        "${options}" "${one_value_args}" "TARGETS;ENVIRONMENT;${multi_value_args}")
+
+    set(lst)
+    set(make_options
         TARGET=${CMKABE_TARGET}
         TARGET_DIR=${TARGET_DIR}
         TARGET_CMAKE_DIR=${TARGET_CMAKE_DIR}
@@ -283,12 +301,50 @@ function(cmkabe_make_options result)
         TARGET_CC=${TARGET_CC}
         CARGO_TARGET=${CARGO_TARGET}
         ZIG_TARGET=${ZIG_TARGET}
-        # The following three options are not used to build dependency scripts.
         DEBUG=$ENV{CMKABE_DEBUG}
         MINSIZE=$ENV{CMKABE_MINSIZE}
         DBGINFO=$ENV{CMKABE_DBGINFO}
-        PARENT_SCOPE
     )
+
+    if(NOT args_WORKING_DIRECTORY)
+        set(args_WORKING_DIRECTORY "${WORKSPACE_DIR}")
+    endif()
+
+    # name
+    list(POP_FRONT args_UNPARSED_ARGUMENTS name)
+    list(APPEND lst "${name}")
+    # options
+    foreach(arg IN LISTS options)
+        if(args_${arg})
+            list(APPEND lst "${arg}")
+        endif()
+    endforeach()
+    # one-value args
+    foreach(arg IN LISTS one_value_args)
+        if(args_${arg})
+            list(APPEND lst "${arg}" "${args_${arg}}")
+        endif()
+    endforeach()
+    # multi-value args
+    foreach(arg IN LISTS multi_value_args)
+        if(args_${arg})
+            list(APPEND lst "${arg}" ${args_${arg}})
+        endif()
+    endforeach()
+    # command
+    list(APPEND lst "COMMAND")
+    if(args_ENVIRONMENT)
+        list(APPEND lst "${CMAKE_COMMAND}" "-E" "env" ${args_ENVIRONMENT})
+    endif()
+    list(APPEND lst "make")
+    list(APPEND lst ${args_TARGETS})
+    list(APPEND lst ${make_options})
+    if(args_DEPENDS)
+        list(JOIN args_DEPENDS "," depends)
+        list(APPEND lst "CMKABE_COMPLETED_PORJECTS=${depends}")
+    endif()
+
+    add_custom_target(${lst})
 endfunction()
 
 # Function:
