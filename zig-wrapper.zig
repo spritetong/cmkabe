@@ -966,20 +966,21 @@ pub const ZigWrapper = struct {
         // `cc`, `c++`: -target <target> [-march=<cpu>] [-mtune=<cpu>]
         if (self.command.isCompiler()) {
             try self.args.appendSlice(&[_][]const u8{ "-target", self.zig_target });
-            for (&[_]*StringArray{ &self.zig_cpu_opts, &self.zig_cpu_tune_opts }) |options| {
-                for (options.items) |opt| {
-                    // Fix the Zig CC bug about CPU architecture:
-                    //    '-' -> '_' for compiler;
-                    //    '_' -> '-' for preprocessor.
-                    if (!self.is_preprocessor) {
+            if (!self.is_preprocessor) {
+                for (&[_]*StringArray{ &self.zig_cpu_opts, &self.zig_cpu_tune_opts }) |options| {
+                    for (options.items) |opt| {
+                        // Fix the Zig CC bug about CPU architecture:
+                        //    '-' -> '_' for compiler;
+                        //    '_' -> '-' for preprocessor.
                         const s = @constCast(opt[1..]);
                         _ = std.mem.replace(u8, s, "-", "_", s);
+
+                        _ = try self.arg_filter.next(
+                            self,
+                            @constCast(&.{ .args = &.{opt} }),
+                            &self.args,
+                        );
                     }
-                    _ = try self.arg_filter.next(
-                        self,
-                        @constCast(&.{ .args = &.{opt} }),
-                        &self.args,
-                    );
                 }
             }
         }
@@ -1062,7 +1063,7 @@ pub const ZigWrapper = struct {
         var args = StringArray.init(self.allocator());
         defer args.deinit();
         var tmp = StringArray.init(self.allocator());
-        defer tmp.deinit();        
+        defer tmp.deinit();
 
         for (0..3) |target_idx| {
             // Do not apply the same targets.
@@ -1142,7 +1143,9 @@ pub const ZigWrapper = struct {
             } else if (parser.parseNamed(ZigArgFilter.compile_only_opts, false)) {
                 if (self.command.isCompiler()) {
                     self.is_linker = false;
-                    self.is_preprocessor = strEql(parser.consumed[0], "-E");
+                    if (!self.is_preprocessor and strEql(parser.consumed[0], "-E")) {
+                        self.is_preprocessor = true;
+                    }
                 }
                 // Do no consume the argument.
                 try dest.appendSlice(parser.consumed);

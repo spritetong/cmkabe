@@ -271,6 +271,27 @@ function(cmkabe_install_rust_dlls)
 endfunction()
 
 # Function:
+# cmkabe_make_options(result)
+#
+# Returns the common options to pass to the `make` command.
+function(cmkabe_make_options result)
+    set(${result}
+        TARGET=${CMKABE_TARGET}
+        TARGET_DIR=${TARGET_DIR}
+        TARGET_CMAKE_DIR=${TARGET_CMAKE_DIR}
+        CMAKE_TARGET_PREFIX=${TARGET_PREFIX}
+        TARGET_CC=${TARGET_CC}
+        CARGO_TARGET=${CARGO_TARGET}
+        ZIG_TARGET=${ZIG_TARGET}
+        # The following three options are not used to build dependency scripts.
+        DEBUG=$ENV{CMKABE_DEBUG}
+        MINSIZE=$ENV{CMKABE_MINSIZE}
+        DBGINFO=$ENV{CMKABE_DBGINFO}
+        PARENT_SCOPE
+    )
+endfunction()
+
+# Function:
 # cmkabe_add_make_target(
 #     Name [ALL]
 #     TARGETS target1 [target2...]
@@ -293,18 +314,7 @@ function(cmkabe_add_make_target)
         "${options}" "${one_value_args}" "TARGETS;ENVIRONMENT;${multi_value_args}")
 
     set(lst)
-    set(make_options
-        TARGET=${CMKABE_TARGET}
-        TARGET_DIR=${TARGET_DIR}
-        TARGET_CMAKE_DIR=${TARGET_CMAKE_DIR}
-        CMAKE_TARGET_PREFIX=${TARGET_PREFIX}
-        TARGET_CC=${TARGET_CC}
-        CARGO_TARGET=${CARGO_TARGET}
-        ZIG_TARGET=${ZIG_TARGET}
-        DEBUG=$ENV{CMKABE_DEBUG}
-        MINSIZE=$ENV{CMKABE_MINSIZE}
-        DBGINFO=$ENV{CMKABE_DBGINFO}
-    )
+    cmkabe_make_options(make_options)
 
     if(NOT args_WORKING_DIRECTORY)
         set(args_WORKING_DIRECTORY "${WORKSPACE_DIR}")
