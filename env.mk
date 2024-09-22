@@ -39,8 +39,8 @@ endef
 cmkabe_parse_target = $(eval include $(CMKABE_HOME)/rules.mk)
 
 # cmkabe_update_toolchain()
-#    Apply variables to the toolchain of the current target.
-cmkabe_update_toolchain = $(eval include $(_X_DOT_TOOLCHAIN_MK))
+#    Apply settings to the toolchain of the current target.
+cmkabe_update_toolchain = $(eval include $(_X_DOT_ENVIRON_MK))
 
 # If `$(TARGET_IS_NATIVE)` is true, return `native`; otherwise, return `$(TARGET)`.
 CMKABE_TARGET = $(call bsel,$(TARGET_IS_NATIVE),native,$(TARGET))

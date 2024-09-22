@@ -13,8 +13,12 @@
 
 cmake_minimum_required(VERSION 3.16)
 
+if(NOT DEFINED _CMKABE_ENV_INITED)
+set(_CMKABE_ENV_INITED ON)
+
 if(NOT DEFINED CMKABE_HOME)
-set(CMKABE_HOME "${CMAKE_CURRENT_LIST_DIR}")
+    set(CMKABE_HOME "${CMAKE_CURRENT_LIST_DIR}")
+endif()
 
 # if `TARGET_IS_NATIVE` is `ON`, return `native`; otherwise, return `${TARGET}`.
 set(CMKABE_TARGET "native")
@@ -275,6 +279,17 @@ endfunction()
 #
 # Returns the common options to pass to the `make` command.
 function(cmkabe_make_options result)
+    set(debug OFF)
+    set(minsize OFF)
+    set(dbginfo OFF)
+    if(CMAKE_BUILD_TYPE MATCHES "^[Dd]ebug$")
+        set(debug ON)
+        set(dbginfo ON)
+    elseif(CMAKE_BUILD_TYPE STREQUAL "MinSizeRel")
+        set(minsize ON)
+    elseif(CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
+        set(dbginfo ON)
+    endif()
     set(${result}
         TARGET=${CMKABE_TARGET}
         TARGET_DIR=${TARGET_DIR}
@@ -283,10 +298,9 @@ function(cmkabe_make_options result)
         TARGET_CC=${TARGET_CC}
         CARGO_TARGET=${CARGO_TARGET}
         ZIG_TARGET=${ZIG_TARGET}
-        # The following three options are not used to build dependency scripts.
-        DEBUG=$ENV{CMKABE_DEBUG}
-        MINSIZE=$ENV{CMKABE_MINSIZE}
-        DBGINFO=$ENV{CMKABE_DBGINFO}
+        DEBUG=${debug}
+        MINSIZE=${minsize}
+        DBGINFO=${dbginfo}
         PARENT_SCOPE
     )
 endfunction()
@@ -384,6 +398,29 @@ function(_cmkabe_build_make_deps)
         OUTPUT_VARIABLE output
         OUTPUT_STRIP_TRAILING_WHITESPACE
     )
+endfunction()
+
+function(_cmkabe_apply_extra_flags)
+    if(TARGET_PREFIX_INCLUDES)
+        include_directories(SYSTEM ${TARGET_PREFIX_INCLUDES})
+    endif()
+    if (TARGET_INCLUDE_DIR AND (NOT TARGET_INCLUDE_DIR IN_LIST TARGET_PREFIX_INCLUDES))
+        include_directories(SYSTEM "${TARGET_INCLUDE_DIR}")
+    endif()
+
+    if(CARGO_TARGET_OUT_DIR)
+        link_directories(BEFORE "${CARGO_TARGET_OUT_DIR}")
+    endif()
+    if (TARGET_LIB_DIR AND (NOT TARGET_LIB_DIR IN_LIST TARGET_PREFIX_LIBS))
+        link_directories("${TARGET_LIB_DIR}")
+    endif()
+    if(TARGET_PREFIX_LIBS)
+        link_directories(${TARGET_PREFIX_LIBS})
+    endif()
+
+    if(CARGO_TARGET_UNDERSCORE AND (NOT ZIG))
+        cmkabe_add_env_compiler_flags(${CARGO_TARGET_UNDERSCORE} C CXX)
+    endif()
 endfunction()
 
 endif()

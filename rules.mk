@@ -43,13 +43,13 @@ cmake_build_target_deps = $(SHLUTIL) build_target_deps \
     TARGET=$(CMKABE_TARGET) \
     TARGET_DIR=$(TARGET_DIR) \
     TARGET_CMAKE_DIR=$(TARGET_CMAKE_DIR) \
-	CMAKE_TARGET_PREFIX=$(CMAKE_TARGET_PREFIX) \
+    CMAKE_TARGET_PREFIX=$(CMAKE_TARGET_PREFIX) \
     TARGET_CC=$(TARGET_CC) \
     CARGO_TARGET=$(CARGO_TARGET) \
     ZIG_TARGET=$(ZIG_TARGET)
 
-# include .host@$(HOST_SYSTEM_LOWER).mk
-_X_DOT_HOST_MK = $(TARGET_CMAKE_DIR)/.host@$(HOST_SYSTEM_LOWER).mk
+# include .$(HOST_SYSTEM_LOWER).host.mk
+_X_DOT_HOST_MK = $(TARGET_CMAKE_DIR)/.$(HOST_SYSTEM_LOWER).host.mk
 ifneq ($(filter cmake-init,$(if $(wildcard $(_X_DOT_HOST_MK)),,cmake-init) $(MAKECMDGOALS)),)
     ifneq ($(shell $(cmake_build_target_deps) >$(NULL) || echo 1),)
         $(error Failed to build target: $(TARGET))
@@ -58,20 +58,20 @@ endif
 include $(_X_DOT_HOST_MK)
 
 _X_DOT_VARS_DIR := $(TARGET_CMAKE_DIR)/$(if $(filter-out native,$(TARGET)),$(TARGET),$(HOST_TARGET).native)
-_X_DOT_VARS_MK = $(_X_DOT_VARS_DIR)/.vars@$(HOST_SYSTEM_LOWER).mk
-_X_DOT_TOOLCHAIN_MK = $(_X_DOT_VARS_DIR)/.toolchain@$(HOST_SYSTEM_LOWER).mk
+_X_DOT_SETTINGS_MK = $(_X_DOT_VARS_DIR)/.$(HOST_SYSTEM_LOWER).settings.mk
+_X_DOT_ENVIRON_MK = $(_X_DOT_VARS_DIR)/.$(HOST_SYSTEM_LOWER).environ.mk
 
 # Auto rebuild dependencies.
-$(_X_DOT_VARS_MK): $(addprefix $(CMKABE_HOME)/,shlutilib.py zig-wrapper.zig)
+$(_X_DOT_SETTINGS_MK): $(addprefix $(CMKABE_HOME)/,shlutilib.py zig-wrapper.zig)
 	@$(cmake_build_target_deps)
 
-# include .vars@$(HOST_SYSTEM_LOWER).mk
-ifeq ($(wildcard $(_X_DOT_VARS_MK)),)
+# include .$(HOST_SYSTEM_LOWER).settings.mk
+ifeq ($(wildcard $(_X_DOT_SETTINGS_MK)),)
     ifneq ($(shell $(cmake_build_target_deps) >$(NULL) || echo 1),)
         $(error Failed to build target: $(TARGET))
     endif
 endif
-include $(_X_DOT_VARS_MK)
+include $(_X_DOT_SETTINGS_MK)
 ifeq ($(CMAKE_TARGET_DIR),)
     $(error Can not parse target: $(TARGET))
 endif
@@ -333,8 +333,8 @@ shell:
     endif
 
 # Show target information
-.PHONY: show
-show:
+.PHONY: target
+target:
 	@echo "TARGET:              $(TARGET)"
 	@echo "CARGO_TARGET:        $(CARGO_TARGET)"
 	@echo "TARGET_CC:           $(TARGET_CC)"
@@ -455,7 +455,7 @@ define _x_cmkabe_update_libs_tpl
 
     $(1)_x_target := $(1)
     $(1)_x_local_repo := $$(call either,$$($(1)_x_LOCAL_REPO),../$$(notdir $$(basename $$($(1)_x_URL))))
-	$(1)_x_local_file := $$(call either,$$($(1)_x_TARGET_FILE),$$($(1)_x_DEST_DIR))
+    $(1)_x_local_file := $$(call either,$$($(1)_x_TARGET_FILE),$$($(1)_x_DEST_DIR))
     $(1)_x_tmp_dir := $$(call either,$$($(1)_x_TMP_DIR),.libs)
     $(1)_x_rebuild := $$(call bool,$$(if $$($(1)_x_REBUILD),$$($$($(1)_x_REBUILD)),))
 

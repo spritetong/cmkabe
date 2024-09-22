@@ -1646,11 +1646,8 @@ pub const ZigWrapper = struct {
                 if (self.windres_depfile) |depfile| {
                     var path = depfile;
                     if (depfile.len == 0) {
-                        const input = self.windres_input orelse return;
-                        path = try self.alloc.allocPrint(
-                            "{s}.d",
-                            .{input[0 .. input.len - std.fs.path.extension(input).len]},
-                        );
+                        const output = self.windres_output orelse return;
+                        path = try self.alloc.allocPrint("{s}.d", .{output});
                     }
                     if (success) {
                         // Create a pseudo dependency file.

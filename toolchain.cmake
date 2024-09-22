@@ -11,7 +11,10 @@
 # *             - Initial revision.
 # *
 
-if(NOT DEFINED CMKABE_HOME)
+cmake_minimum_required(VERSION 3.16)
+
+if(NOT DEFINED _CMKABE_TOOLCHAIN_INITED)
+set(_CMKABE_TOOLCHAIN_INITED ON)
 
 include("${CMAKE_CURRENT_LIST_DIR}/env.cmake")
 
@@ -26,7 +29,7 @@ if(NOT DEFINED TARGET_CMAKE_DIR)
 endif()
 
 # `HOST_TARGET`
-set(DOT_HOST_CMAKE "${TARGET_CMAKE_DIR}/.host@${CMKABE_HOST_SYSTEM_LOWER}.cmake")
+set(DOT_HOST_CMAKE "${TARGET_CMAKE_DIR}/.${CMKABE_HOST_SYSTEM_LOWER}.host.cmake")
 if(NOT EXISTS "${DOT_HOST_CMAKE}")
     _cmkabe_build_make_deps()
 endif()
@@ -38,11 +41,11 @@ if("${TARGET}" MATCHES "^(|native)$")
 else()
     set(DOT_TARGET_DIR "${TARGET_CMAKE_DIR}/${TARGET}")
 endif()
-if(NOT EXISTS "${DOT_TARGET_DIR}/.vars@${CMKABE_HOST_SYSTEM_LOWER}.cmake")
+if(NOT EXISTS "${DOT_TARGET_DIR}/.${CMKABE_HOST_SYSTEM_LOWER}.settings.cmake")
     _cmkabe_build_make_deps()
 endif()
-include("${DOT_TARGET_DIR}/.vars@${CMKABE_HOST_SYSTEM_LOWER}.cmake")
-include("${DOT_TARGET_DIR}/.toolchain@${CMKABE_HOST_SYSTEM_LOWER}.cmake")
+include("${DOT_TARGET_DIR}/.${CMKABE_HOST_SYSTEM_LOWER}.settings.cmake")
+include("${DOT_TARGET_DIR}/.${CMKABE_HOST_SYSTEM_LOWER}.environ.cmake")
 
 # Update `CMKABE_TARGET` 
 if(NOT TARGET_IS_NATIVE)

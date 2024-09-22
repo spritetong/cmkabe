@@ -11,6 +11,8 @@
 # *             - Initial revision.
 # *
 
+cmake_minimum_required(VERSION 3.16)
+
 if(NOT DEFINED _CMKABE_RULES_INITIALIZED)
 set(_CMKABE_RULES_INITIALIZED ON)
 
@@ -150,23 +152,6 @@ if(TARGET_MSVC_NO_PDB_WARNING AND MSVC)
     add_link_options("/ignore:4099")
 endif()
 
-if(TARGET_PREFIX_INCLUDES)
-    include_directories(SYSTEM ${TARGET_PREFIX_INCLUDES})
-endif()
-if (NOT TARGET_INCLUDE_DIR IN_LIST TARGET_PREFIX_INCLUDES)
-    include_directories(SYSTEM "${TARGET_INCLUDE_DIR}")
-endif()
-
-link_directories(BEFORE "${CARGO_TARGET_OUT_DIR}")
-if (NOT TARGET_LIB_DIR IN_LIST TARGET_PREFIX_LIBS)
-    link_directories("${TARGET_LIB_DIR}")
-endif()
-if(TARGET_PREFIX_LIBS)
-    link_directories(${TARGET_PREFIX_LIBS})
-endif()
-
-if(CARGO_TARGET_UNDERSCORE AND (NOT ZIG))
-    cmkabe_add_env_compiler_flags(${CARGO_TARGET_UNDERSCORE} C CXX)
-endif()
+_cmkabe_apply_extra_flags()
 
 endif()
