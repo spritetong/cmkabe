@@ -2018,7 +2018,10 @@ class TargetParser(ShellCmd):
             fwrite(f, '# For Rust cmake\n')
             fwrite(f, 'export CMAKE_TOOLCHAIN_FILE_{} = {}/.{}.toolchain.cmake\n'.format(
                 cargo_target, self.cmake_target_dir, self.host_system.lower()))
-            fwrite(f, 'export CMAKE_GENERATOR_{} = {}\n'.format(cargo_target, self.cmake_generator))
+            if self.cmake_generator:
+                fwrite(f, 'export CMAKE_GENERATOR_{} = {}\n'.format(cargo_target, self.cmake_generator))
+            else:
+                fwrite(f, 'unexport CMAKE_GENERATOR_{}\n'.format(cargo_target))
             fwrite(f, '\n')
 
             fwrite(f, '# Configure the cross compile pkg-config.\n')
