@@ -983,6 +983,9 @@ pub const ZigWrapper = struct {
                     }
                 }
             }
+            if (self.is_linker) {
+                try self.args.appendSlice(&.{ "-lc++", "-lc++abi" });
+            }
         }
 
         var argv = try StringArray.initCapacity(self.alloc.allocator(), self.sys_argv.items.len);

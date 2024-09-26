@@ -137,12 +137,21 @@ wsl_run = $(1)
 # xargs_do(input:str,command:str)
 xargs_do = $(1) | xargs -I {} $(2)
 
-COMMA   = ,
-ESC    := $(strip \)# Shell's escape character
+# Extension name of executable files, ".exe" on Windows or "" on other systems.
 EXE_EXT =
-SEP    := $(if $(filter Windows,$(HOST_SYSTEM)),\,/)# Directory Separator
-PATHSEP:= $(if $(filter Windows,$(HOST_SYSTEM)),;,:)# Path Separator
+# Directory separator, "\\" on Windows or "/" on other systems.
+SEP    := $(if $(filter Windows,$(HOST_SYSTEM)),\,/)
+# Path Separator, ";" on Windows or ":" on other systems.
+PATHSEP:= $(if $(filter Windows,$(HOST_SYSTEM)),;,:)
+
+# ','
+COMMA   = ,
+# '\\'
+ESC    := $(strip \)# Shell's escape character
+# ' '
 SPACE  := $(subst :,,: :)
+# '\t'
+TAB := $(subst :,,:	:)
 
 NULL    = /dev/null
 OK      = true
