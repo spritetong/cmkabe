@@ -165,8 +165,8 @@ cmake_clean = $(call cmake_build) --target clean
 # ==============================================================================
 # = Android NDK
 
-#! Android SDK version (API level), defaults to 21.
-ANDROID_SDK_VERSION ?= 21
+#! Android SDK version (API level), defaults to 24.
+ANDROID_SDK_VERSION ?= 24
 #! Specifies whether to generate arm or thumb instructions for armeabi-v7a: arm, thumb
 ANDROID_ARM_MODE ?=
 #! Enables or disables NEON for armeabi-v7a: ON, OFF
