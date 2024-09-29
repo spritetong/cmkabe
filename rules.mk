@@ -448,8 +448,8 @@ endef
 # )
 cmkabe_update_libs = $(eval $(call _x_cmkabe_update_libs_tpl,$(call sel,NAME,$(word 1,$(1)),update-libs),$(1)))
 _x_cmkabe_update_lib_cp = $(OK) $(foreach I,$(3),&& $(MKDIR) $(2)/$(word 2,$(subst :, ,$I)) && \
-         $(CP) -rfP $(addprefix $(1)/,$(word 1,$(subst :, ,$I))) $(2)/$(word 2,$(subst :, ,$I)) && \
-         $(FIXLINK) $(2)/$(word 2,$(subst :, ,$I)))
+	$(CP) -rfP $(addprefix $(1)/,$(word 1,$(subst :, ,$I))) $(2)/$(word 2,$(subst :, ,$I)) && \
+	$(FIXLINK) $(2)/$(word 2,$(subst :, ,$I)))
 define _x_cmkabe_update_libs_tpl
     _x_saved_default_goal := $(.DEFAULT_GOAL)
 
