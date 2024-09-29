@@ -793,6 +793,13 @@ class TargetParser(ShellCmd):
         'i686': 'Win32',
         'x86_64': 'x64',
     }
+    # Rust ARCH -> Visual Studio ARCH
+    VSTOOLS_ARCH_MAP = {
+        'aarch64': 'arm64',
+        'i586': 'x86',
+        'i686': 'x86',
+        'x86_64': 'x64',
+    }
     # Rust ARCH -> Android ARCH
     ANDROID_ARCH_MAP = {
         'i686': 'i686',
@@ -900,6 +907,7 @@ class TargetParser(ShellCmd):
 
         # Windows
         self.msvc_arch = ''
+        self.msvc_masm = ''
         # Android
         self.android_ndk_root = ''
         self.android_ndk_bin = ''
@@ -1269,21 +1277,24 @@ class TargetParser(ShellCmd):
         import subprocess
         vswhere = 'vswhere.exe'
         for program_files in ['ProgramW6432', 'ProgramFiles(x86)', 'ProgramFiles']:
-            path = r'\Microsoft Visual Studio\Installer\vswhere.exe'.format(
-                program_files)
+            path = r'{}\Microsoft Visual Studio\Installer\vswhere.exe'.format(
+                os.environ.get(program_files, ''))
             if os.path.isfile(path):
                 vswhere = path
-        result = subprocess.run(
-            [vswhere, "-latest", "-requires", "Microsoft.VisualStudio.Component.VC.Tools.*",
-                "-property", "installationPath"],
-            stdin=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            capture_output=True, text=True)
-        vc_tools_install_dir = result.stdout.strip()
-        # if vc_tools_install_dir:
-        #     VSINSTALLDIR=C:\Program Files\Microsoft Visual Studio\2022\Community\
-        #     VCToolsInstallDir=C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.41.34120\
-        #     path = C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.41.34120\bin\HostX64\x64;C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\VC\VCPackages;
+        try:
+            result = subprocess.run(
+                [vswhere, '-latest', '-requires', 'Microsoft.VisualStudio.Component.VC.Tools.*',
+                    "-find", r'VC\Tools\MSVC\**\bin\*{}\{}\ml*.exe'.format(
+                        self.VSTOOLS_ARCH_MAP.get(self.host_arch, self.host_arch),
+                        self.VSTOOLS_ARCH_MAP.get(self.arch, self.arch),
+                    )],
+                stdin=subprocess.DEVNULL,
+                capture_output=True, text=True)
+            ml = result.stdout.strip()
+            if ml:
+                self.msvc_masm = self.normpath(ml)
+        except OSError:
+            pass
 
     def _cmake_init(self):
         self.cmake_target_dir = '{}/{}{}'.format(
@@ -1640,6 +1651,8 @@ class TargetParser(ShellCmd):
             self.lock_file(unlock=file)
 
     def _build(self):
+        if self.host_is_windows and self.win32:
+            self._win32_init()
         if self.android:
             self._android_init()
         elif self.zig:
@@ -1786,6 +1799,7 @@ class TargetParser(ShellCmd):
 
             fwrite(f, '# MSVC\n')
             fwrite(f, 'override MSVC_ARCH = {}\n'.format(self.msvc_arch))
+            fwrite(f, 'override MSVC_MASM = {}\n'.format(self.msvc_masm))
             fwrite(f, '\n')
 
             fwrite(f, '# Android\n')
@@ -1884,6 +1898,7 @@ class TargetParser(ShellCmd):
 
             fwrite(f, '# MSVC\n')
             fwrite(f, 'set(MSVC_ARCH "{}")\n'.format(self.msvc_arch))
+            fwrite(f, 'set(MSVC_MASM "{}")\n'.format(self.msvc_masm))
             fwrite(f, '\n')
 
             fwrite(f, '# Android\n')
