@@ -1265,6 +1265,26 @@ class TargetParser(ShellCmd):
                                      for x in _any_prefix_subdirs()]
         return self
 
+    def _win32_init(self):
+        import subprocess
+        vswhere = 'vswhere.exe'
+        for program_files in ['ProgramW6432', 'ProgramFiles(x86)', 'ProgramFiles']:
+            path = r'\Microsoft Visual Studio\Installer\vswhere.exe'.format(
+                program_files)
+            if os.path.isfile(path):
+                vswhere = path
+        result = subprocess.run(
+            [vswhere, "-latest", "-requires", "Microsoft.VisualStudio.Component.VC.Tools.*",
+                "-property", "installationPath"],
+            stdin=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            capture_output=True, text=True)
+        vc_tools_install_dir = result.stdout.strip()
+        # if vc_tools_install_dir:
+        #     VSINSTALLDIR=C:\Program Files\Microsoft Visual Studio\2022\Community\
+        #     VCToolsInstallDir=C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.41.34120\
+        #     path = C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.41.34120\bin\HostX64\x64;C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\VC\VCPackages;
+
     def _cmake_init(self):
         self.cmake_target_dir = '{}/{}{}'.format(
             self.target_cmake_dir, self.target, '.native' if self.target_is_native else '')
@@ -2019,7 +2039,8 @@ class TargetParser(ShellCmd):
             fwrite(f, 'export CMAKE_TOOLCHAIN_FILE_{} = {}/.{}.toolchain.cmake\n'.format(
                 cargo_target, self.cmake_target_dir, self.host_system.lower()))
             if self.cmake_generator:
-                fwrite(f, 'export CMAKE_GENERATOR_{} = {}\n'.format(cargo_target, self.cmake_generator))
+                fwrite(f, 'export CMAKE_GENERATOR_{} = {}\n'.format(
+                    cargo_target, self.cmake_generator))
             else:
                 fwrite(f, 'unexport CMAKE_GENERATOR_{}\n'.format(cargo_target))
             fwrite(f, '\n')
@@ -2110,23 +2131,25 @@ class TargetParser(ShellCmd):
                 self.cargo_target))
             fwrite(f, 'set(ENV{{CMKABE_ZIG_TARGET}} "{}")\n'.format(
                 self.zig_target))
-            fwrite(f, 'if(CMAKE_BUILD_TYPE STREQUAL "Release")\n')
-            fwrite(f, '    set(ENV{CMKABE_DEBUG} OFF)\n')
+            fwrite(f, 'string(TOLOWER "${CMAKE_BUILD_TYPE}" _s)\n')
+            fwrite(f, 'if(_s STREQUAL "debug")\n')
+            fwrite(f, '    set(ENV{CMKABE_DEBUG} ON)\n')
             fwrite(f, '    set(ENV{CMKABE_MINSIZE} OFF)\n')
-            fwrite(f, '    set(ENV{CMKABE_DBGINFO} OFF)\n')
-            fwrite(f, 'elseif(CMAKE_BUILD_TYPE STREQUAL "MinSizeRel")\n')
+            fwrite(f, '    set(ENV{CMKABE_DBGINFO} ON)\n')
+            fwrite(f, 'elseif(_s STREQUAL "minsizerel")\n')
             fwrite(f, '    set(ENV{CMKABE_DEBUG} OFF)\n')
             fwrite(f, '    set(ENV{CMKABE_MINSIZE} ON)\n')
             fwrite(f, '    set(ENV{CMKABE_DBGINFO} OFF)\n')
-            fwrite(f, 'elseif(CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")\n')
+            fwrite(f, 'elseif(_s STREQUAL "relwithdebinfo")\n')
             fwrite(f, '    set(ENV{CMKABE_DEBUG} OFF)\n')
             fwrite(f, '    set(ENV{CMKABE_MINSIZE} OFF)\n')
             fwrite(f, '    set(ENV{CMKABE_DBGINFO} ON)\n')
             fwrite(f, 'else()\n')
-            fwrite(f, '    set(ENV{CMKABE_DEBUG} ON)\n')
+            fwrite(f, '    set(ENV{CMKABE_DEBUG} OFF)\n')
             fwrite(f, '    set(ENV{CMKABE_MINSIZE} OFF)\n')
-            fwrite(f, '    set(ENV{CMKABE_DBGINFO} ON)\n')
+            fwrite(f, '    set(ENV{CMKABE_DBGINFO} OFF)\n')
             fwrite(f, 'endif()\n')
+            fwrite(f, 'unset(_s)\n')
             fwrite(f, 'set(ENV{{CMKABE_LINK_DIRS}} "{}")\n'.format(
                 os.path.pathsep.join(self.enum_prefix_subdirs_of('lib'))))
             fwrite(f, 'set(ENV{{CMKABE_INCLUDE_DIRS}} "{}")\n'.format(
@@ -2146,9 +2169,5 @@ class TargetParser(ShellCmd):
             fwrite(f, 'include("${CMKABE_HOME}/toolchain.cmake")\n')
             fwrite(f, '_cmkabe_apply_extra_flags()\n')
             fwrite(f, '\n')
-            fwrite(f, 'if(ZIG AND TARGET_IS_WIN32)\n')
-            fwrite(f, '    # [aws-lc-sys] error: "_WIN32_WINNT" macro redefined [-Werror,-Wmacro-redefined]\n')
-            fwrite(f, '    add_compile_options(-Wno-macro-redefined)\n')
-            fwrite(f, 'endif()\n')
 
         return self

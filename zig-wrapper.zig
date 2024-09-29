@@ -983,6 +983,10 @@ pub const ZigWrapper = struct {
                     }
                 }
             }
+            if (self.target_is_windows) {
+                // Undefine `_WIN32_WINNT` for Windows targets.
+                try self.args.appendSlice(&[_][]const u8{"-U_WIN32_WINNT"});
+            }
             if (self.is_linker) {
                 try self.args.appendSlice(&.{ "-lc++", "-lc++abi" });
             }

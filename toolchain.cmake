@@ -112,6 +112,7 @@ elseif(ZIG OR TARGET_CC)
     set(CMAKE_CXX_COMPILER "${TARGET_CXX}")
     set(CMAKE_ASM_COMPILER "${TARGET_CC}")
     set(CMAKE_ASM-ATT_COMPILER "${TARGET_CC}")
+    set(CMAKE_ASM_MASM_COMPILER "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.41.34120/bin/Hostx64/x64/ml64.exe")
     set(CMAKE_AR "${TARGET_AR}")
     set(CMAKE_RANLIB "${TARGET_RANLIB}")
 

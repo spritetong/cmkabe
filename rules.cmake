@@ -43,7 +43,7 @@ if(NOT DEFINED TARGET_CC_PIC)
 endif()
 
 if(NOT DEFINED TARGET_CC_NO_DELETE_NULL_POINTER_CHECKS)
-    set(TARGET_CC_NO_DELETE_NULL_POINTER_CHECKS ON)
+    set(TARGET_CC_NO_DELETE_NULL_POINTER_CHECKS OFF)
 endif()
 
 if(NOT DEFINED TARGET_CC_VISIBILITY_HIDDEN)
@@ -122,11 +122,11 @@ if(NOT CMAKE_C_FLAGS_DEBUG MATCHES " ${CC_DEFINE_OPT}_DEBUG( |$)")
 endif()
 
 if(TARGET_CC_PIC AND CC_SUPPORT_PIC)
-    add_compile_options("-fPIC")
+    add_compile_options($<$<COMPILE_LANGUAGE:C,CXX>:-fPIC>)
 endif()
 
 if(TARGET_CC_NO_DELETE_NULL_POINTER_CHECKS AND CC_SUPPORT_NO_DELETE_NULL_POINTER_CHECKS)
-    add_compile_options("-fno-delete-null-pointer-checks")
+    add_compile_options($<$<COMPILE_LANGUAGE:C,CXX>:-fno-delete-null-pointer-checks>)
 endif()
 
 if(TARGET_CC_VISIBILITY_HIDDEN)
@@ -136,15 +136,15 @@ if(TARGET_CC_VISIBILITY_HIDDEN)
 endif()
 
 if(TARGET_MSVC_AFXDLL AND MSVC)
-    add_compile_definitions("_AFXDLL")
+    add_compile_definitions($<$<COMPILE_LANGUAGE:C,CXX>:_AFXDLL>)
 endif()
 
 if(TARGET_MSVC_UNICODE AND MSVC)
-    add_compile_definitions("_UNICODE")
+    add_compile_definitions($<$<COMPILE_LANGUAGE:C,CXX>:_UNICODE>)
 endif()
 
 if(TARGET_MSVC_UTF8 AND MSVC)
-    add_compile_options("/utf-8")
+    add_compile_options($<$<COMPILE_LANGUAGE:C,CXX>:/utf-8>)
 endif()
 
 if(TARGET_MSVC_NO_PDB_WARNING AND MSVC)
