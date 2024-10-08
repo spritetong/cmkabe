@@ -864,6 +864,7 @@ class TargetParser(ShellCmd):
         self.host_vendor = host_target_info['vendor']
         self.host_env = host_target_info['env']
         self.host_target = host_target_info['triple']
+        self.host_cargo_target = host_target_info['cargo_triple']
         self.script_dir = self.normpath(
             os.path.abspath(os.path.dirname(__file__)))
 
@@ -955,7 +956,7 @@ class TargetParser(ShellCmd):
 
     @property
     def target_is_runnable(self):
-        if self.target_is_native or self.host_target == self.cargo_target:
+        if self.target_is_native or self.cargo_target == self.host_cargo_target:
             return True
         if (not self.android and not self.ios and
             (self.host_os == self.os) and
@@ -964,6 +965,10 @@ class TargetParser(ShellCmd):
                 (self.env in ['msvc', 'gnu', 'musl', ''])):
             return True
         return False
+
+    @property
+    def is_cross_compiling(self):
+        return self.cargo_target != self.host_cargo_target
 
     @property
     def target_cxx(self):
@@ -978,9 +983,23 @@ class TargetParser(ShellCmd):
             cxx = stem
         return self.target_cc[:-(len(stem) + len(ext))] + cxx + ext
 
-    def cargo_target_out_dir(self, make=False, cmake=False):
-        dir = self.cargo_target_dir if self.target_is_native else '{}/{}'.format(
-            self.cargo_target_dir, self.cargo_target)
+    @property
+    def cmkabe_target(self):
+        """
+        The target triple for cmkabe.
+
+        If the target is `native`, returns `native`, otherwise returns
+        the target triple.
+
+        :rtype: str
+        """
+        return 'native' if self.target_is_native else self.target
+
+    def cargo_out_dir(self, make=False, cmake=False):
+        if self.cargo_target == self.host_cargo_target:
+            dir = self.cargo_target_dir
+        else:
+            dir = '{}/{}'.format(self.cargo_target_dir, self.cargo_target)
         build_type = 'debug'
         if make:
             build_type = '$(CARGO_BUILD_TYPE)'
@@ -995,10 +1014,10 @@ class TargetParser(ShellCmd):
     def enum_prefix_subdirs_of(self, subdir, quotes=False, make=False, cmake=False):
         if subdir in ['bin', 'lib']:
             if make:
-                for dir in [self.cargo_target_out_dir(make=True), self.cmake_build_dir()]:
+                for dir in [self.cargo_out_dir(make=True), self.cmake_build_dir()]:
                     yield '"{}"'.format(dir) if quotes else dir
             elif cmake:
-                for dir in [self.cargo_target_out_dir(cmake=True), '${CMAKE_BINARY_DIR}']:
+                for dir in [self.cargo_out_dir(cmake=True), '${CMAKE_BINARY_DIR}']:
                     yield '"{}"'.format(dir) if quotes else dir
         for dir in self.cmake_prefix_subdirs:
             if quotes:
@@ -1031,6 +1050,7 @@ class TargetParser(ShellCmd):
         target_arch = ''
         # pc, apple, fortanix, unknown
         target_vendor = ''
+        cargo_target_vendor = ''
         # msvc, gnu, musl, sgx, ...
         target_env = ''
         # 16, 32, 64
@@ -1067,12 +1087,17 @@ class TargetParser(ShellCmd):
             raise RuntimeError(
                 'Not supported machine architecture: {}'.format(machine))
         # target_vendor
-        if target_os in ['windows', 'linux']:
+        if target_os == 'windows':
             target_vendor = 'pc'
         elif target_system in 'macos':
             target_vendor = 'apple'
+        elif target_os == 'linux':
+            target_vendor = 'pc'
+            cargo_target_vendor = 'unknown'
         else:
             target_vendor = 'unknown'
+        if not cargo_target_vendor:
+            cargo_target_vendor = target_vendor
         # target_env
         if target_os == 'windows':
             target_env = 'msvc'
@@ -1080,8 +1105,9 @@ class TargetParser(ShellCmd):
             target_env = 'gnu'
         # target_triple
         target_triple = Self.join_triple(
-            target_arch, target_vendor, target_os, target_env
-        )
+            target_arch, target_vendor, target_os, target_env)
+        cargo_target_triple = Self.join_triple(
+            target_arch, cargo_target_vendor, target_os, target_env)
 
         return {
             'host_system': host_system,
@@ -1095,6 +1121,7 @@ class TargetParser(ShellCmd):
             'endian': target_endian,
             'feature': target_feature,
             'triple': target_triple,
+            'cargo_triple': cargo_target_triple,
         }
 
     @ classmethod
@@ -1250,7 +1277,7 @@ class TargetParser(ShellCmd):
             os.path.basename(self.target_cc))[0] in ('zig', 'zig-cc',))
         if (not self.target_is_native and not self.android and not self.zig and
                 (not self.target_cc or not shutil.which(self.target_cc)) and
-                self.cargo_target != self.host_target):
+                self.is_cross_compiling):
             # Try gcc cross-compiler.
             target_cc = shutil.which(
                 self.target + '-gcc' + self.EXE_EXT) or shutil.which(self.target + '-cc' + self.EXE_EXT)
@@ -1274,7 +1301,7 @@ class TargetParser(ShellCmd):
             elif self.host_is_unix:
                 self.cmake_generator = 'Unix Makefiles'
 
-        if self.target == self.cargo_target:
+        if self.target_is_native and self.target == self.cargo_target:
             self.cargo_target_dir = self.target_dir
         else:
             self.cargo_target_dir = '{}/{}'.format(
@@ -1290,7 +1317,7 @@ class TargetParser(ShellCmd):
             if self.target != self.cargo_target:
                 yield self.cargo_target
             yield self.join_triple(self.arch, self.vendor, self.os, 'any')
-            if self.vendor not in ['unknown', '']:
+            if self.vendor != '':
                 yield self.join_triple('any', self.vendor, self.os, 'any')
             yield self.join_triple('any', '', self.os, 'any')
             yield 'any'
@@ -1732,6 +1759,8 @@ class TargetParser(ShellCmd):
                                '.{}.host.mk'.format(self.host_system.lower())), 'wb') as f:
             fwrite(f, 'override HOST_SYSTEM = {}\n'.format(self.host_system))
             fwrite(f, 'override HOST_TARGET = {}\n'.format(self.host_target))
+            fwrite(f, 'override HOST_CARGO_TARGET = {}\n'.format(
+                self.host_cargo_target))
             fwrite(f, 'override HOST_ARCH = {}\n'.format(self.host_arch))
             fwrite(f, 'override HOST_VENDOR = {}\n'.format(self.host_vendor))
             fwrite(f, 'override HOST_OS = {}\n'.format(self.host_os))
@@ -1751,6 +1780,8 @@ class TargetParser(ShellCmd):
                                '.{}.host.cmake'.format(self.host_system.lower())), 'wb') as f:
             fwrite(f, 'set(HOST_SYSTEM "{}")\n'.format(self.host_system))
             fwrite(f, 'set(HOST_TARGET "{}")\n'.format(self.host_target))
+            fwrite(f, 'set(HOST_CARGO_TARGET "{}")\n'.format(
+                self.host_cargo_target))
             fwrite(f, 'set(HOST_ARCH "{}")\n'.format(self.host_arch))
             fwrite(f, 'set(HOST_VENDOR "{}")\n'.format(self.host_vendor))
             fwrite(f, 'set(HOST_OS "{}")\n'.format(self.host_os))
@@ -1775,6 +1806,17 @@ class TargetParser(ShellCmd):
                 ';' if self.win32 else ':'))
             fwrite(f, 'override TARGET_EXE_EXT = {}\n'.format(
                 '.exe' if self.win32 else ''))
+            fwrite(f, '\n')
+
+            fwrite(f, '# Build configuration\n')
+            fwrite(f, 'ifeq ($(CMAKE_BUILD_TYPE),)\n')
+            fwrite(f, '    $(error CMAKE_BUILD_TYPE is not set)\n')
+            fwrite(f, 'endif\n')
+            fwrite(f, 'ifeq ($(DEBUG),)\n')
+            fwrite(f, '    $(error DEBUG is not set)\n')
+            fwrite(f, 'endif\n')
+            fwrite(
+                f, 'override CARGO_BUILD_TYPE := $(call bsel,$(DEBUG),debug,release)\n')
             fwrite(f, '\n')
 
             fwrite(f, '# Constant directories\n')
@@ -1810,12 +1852,10 @@ class TargetParser(ShellCmd):
                 self.cargo_target.replace('-', '_')))
             fwrite(f, 'override CARGO_TARGET_UNDERSCORE_UPPER = {}\n'.format(
                 self.cargo_target.replace('-', '_').upper()))
-            fwrite(
-                f, 'override CARGO_BUILD_TYPE := $(call bsel,$(DEBUG),debug,release)\n')
             fwrite(f, 'override CARGO_TARGET_DIR = {}\n'.format(
                 self.cargo_target_dir))
-            fwrite(f, 'override CARGO_TARGET_OUT_DIR := {}\n'.format(
-                self.cargo_target_out_dir(make=True)))
+            fwrite(f, 'override CARGO_OUT_DIR := {}\n'.format(
+                self.cargo_out_dir(make=True)))
             fwrite(f, '\n')
 
             fwrite(f, '# CMake\n')
@@ -1882,6 +1922,19 @@ class TargetParser(ShellCmd):
                 '.exe' if self.win32 else ''))
             fwrite(f, '\n')
 
+            fwrite(f, '# Build configuration\n')
+            fwrite(f, 'if(NOT CMAKE_BUILD_TYPE)\n')
+            fwrite(f, '    set(CMAKE_BUILD_TYPE "Release")\n')
+            fwrite(f, 'endif()\n')
+            fwrite(
+                f, 'string(TOLOWER "${CMAKE_BUILD_TYPE}" CMAKE_BUILD_TYPE_LOWER)\n')
+            fwrite(f, 'if(CMAKE_BUILD_TYPE_LOWER STREQUAL "debug")\n')
+            fwrite(f, '    set(CARGO_BUILD_TYPE "debug")\n')
+            fwrite(f, 'else()\n')
+            fwrite(f, '    set(CARGO_BUILD_TYPE "release")\n')
+            fwrite(f, 'endif()\n')
+            fwrite(f, '\n')
+
             fwrite(f, '# Constant directories\n')
             fwrite(f, 'set(WORKSPACE_DIR "{}")\n'.format(self.workspace_dir))
             fwrite(f, 'set(TARGET_DIR "{}")\n'.format(self.target_dir))
@@ -1903,14 +1956,6 @@ class TargetParser(ShellCmd):
                 ' '.join(self.enum_prefix_subdirs_of('include', quotes=True, cmake=True))))
             fwrite(f, '\n')
 
-            fwrite(f, '# CMake\n')
-            fwrite(f, 'if(NOT CMAKE_BUILD_TYPE)\n')
-            fwrite(f, '    set(CMAKE_BUILD_TYPE "Release")\n')
-            fwrite(f, 'endif()\n')
-            fwrite(
-                f, 'string(TOLOWER "${CMAKE_BUILD_TYPE}" CMAKE_BUILD_TYPE_LOWER)\n')
-            fwrite(f, '\n')
-
             fwrite(f, '# Cargo\n')
             fwrite(f, 'set(TARGET "{}")\n'.format(self.target))
             fwrite(f, 'set(TARGET_ARCH "{}")\n'.format(self.arch))
@@ -1923,15 +1968,10 @@ class TargetParser(ShellCmd):
                 self.cargo_target.replace('-', '_')))
             fwrite(f, 'set(CARGO_TARGET_UNDERSCORE_UPPER "{}")\n'.format(
                 self.cargo_target.replace('-', '_').upper()))
-            fwrite(f, 'if(CMAKE_BUILD_TYPE_LOWER STREQUAL "debug")\n')
-            fwrite(f, '    set(CARGO_BUILD_TYPE "debug")\n')
-            fwrite(f, 'else()\n')
-            fwrite(f, '    set(CARGO_BUILD_TYPE "release")\n')
-            fwrite(f, 'endif()\n')
             fwrite(f, 'set(CARGO_TARGET_DIR "{}")\n'.format(
                 self.cargo_target_dir))
-            fwrite(f, 'set(CARGO_TARGET_OUT_DIR "{}")\n'.format(
-                self.cargo_target_out_dir(cmake=True)))
+            fwrite(f, 'set(CARGO_OUT_DIR "{}")\n'.format(
+                self.cargo_out_dir(cmake=True)))
             fwrite(f, '\n')
 
             fwrite(f, '# MSVC\n')
@@ -2100,7 +2140,7 @@ class TargetParser(ShellCmd):
 
             fwrite(f, '# Configure the cross compile pkg-config.\n')
             fwrite(f, 'export PKG_CONFIG_ALLOW_CROSS = {}\n'.format(
-                   1 if self.host_target != self.cargo_target else 0))
+                   1 if self.is_cross_compiling else 0))
             fwrite(f, make_export_paths('PKG_CONFIG_PATH_' + cargo_target,
                    list(self.enum_prefix_subdirs_of('lib/pkgconfig', make=True)), []))
             fwrite(f, '\n')
@@ -2132,7 +2172,7 @@ class TargetParser(ShellCmd):
             fwrite(f, 'export CMKABE_HOST_TARGET = {}\n'.format(
                 self.host_target))
             fwrite(f, 'export CMKABE_TARGET = {}\n'.format(
-                'native' if self.target_is_native else self.target))
+                self.cmkabe_target))
             fwrite(f, 'export CMKABE_TARGET_DIR = {}\n'.format(
                 self.target_dir))
             fwrite(f, 'export CMKABE_TARGET_CMAKE_DIR = {}\n'.format(
@@ -2150,6 +2190,8 @@ class TargetParser(ShellCmd):
             fwrite(f, 'export CMKABE_DBGINFO := $(DBGINFO)\n')
             fwrite(f, 'export CMKABE_CMAKE_BUILD_TYPE := $(CMAKE_BUILD_TYPE)\n')
             fwrite(f, 'export CMKABE_CMAKE_BUILD_DIR := $(CMAKE_BUILD_DIR)\n')
+            fwrite(f, 'export CMKABE_CARGO_OUT_DIR "{}")\n'.format(
+                self.cargo_out_dir(make=True)))
             fwrite(f, 'export CMKABE_MAKE_BUILD_VARS = {}\n'.format(
                 ';'.join(_make_build_vars)))
             fwrite(f, 'export CMKABE_LINK_DIRS := {}\n'.format(
@@ -2180,7 +2222,7 @@ class TargetParser(ShellCmd):
 
             fwrite(f, '# Configure the cross compile pkg-config.\n')
             fwrite(f, 'set(ENV{{PKG_CONFIG_ALLOW_CROSS}} "{}")\n'.format(
-                   1 if self.host_target != self.cargo_target else 0))
+                   1 if self.is_cross_compiling else 0))
             fwrite(f, cmake_export_paths('PKG_CONFIG_PATH',
                                          self.enum_prefix_subdirs_of('lib/pkgconfig', cmake=True), []))
             fwrite(f, '\n')
@@ -2191,7 +2233,7 @@ class TargetParser(ShellCmd):
             fwrite(f, 'set(ENV{{CMKABE_HOST_TARGET}} "{}")\n'.format(
                 self.host_target))
             fwrite(f, 'set(ENV{{CMKABE_TARGET}} "{}")\n'.format(
-                'native' if self.target_is_native else self.target))
+                self.cmkabe_target))
             fwrite(f, 'set(ENV{{CMKABE_TARGET_DIR}} "{}")\n'.format(
                 self.target_dir))
             fwrite(f, 'set(ENV{{CMKABE_TARGET_CMAKE_DIR}} "{}")\n'.format(
@@ -2225,6 +2267,8 @@ class TargetParser(ShellCmd):
                 f, 'set(ENV{{CMKABE_CMAKE_BUILD_TYPE}} "${CMAKE_BUILD_TYPE}")\n')
             fwrite(
                 f, 'set(ENV{{CMKABE_CMAKE_BUILD_DIR}} "${CMAKE_BINARY_DIR}")\n')
+            fwrite(f, 'set(ENV{{CMKABE_CARGO_OUT_DIR}} "{}")\n'.format(
+                self.cargo_out_dir(cmake=True)))
             fwrite(f, 'set(ENV{{CMKABE_MAKE_BUILD_VARS}} "{}")\n'.format(
                 ';'.join(_make_build_vars)))
             fwrite(f, 'set(ENV{{CMKABE_LINK_DIRS}} "{}")\n'.format(
@@ -2238,6 +2282,7 @@ class TargetParser(ShellCmd):
             fwrite(f, '\n')
             fwrite(f, 'include("{}/.{}.settings.cmake")\n'.format(
                 self.cmake_target_dir, self.host_system.lower()))
+            fwrite(f, 'set(TARGET "{}")\n'.format(self.cmkabe_target))
             fwrite(f, '\n')
             fwrite(f, 'set(TARGET "${TARGET}" CACHE STRING "" FORCE)\n')
             fwrite(

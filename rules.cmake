@@ -118,19 +118,19 @@ if(TARGET_CC_VISIBILITY_HIDDEN)
     set(CMAKE_ASM_VISIBILITY_PRESET "hidden")
 endif()
 
-if(TARGET_MSVC_AFXDLL AND MSVC)
+if(TARGET_MSVC_AFXDLL AND (MSVC OR TARGET_IS_MSVC))
     add_compile_definitions($<$<COMPILE_LANGUAGE:C,CXX>:_AFXDLL>)
 endif()
 
-if(TARGET_MSVC_UNICODE AND MSVC)
+if(TARGET_MSVC_UNICODE AND (MSVC OR TARGET_IS_MSVC))
     add_compile_definitions($<$<COMPILE_LANGUAGE:C,CXX>:_UNICODE>)
 endif()
 
-if(TARGET_MSVC_UTF8 AND MSVC)
+if(TARGET_MSVC_UTF8 AND (MSVC OR TARGET_IS_MSVC))
     add_compile_options($<$<COMPILE_LANGUAGE:C,CXX>:/utf-8>)
 endif()
 
-if(TARGET_MSVC_NO_PDB_WARNING AND MSVC)
+if(TARGET_MSVC_NO_PDB_WARNING AND (MSVC OR TARGET_IS_MSVC))
     # MSVC warning LNK4099: PDB 'vc80.pdb' was not found
     add_link_options("/ignore:4099")
 endif()

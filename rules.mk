@@ -200,7 +200,7 @@ CARGO_EXECUTABLES +=
 #! Cargo library crates
 CARGO_LIBRARIES +=
 
-_X_CARGO_OPTS = $(call bsel,$(TARGET_IS_NATIVE),,--target $(CARGO_TARGET))
+_X_CARGO_OPTS = $(if $(filter $(HOST_CARGO_TARGET),$(CARGO_TARGET)),,--target $(CARGO_TARGET))
 _X_CARGO_OPTS += $(call bsel,$(DEBUG),,--release)
 _X_CARGO_OPTS += --target-dir $(CARGO_TARGET_DIR)
 _X_CARGO_OPTS += $(CARGO_OPTS)
@@ -225,7 +225,7 @@ cargo_upgrade = cargo upgrade --incompatible $(1)
 $(call cmkabe_update_toolchain)
 
 # Directory of Cargo output binaries, normally is "<workspace_dir>/target/<triple>/<debug|release>"
-CARGO_TARGET_OUT_DIR ?=
+CARGO_OUT_DIR ?=
 
 # Clean the $(CMAKE_TARGET_PREFIX) directory by default.
 ifeq ($(call bool,$(CMAKE_AUTO_CLEAN_TARGET)),ON)
@@ -357,7 +357,7 @@ target:
 	@echo "CMAKE_INSTALL_TARGET_PREFIX: $(CMAKE_INSTALL_TARGET_PREFIX)"
 	@echo "CMAKE_TARGET_PREFIX:         $(CMAKE_TARGET_PREFIX)"
 	@echo "CMAKE_PREFIX_DIR:            $(CMAKE_PREFIX_DIR)"
-	@echo "CARGO_TARGET_OUT_DIR:        $(CARGO_TARGET_OUT_DIR)"
+	@echo "CARGO_OUT_DIR:               $(CARGO_OUT_DIR)"
 
 
 # Disable parallel execution
