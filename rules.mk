@@ -27,6 +27,29 @@ endif
 _x_saved_default_goal := $(.DEFAULT_GOAL)
 
 # ==============================================================================
+# = CMake build type
+
+#! Debug mode
+override DEBUG := $(call bool,$(DEBUG),ON)
+#! Generate with minimum size
+override MINSIZE := $(call bool,$(MINSIZE),OFF)
+#! Generate debug information
+override DBGINFO := $(call bool,$(DBGINFO),$(call bsel,$(DEBUG),ON,OFF))
+#! Show verbose output
+override VERBOSE := $(call bool,$(VERBOSE),OFF)
+
+# The current configuration of CMake build: Debug, Release, RelWithDebInfo or MinSizeRel.
+ifeq ($(DEBUG),ON)
+    override CMAKE_BUILD_TYPE = Debug
+else ifeq ($(MINSIZE),ON)
+    override CMAKE_BUILD_TYPE = MinSizeRel
+else ifeq ($(DBGINFO),ON)
+    override CMAKE_BUILD_TYPE = RelWithDebInfo
+else
+    override CMAKE_BUILD_TYPE = Release
+endif
+
+# ==============================================================================
 # Target definitions
 
 #! Target triple or `native` for the current system
@@ -47,6 +70,9 @@ cmake_build_target_deps = $(SHLUTIL) build_target_deps \
     TARGET_CC=$(TARGET_CC) \
     CARGO_TARGET=$(CARGO_TARGET) \
     ZIG_TARGET=$(ZIG_TARGET)
+ifneq ($(filter clean,$(MAKECMDGOALS)),)
+    cmake_build_target_deps += MAKE_CLEAN=ON
+endif
 
 # include .$(HOST_SYSTEM_LOWER).host.mk
 _X_DOT_HOST_MK = $(TARGET_CMAKE_DIR)/.$(HOST_SYSTEM_LOWER).host.mk
@@ -57,7 +83,7 @@ ifneq ($(filter cmake-init,$(if $(wildcard $(_X_DOT_HOST_MK)),,cmake-init) $(MAK
 endif
 include $(_X_DOT_HOST_MK)
 
-_X_DOT_VARS_DIR := $(TARGET_CMAKE_DIR)/$(if $(filter-out native,$(TARGET)),$(TARGET),$(HOST_TARGET).native)
+_X_DOT_VARS_DIR := $(TARGET_CMAKE_DIR)/$(if $(filter-out native,$(TARGET)),$(TARGET),$(HOST_SYSTEM_LOWER)-native)
 _X_DOT_SETTINGS_MK = $(_X_DOT_VARS_DIR)/.$(HOST_SYSTEM_LOWER).settings.mk
 _X_DOT_ENVIRON_MK = $(_X_DOT_VARS_DIR)/.$(HOST_SYSTEM_LOWER).environ.mk
 
@@ -79,15 +105,6 @@ endif
 # ==============================================================================
 # = CMake
 
-#! Debug mode
-override DEBUG := $(call bool,$(DEBUG),ON)
-#! Generate with minimum size
-override MINSIZE := $(call bool,$(MINSIZE),OFF)
-#! Generate debug information
-override DBGINFO := $(call bool,$(DBGINFO),$(call bsel,$(DEBUG),ON,OFF))
-#! Show verbose output
-override VERBOSE := $(call bool,$(VERBOSE),OFF)
-
 #! Triple of Zig target
 ZIG_TARGET ?=
 #! `<workspace directory>/target`
@@ -95,27 +112,17 @@ TARGET_DIR ?=
 #! CC compiler for the target
 TARGET_CC ?=
 
-# The current configuration of CMake build: Debug, Release, RelWithDebInfo or MinSizeRel.
-ifeq ($(DEBUG),ON)
-    override CMAKE_BUILD_TYPE = Debug
-else ifeq ($(MINSIZE),ON)
-    override CMAKE_BUILD_TYPE = MinSizeRel
-else ifeq ($(DBGINFO),ON)
-    override CMAKE_BUILD_TYPE = RelWithDebInfo
-else
-    override CMAKE_BUILD_TYPE = Release
-endif
-
 # The CMake output directory include the tailing triple.
-CMAKE_PREFIX_TRIPLE ?= $(CMAKE_TARGET_PREFIX)/$(TARGET)
-CMAKE_PREFIX_SUBDIRS ?= $(CMAKE_PREFIX_TRIPLE)
+CMAKE_PREFIX_DIR ?= $(CMAKE_TARGET_PREFIX)/$(TARGET)
+CMAKE_PREFIX_SUBDIRS ?= $(CMAKE_PREFIX_DIR)
+CMAKE_INSTALL_TARGET_PREFIX ?= $(CMAKE_TARGET_PREFIX)
 # The CMake build directory for the current configuration.
 CMAKE_BUILD_DIR ?= $(CMAKE_TARGET_DIR)/$(CMAKE_BUILD_TYPE)
 
 #! The CMake system version
 CMAKE_SYSTEM_VERSION ?=
 #! The CMake output directory exclude the tailing triple.
-CMAKE_TARGET_PREFIX ?= $(TARGET_CMAKE_DIR)/output
+CMAKE_TARGET_PREFIX ?= $(WORKSPACE_DIR)/installed
 #! The CMake components to be installed.
 CMAKE_COMPONENTS +=
 #! The CMake targets (libraries and executables) to be built.
@@ -155,12 +162,15 @@ endif
 _X_CMAKE_INIT += $(addprefix -D,$(CMAKE_DEFS))
 
 cmake_init = $(_X_CMAKE_INIT) $(CMAKE_INIT_OPTS)
-cmake_build = cmake --build "$(CMAKE_BUILD_DIR)" $(addprefix --target ,$(CMAKE_TARGETS)) --config $(CMAKE_BUILD_TYPE) --parallel $(CMAKE_OPTS)
-cmake_install = cmake --install "$(CMAKE_BUILD_DIR)" $(addprefix --component ,$(CMAKE_COMPONENTS)) --config $(CMAKE_BUILD_TYPE) $(CMAKE_OPTS)
-ifeq ($(if $(filter --prefix,$(CMAKE_OPTS)),1,)$(if $(CMAKE_INSTALL_TARGET_PREFIX),,1),)
-    cmake_install += --prefix "$(CMAKE_INSTALL_TARGET_PREFIX)/$(TARGET)"
-endif
+cmake_build = cmake --build "$(CMAKE_BUILD_DIR)" $(addprefix --target ,$(if $(1),$(1),$(CMAKE_TARGETS))) \
+    --config $(if $(2),$(2),$(CMAKE_BUILD_TYPE)) --parallel $(CMAKE_OPTS)
+cmake_install = cmake --install "$(CMAKE_BUILD_DIR)" \
+    $(addprefix --component ,$(CMAKE_COMPONENTS)) \
+    --config $(if $(2),$(2),$(CMAKE_BUILD_TYPE)) \
+    --prefix $(if $(3),$(3),"$(CMAKE_INSTALL_TARGET_PREFIX)/$(TARGET)") $(CMAKE_OPTS)
 cmake_clean = $(call cmake_build) --target clean
+CMAKE_BUILD_DEPS += $(CMAKE_BUILD_DIR)
+CMAKE_CLEAN_DEPS += cmake-clean-output
 
 # ==============================================================================
 # = Android NDK
@@ -239,7 +249,7 @@ cmake-init $(CMAKE_BUILD_DIR): cmake-before-build
 
 # Build the target
 .PHONY: cmake-build
-cmake-build: $(CMAKE_BUILD_DIR)
+cmake-build: $(CMAKE_BUILD_DEPS)
 	@$(call cmake_build)
 
 # Clean the target and rebuild it.
@@ -248,22 +258,22 @@ cmake-rebuild: cmake-clean cmake-build
 
 # Install the target.
 .PHONY: cmake-install
-cmake-install: $(CMAKE_BUILD_DIR)
+cmake-install: $(CMAKE_BUILD_DEPS)
 	@$(call cmake_install)
 
 # Clean the target.
 .PHONY: cmake-clean
-cmake-clean: cmake-clean-output
+cmake-clean: $(CMAKE_CLEAN_DEPS)
 	@$(call exists,"$(CMAKE_BUILD_DIR)") && $(call cmake_clean) || $(OK)
 
 # Clean the target and erase the build directory.
 .PHONY: cmake-distclean
-cmake-distclean: cmake-clean-output
+cmake-distclean: $(CMAKE_CLEAN_DEPS)
 	@$(RM) -rf "$(CMAKE_BUILD_DIR)" || $(OK)
 
 # Clean the root directory of all targets.
 .PHONY: cmake-clean-root
-cmake-clean-root: cmake-clean-output
+cmake-clean-root: $(CMAKE_CLEAN_DEPS)
 	@$(RM) -rf "$(TARGET_CMAKE_DIR)" "$(TARGET_DIR)/.zig" || $(OK)
 
 # Clean extra output files.
@@ -297,6 +307,7 @@ cargo-check: cmake-before-build
 .PHONY: cargo-clean
 cargo-clean:
 	-@cargo clean
+	@$(RM) -rf "$(TARGET_DIR)" || $(OK)
 
 # Cargo clippy
 .PHONY: cargo-clippy
@@ -335,14 +346,19 @@ shell:
 # Show target information
 .PHONY: target
 target:
-	@echo "TARGET:              $(TARGET)"
-	@echo "CARGO_TARGET:        $(CARGO_TARGET)"
-	@echo "TARGET_CC:           $(TARGET_CC)"
-	@echo "CMAKE_BUILD_TYPE:    $(CMAKE_BUILD_TYPE)"
-	@echo "WORKSPACE_DIR:       $(WORKSPACE_DIR)"
-	@echo "TARGET_DIR:          $(TARGET_DIR)"
-	@echo "TARGET_CMAKE_DIR:    $(TARGET_CMAKE_DIR)"
-	@echo "CMAKE_TARGET_PREFIX: $(CMAKE_TARGET_PREFIX)"
+	@echo "TARGET:                      $(TARGET)"
+	@echo "CARGO_TARGET:                $(CARGO_TARGET)"
+	@echo "TARGET_CC:                   $(TARGET_CC)"
+	@echo "CMAKE_BUILD_TYPE:            $(CMAKE_BUILD_TYPE)"
+	@echo "WORKSPACE_DIR:               $(WORKSPACE_DIR)"
+	@echo "TARGET_DIR:                  $(TARGET_DIR)"
+	@echo "TARGET_CMAKE_DIR:            $(TARGET_CMAKE_DIR)"
+	@echo "CMAKE_BUILD_DIR:             $(CMAKE_BUILD_DIR)"
+	@echo "CMAKE_INSTALL_TARGET_PREFIX: $(CMAKE_INSTALL_TARGET_PREFIX)"
+	@echo "CMAKE_TARGET_PREFIX:         $(CMAKE_TARGET_PREFIX)"
+	@echo "CMAKE_PREFIX_DIR:            $(CMAKE_PREFIX_DIR)"
+	@echo "CARGO_TARGET_OUT_DIR:        $(CARGO_TARGET_OUT_DIR)"
+
 
 # Disable parallel execution
 .NOTPARALLEL:
@@ -376,7 +392,7 @@ define _x_cmkabe_cargo_rules_tpl
     lib: cargo-lib
 
     .PHONY: clean clean-cmake
-    cargo-clean: cmake-clean-output
+    cargo-clean: $$(CMAKE_CLEAN_DEPS)
     clean: cargo-clean
     clean-cmake: cmake-clean-root
 
@@ -464,7 +480,7 @@ define _x_cmkabe_update_libs_tpl
 
     cmake-before-build: $$($(1)_x_local_file)
     .PHONY: $$($(1)_x_target)
-    $$($(1)_x_target): cmake-clean-output
+    $$($(1)_x_target): $$(CMAKE_CLEAN_DEPS)
     $$($(1)_x_target) $$($(1)_x_local_file):
 		@$$(RM) -rf $$($(1)_x_tmp_dir)
     ifeq ($$($(1)_x_rebuild),ON)

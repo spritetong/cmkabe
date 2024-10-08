@@ -852,6 +852,7 @@ class TargetParser(ShellCmd):
                  cargo_target='',
                  zig_target='',
                  target_cc='',
+                 make_clean='',
                  **_args):
         host_target_info = self.host_target_info()
 
@@ -878,12 +879,13 @@ class TargetParser(ShellCmd):
         self.cmake_lock_file = self.normpath(os.path.join(
             self.target_cmake_dir, '.{}.cmake.lock'.format(self.host_system.lower())))
         self.cmake_target_prefix = self.normpath(os.path.abspath(
-            cmake_target_prefix or (self.target_cmake_dir + '/output')))
-        self.cmake_prefix_triple = ''
+            cmake_target_prefix or (self.workspace_dir + '/installed')))
+        self.cmake_prefix_dir = ''
         self.cmake_prefix_subdirs = []
         self.cargo_target = cargo_target
         self.zig_target = zig_target
         self.target_cc = target_cc
+        self.make_clean = make_clean == 'ON'
 
         # Parsed triple
         self.arch = ''
@@ -976,7 +978,28 @@ class TargetParser(ShellCmd):
             cxx = stem
         return self.target_cc[:-(len(stem) + len(ext))] + cxx + ext
 
-    def enum_prefix_subdirs_of(self, subdir, quotes=False):
+    def cargo_target_out_dir(self, make=False, cmake=False):
+        dir = self.cargo_target_dir if self.target_is_native else '{}/{}'.format(
+            self.cargo_target_dir, self.cargo_target)
+        build_type = 'debug'
+        if make:
+            build_type = '$(CARGO_BUILD_TYPE)'
+        elif cmake:
+            build_type = '${CARGO_BUILD_TYPE}'
+        return '{}/{}'.format(dir, build_type)
+
+    # Only for Make files.
+    def cmake_build_dir(self):
+        return '{}/$(CMAKE_BUILD_TYPE)'.format(self.cmake_target_dir)
+
+    def enum_prefix_subdirs_of(self, subdir, quotes=False, make=False, cmake=False):
+        if subdir in ['bin', 'lib']:
+            if make:
+                for dir in [self.cargo_target_out_dir(make=True), self.cmake_build_dir()]:
+                    yield '"{}"'.format(dir) if quotes else dir
+            elif cmake:
+                for dir in [self.cargo_target_out_dir(cmake=True), '${CMAKE_BINARY_DIR}']:
+                    yield '"{}"'.format(dir) if quotes else dir
         for dir in self.cmake_prefix_subdirs:
             if quotes:
                 yield '"{}{}{}"'.format(dir, '/' if subdir else '', subdir)
@@ -1044,7 +1067,7 @@ class TargetParser(ShellCmd):
             raise RuntimeError(
                 'Not supported machine architecture: {}'.format(machine))
         # target_vendor
-        if target_os == 'windows':
+        if target_os in ['windows', 'linux']:
             target_vendor = 'pc'
         elif target_system in 'macos':
             target_vendor = 'apple'
@@ -1245,9 +1268,11 @@ class TargetParser(ShellCmd):
             self.zig_target = zig_target
 
         # CMake generator
-        if not self.cmake_generator and (self.zig or self.target_cc):
-            self.cmake_generator = 'Ninja' if (
-                self.host_is_windows or shutil.which('ninja' + self.EXE_EXT)) else 'Unix Makefiles'
+        if not self.cmake_generator and (self.host_is_unix or self.zig or self.target_cc):
+            if self.host_is_windows or shutil.which('ninja' + self.EXE_EXT):
+                self.cmake_generator = 'Ninja'
+            elif self.host_is_unix:
+                self.cmake_generator = 'Unix Makefiles'
 
         if self.target == self.cargo_target:
             self.cargo_target_dir = self.target_dir
@@ -1255,7 +1280,7 @@ class TargetParser(ShellCmd):
             self.cargo_target_dir = '{}/{}'.format(
                 self.target_dir, self.target)
 
-        self.cmake_prefix_triple = '{}/{}'.format(
+        self.cmake_prefix_dir = '{}/{}'.format(
             self.cmake_target_prefix, self.target)
 
         def _any_prefix_subdirs():
@@ -1285,7 +1310,8 @@ class TargetParser(ShellCmd):
             result = subprocess.run(
                 [vswhere, '-latest', '-requires', 'Microsoft.VisualStudio.Component.VC.Tools.*',
                     "-find", r'VC\Tools\MSVC\**\bin\*{}\{}\ml*.exe'.format(
-                        self.VSTOOLS_ARCH_MAP.get(self.host_arch, self.host_arch),
+                        self.VSTOOLS_ARCH_MAP.get(
+                            self.host_arch, self.host_arch),
                         self.VSTOOLS_ARCH_MAP.get(self.arch, self.arch),
                     )],
                 stdin=subprocess.DEVNULL,
@@ -1297,8 +1323,9 @@ class TargetParser(ShellCmd):
             pass
 
     def _cmake_init(self):
-        self.cmake_target_dir = '{}/{}{}'.format(
-            self.target_cmake_dir, self.target, '.native' if self.target_is_native else '')
+        self.cmake_target_dir = '{}/{}'.format(
+            self.target_cmake_dir,
+            (self.host_system.lower() + '-native') if self.target_is_native else self.target)
         self.makedirs(self.cmake_target_dir)
 
     def _zig_init(self):
@@ -1320,7 +1347,7 @@ class TargetParser(ShellCmd):
         dir = self.zig_cc_dir
 
         self.makedirs(dir)
-        if self.need_update(src, exe):
+        if self.need_update(src, exe) and not self.make_clean:
             for file in glob.glob(os.path.join(dir, '*')):
                 if not os.path.isdir(file):
                     os.unlink(file)
@@ -1341,10 +1368,11 @@ class TargetParser(ShellCmd):
         # Get include paths.
         def cc_cmd_args(cc):
             return [cc, '-target', self.zig_target]
-        self.c_includes = self._get_cc_includes(
-            cc_cmd_args(self.target_cc), 'c')
-        self.cxx_includes = self._get_cc_includes(
-            cc_cmd_args(self.target_cxx), 'c++')
+        if not self.make_clean:
+            self.c_includes = self._get_cc_includes(
+                cc_cmd_args(self.target_cc), 'c')
+            self.cxx_includes = self._get_cc_includes(
+                cc_cmd_args(self.target_cxx), 'c++')
 
     @classmethod
     def zig_dll2lib(Self, dll_file, out_path=None, force=False):
@@ -1758,16 +1786,16 @@ class TargetParser(ShellCmd):
                 self.cmake_lock_file))
             fwrite(f, 'override CMAKE_TARGET_PREFIX = {}\n'.format(
                 self.cmake_target_prefix))
-            fwrite(f, 'override CMAKE_PREFIX_TRIPLE = {}\n'.format(
-                self.cmake_prefix_triple))
+            fwrite(f, 'override CMAKE_PREFIX_DIR = {}\n'.format(
+                self.cmake_prefix_dir))
             fwrite(f, 'override CMAKE_PREFIX_SUBDIRS = {}\n'.format(
-                ' '.join(self.enum_prefix_subdirs_of(''))))
-            fwrite(f, 'override CMAKE_PREFIX_BINS = {}\n'.format(
-                ' '.join(self.enum_prefix_subdirs_of('bin'))))
-            fwrite(f, 'override CMAKE_PREFIX_LIBS = {}\n'.format(
-                ' '.join(self.enum_prefix_subdirs_of('lib'))))
+                ' '.join(self.enum_prefix_subdirs_of('', make=True))))
+            fwrite(f, 'override CMAKE_PREFIX_BINS := {}\n'.format(
+                ' '.join(self.enum_prefix_subdirs_of('bin', make=True))))
+            fwrite(f, 'override CMAKE_PREFIX_LIBS := {}\n'.format(
+                ' '.join(self.enum_prefix_subdirs_of('lib', make=True))))
             fwrite(f, 'override CMAKE_PREFIX_INCLUDES = {}\n'.format(
-                ' '.join(self.enum_prefix_subdirs_of('include'))))
+                ' '.join(self.enum_prefix_subdirs_of('include', make=True))))
             fwrite(f, '\n')
 
             fwrite(f, '# Cargo\n')
@@ -1782,12 +1810,12 @@ class TargetParser(ShellCmd):
                 self.cargo_target.replace('-', '_')))
             fwrite(f, 'override CARGO_TARGET_UNDERSCORE_UPPER = {}\n'.format(
                 self.cargo_target.replace('-', '_').upper()))
+            fwrite(
+                f, 'override CARGO_BUILD_TYPE := $(call bsel,$(DEBUG),debug,release)\n')
             fwrite(f, 'override CARGO_TARGET_DIR = {}\n'.format(
                 self.cargo_target_dir))
-            _cargo_target_out_dir = '{}/{}'.format(
-                self.cargo_target_dir, '' if self.target_is_native else (self.cargo_target + '/'))
-            fwrite(f, 'override CARGO_TARGET_OUT_DIR = {}$(call bsel,$(DEBUG),debug,release)\n'.format(
-                _cargo_target_out_dir))
+            fwrite(f, 'override CARGO_TARGET_OUT_DIR := {}\n'.format(
+                self.cargo_target_out_dir(make=True)))
             fwrite(f, '\n')
 
             fwrite(f, '# CMake\n')
@@ -1795,6 +1823,8 @@ class TargetParser(ShellCmd):
                 self.cmake_generator))
             fwrite(f, 'override CMAKE_TARGET_DIR = {}\n'.format(
                 self.cmake_target_dir))
+            fwrite(f, 'override CMAKE_BUILD_DIR = {}\n'.format(
+                self.cmake_build_dir()))
             fwrite(f, '\n')
 
             fwrite(f, '# MSVC\n')
@@ -1861,16 +1891,24 @@ class TargetParser(ShellCmd):
                 self.cmake_lock_file))
             fwrite(f, 'set(TARGET_PREFIX "{}")\n'.format(
                 self.cmake_target_prefix))
-            fwrite(f, 'set(TARGET_PREFIX_TRIPLE "{}")\n'.format(
-                self.cmake_prefix_triple))
+            fwrite(f, 'set(TARGET_PREFIX_DIR "{}")\n'.format(
+                self.cmake_prefix_dir))
             fwrite(f, 'set(TARGET_PREFIX_SUBDIRS {})\n'.format(
-                ' '.join(self.enum_prefix_subdirs_of('', quotes=True))))
+                ' '.join(self.enum_prefix_subdirs_of('', quotes=True, cmake=True))))
             fwrite(f, 'set(TARGET_PREFIX_BINS {})\n'.format(
-                ' '.join(self.enum_prefix_subdirs_of('bin', quotes=True))))
+                ' '.join(self.enum_prefix_subdirs_of('bin', quotes=True, cmake=True))))
             fwrite(f, 'set(TARGET_PREFIX_LIBS {})\n'.format(
-                ' '.join(self.enum_prefix_subdirs_of('lib', quotes=True))))
+                ' '.join(self.enum_prefix_subdirs_of('lib', quotes=True, cmake=True))))
             fwrite(f, 'set(TARGET_PREFIX_INCLUDES {})\n'.format(
-                ' '.join(self.enum_prefix_subdirs_of('include', quotes=True))))
+                ' '.join(self.enum_prefix_subdirs_of('include', quotes=True, cmake=True))))
+            fwrite(f, '\n')
+
+            fwrite(f, '# CMake\n')
+            fwrite(f, 'if(NOT CMAKE_BUILD_TYPE)\n')
+            fwrite(f, '    set(CMAKE_BUILD_TYPE "Release")\n')
+            fwrite(f, 'endif()\n')
+            fwrite(
+                f, 'string(TOLOWER "${CMAKE_BUILD_TYPE}" CMAKE_BUILD_TYPE_LOWER)\n')
             fwrite(f, '\n')
 
             fwrite(f, '# Cargo\n')
@@ -1885,15 +1923,15 @@ class TargetParser(ShellCmd):
                 self.cargo_target.replace('-', '_')))
             fwrite(f, 'set(CARGO_TARGET_UNDERSCORE_UPPER "{}")\n'.format(
                 self.cargo_target.replace('-', '_').upper()))
+            fwrite(f, 'if(CMAKE_BUILD_TYPE_LOWER STREQUAL "debug")\n')
+            fwrite(f, '    set(CARGO_BUILD_TYPE "debug")\n')
+            fwrite(f, 'else()\n')
+            fwrite(f, '    set(CARGO_BUILD_TYPE "release")\n')
+            fwrite(f, 'endif()\n')
             fwrite(f, 'set(CARGO_TARGET_DIR "{}")\n'.format(
                 self.cargo_target_dir))
-            fwrite(f, 'if(CMAKE_BUILD_TYPE MATCHES "^[Dd]ebug$")\n')
-            fwrite(f, '    set(CARGO_TARGET_OUT_DIR "{}debug")\n'.format(
-                _cargo_target_out_dir))
-            fwrite(f, 'else()\n')
-            fwrite(f, '    set(CARGO_TARGET_OUT_DIR "{}release")\n'.format(
-                _cargo_target_out_dir))
-            fwrite(f, 'endif()\n')
+            fwrite(f, 'set(CARGO_TARGET_OUT_DIR "{}")\n'.format(
+                self.cargo_target_out_dir(cmake=True)))
             fwrite(f, '\n')
 
             fwrite(f, '# MSVC\n')
@@ -2042,8 +2080,8 @@ class TargetParser(ShellCmd):
             fwrite(f, '\n')
 
             fwrite(f, '# For Rust bingen + libclang\n')
-            bindgen_includes = [
-                '{}/include'.format(x) for x in self.cmake_prefix_subdirs] + self.cxx_includes
+            bindgen_includes = list(
+                self.enum_prefix_subdirs_of('include', make=True)) + self.cxx_includes
             fwrite(f, 'override BINDGEN_EXTRA_CLANG_ARGS := $(TARGET_BINDGEN_CLANG_ARGS) {} {}\n'.format(
                 '-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_FAST',
                 ' '.join(map(lambda x: '-I"{}"'.format(x), bindgen_includes))))
@@ -2064,21 +2102,35 @@ class TargetParser(ShellCmd):
             fwrite(f, 'export PKG_CONFIG_ALLOW_CROSS = {}\n'.format(
                    1 if self.host_target != self.cargo_target else 0))
             fwrite(f, make_export_paths('PKG_CONFIG_PATH_' + cargo_target,
-                   self.cmake_prefix_subdirs, ['lib/pkgconfig']))
+                   list(self.enum_prefix_subdirs_of('lib/pkgconfig', make=True)), []))
             fwrite(f, '\n')
 
             fwrite(f, '# Set system paths.\n')
             if self.target_is_runnable:
-                fwrite(f, make_export_paths('PATH', [
-                    '$(CARGO_TARGET_OUT_DIR)'] + join_paths(self.cmake_prefix_subdirs, ['bin'])))
+                fwrite(f, make_export_paths('PATH',
+                                            list(self.enum_prefix_subdirs_of('bin', make=True)), []))
                 if not self.host_is_windows:
-                    fwrite(f, make_export_paths('LD_LIBRARY_PATH', [
-                        '$(CARGO_TARGET_OUT_DIR)'] + join_paths(self.cmake_prefix_subdirs, ['lib'])))
+                    fwrite(f, make_export_paths('LD_LIBRARY_PATH',
+                                                list(self.enum_prefix_subdirs_of('lib', make=True)), []))
             fwrite(f, '\n')
 
+            _make_build_vars = [
+                'TARGET',
+                'TARGET_DIR',
+                'TARGET_CMAKE_DIR',
+                'CMAKE_TARGET_PREFIX',
+                'TARGET_CC',
+                'CARGO_TARGET',
+                'ZIG_TARGET',
+                'DEBUG',
+                'MINSIZE',
+                'DBGINFO',
+            ]
             fwrite(f, '# Export variables for Cargo build.rs and CMake\n')
             fwrite(f, 'export CARGO_WORKSPACE_DIR = {}\n'.format(
                 self.workspace_dir))
+            fwrite(f, 'export CMKABE_HOST_TARGET = {}\n'.format(
+                self.host_target))
             fwrite(f, 'export CMKABE_TARGET = {}\n'.format(
                 'native' if self.target_is_native else self.target))
             fwrite(f, 'export CMKABE_TARGET_DIR = {}\n'.format(
@@ -2096,10 +2148,14 @@ class TargetParser(ShellCmd):
             fwrite(f, 'export CMKABE_DEBUG := $(DEBUG)\n')
             fwrite(f, 'export CMKABE_MINSIZE := $(MINSIZE)\n')
             fwrite(f, 'export CMKABE_DBGINFO := $(DBGINFO)\n')
-            fwrite(f, 'export CMKABE_LINK_DIRS = {}\n'.format(
-                os.path.pathsep.join(self.enum_prefix_subdirs_of('lib'))))
+            fwrite(f, 'export CMKABE_CMAKE_BUILD_TYPE := $(CMAKE_BUILD_TYPE)\n')
+            fwrite(f, 'export CMKABE_CMAKE_BUILD_DIR := $(CMAKE_BUILD_DIR)\n')
+            fwrite(f, 'export CMKABE_MAKE_BUILD_VARS = {}\n'.format(
+                ';'.join(_make_build_vars)))
+            fwrite(f, 'export CMKABE_LINK_DIRS := {}\n'.format(
+                os.path.pathsep.join(self.enum_prefix_subdirs_of('lib', make=True))))
             fwrite(f, 'export CMKABE_INCLUDE_DIRS = {}\n'.format(
-                os.path.pathsep.join(self.enum_prefix_subdirs_of('include'))))
+                os.path.pathsep.join(self.enum_prefix_subdirs_of('include', make=True))))
 
         with open(os.path.join(self.cmake_target_dir,
                                '.{}.environ.cmake'.format(self.host_system.lower())), 'wb') as f:
@@ -2125,13 +2181,15 @@ class TargetParser(ShellCmd):
             fwrite(f, '# Configure the cross compile pkg-config.\n')
             fwrite(f, 'set(ENV{{PKG_CONFIG_ALLOW_CROSS}} "{}")\n'.format(
                    1 if self.host_target != self.cargo_target else 0))
-            fwrite(f, cmake_export_paths(
-                'PKG_CONFIG_PATH', self.cmake_prefix_subdirs, ['lib/pkgconfig']))
+            fwrite(f, cmake_export_paths('PKG_CONFIG_PATH',
+                                         self.enum_prefix_subdirs_of('lib/pkgconfig', cmake=True), []))
             fwrite(f, '\n')
 
             fwrite(f, '# Export variables for Cargo build.rs and CMake\n')
             fwrite(f, 'set(ENV{{CARGO_WORKSPACE_DIR}} "{}")\n'.format(
                 self.workspace_dir))
+            fwrite(f, 'set(ENV{{CMKABE_HOST_TARGET}} "{}")\n'.format(
+                self.host_target))
             fwrite(f, 'set(ENV{{CMKABE_TARGET}} "{}")\n'.format(
                 'native' if self.target_is_native else self.target))
             fwrite(f, 'set(ENV{{CMKABE_TARGET_DIR}} "{}")\n'.format(
@@ -2146,16 +2204,15 @@ class TargetParser(ShellCmd):
                 self.cargo_target))
             fwrite(f, 'set(ENV{{CMKABE_ZIG_TARGET}} "{}")\n'.format(
                 self.zig_target))
-            fwrite(f, 'string(TOLOWER "${CMAKE_BUILD_TYPE}" _s)\n')
-            fwrite(f, 'if(_s STREQUAL "debug")\n')
+            fwrite(f, 'if(CMAKE_BUILD_TYPE_LOWER STREQUAL "debug")\n')
             fwrite(f, '    set(ENV{CMKABE_DEBUG} ON)\n')
             fwrite(f, '    set(ENV{CMKABE_MINSIZE} OFF)\n')
             fwrite(f, '    set(ENV{CMKABE_DBGINFO} ON)\n')
-            fwrite(f, 'elseif(_s STREQUAL "minsizerel")\n')
+            fwrite(f, 'elseif(CMAKE_BUILD_TYPE_LOWER STREQUAL "minsizerel")\n')
             fwrite(f, '    set(ENV{CMKABE_DEBUG} OFF)\n')
             fwrite(f, '    set(ENV{CMKABE_MINSIZE} ON)\n')
             fwrite(f, '    set(ENV{CMKABE_DBGINFO} OFF)\n')
-            fwrite(f, 'elseif(_s STREQUAL "relwithdebinfo")\n')
+            fwrite(f, 'elseif(CMAKE_BUILD_TYPE_LOWER STREQUAL "relwithdebinfo")\n')
             fwrite(f, '    set(ENV{CMKABE_DEBUG} OFF)\n')
             fwrite(f, '    set(ENV{CMKABE_MINSIZE} OFF)\n')
             fwrite(f, '    set(ENV{CMKABE_DBGINFO} ON)\n')
@@ -2164,11 +2221,16 @@ class TargetParser(ShellCmd):
             fwrite(f, '    set(ENV{CMKABE_MINSIZE} OFF)\n')
             fwrite(f, '    set(ENV{CMKABE_DBGINFO} OFF)\n')
             fwrite(f, 'endif()\n')
-            fwrite(f, 'unset(_s)\n')
+            fwrite(
+                f, 'set(ENV{{CMKABE_CMAKE_BUILD_TYPE}} "${CMAKE_BUILD_TYPE}")\n')
+            fwrite(
+                f, 'set(ENV{{CMKABE_CMAKE_BUILD_DIR}} "${CMAKE_BINARY_DIR}")\n')
+            fwrite(f, 'set(ENV{{CMKABE_MAKE_BUILD_VARS}} "{}")\n'.format(
+                ';'.join(_make_build_vars)))
             fwrite(f, 'set(ENV{{CMKABE_LINK_DIRS}} "{}")\n'.format(
-                os.path.pathsep.join(self.enum_prefix_subdirs_of('lib'))))
+                os.path.pathsep.join(self.enum_prefix_subdirs_of('lib', cmake=True))))
             fwrite(f, 'set(ENV{{CMKABE_INCLUDE_DIRS}} "{}")\n'.format(
-                os.path.pathsep.join(self.enum_prefix_subdirs_of('include'))))
+                os.path.pathsep.join(self.enum_prefix_subdirs_of('include', cmake=True))))
 
         with open(os.path.join(self.cmake_target_dir,
                                '.{}.toolchain.cmake'.format(self.host_system.lower())), 'wb') as f:
@@ -2178,11 +2240,12 @@ class TargetParser(ShellCmd):
                 self.cmake_target_dir, self.host_system.lower()))
             fwrite(f, '\n')
             fwrite(f, 'set(TARGET "${TARGET}" CACHE STRING "" FORCE)\n')
-            fwrite(f, 'set(TARGET_DIR "${TARGET_DIR}" CACHE STRING "" FORCE)\n')
-            fwrite(f, 'set(TARGET_CMAKE_DIR "${TARGET_CMAKE_DIR}" CACHE STRING "" FORCE)\n')
+            fwrite(
+                f, 'set(TARGET_DIR "${TARGET_DIR}" CACHE STRING "" FORCE)\n')
+            fwrite(
+                f, 'set(TARGET_CMAKE_DIR "${TARGET_CMAKE_DIR}" CACHE STRING "" FORCE)\n')
             fwrite(f, '\n')
             fwrite(f, 'include("${CMKABE_HOME}/toolchain.cmake")\n')
             fwrite(f, '_cmkabe_apply_extra_flags()\n')
-            fwrite(f, '\n')
 
         return self

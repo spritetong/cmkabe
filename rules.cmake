@@ -18,53 +18,49 @@ set(_CMKABE_RULES_INITIALIZED ON)
 
 include("${CMAKE_CURRENT_LIST_DIR}/toolchain.cmake")
 
-if(NOT DEFINED TARGET_INCLUDE_DIR)
-    set(TARGET_INCLUDE_DIR "${TARGET_PREFIX_TRIPLE}/include")
+if(NOT DEFINED TARGET_PREFIX_DIR)
+    message(FATAL_ERROR "`TARGET_PREFIX_DIR` is not defined.")
 endif()
 
-if(NOT DEFINED TARGET_LIB_DIR)
-    set(TARGET_LIB_DIR "${TARGET_PREFIX_TRIPLE}/lib")
-endif()
+set(TARGET_INCLUDE_DIR "${TARGET_PREFIX_DIR}/include"
+    CACHE STRING "Target include directory.")
+set(TARGET_LIB_DIR "${TARGET_PREFIX_DIR}/lib"
+    CACHE STRING "Target library output directory while `TARGET_OUTPUT_MODE` is `REDIRECT`.")
+set(TARGET_BIN_DIR "${TARGET_PREFIX_DIR}/bin"
+    CACHE STRING "Target binary output directory while `TARGET_OUTPUT_MODE` is `REDIRECT`.")
 
-if(NOT DEFINED TARGET_BIN_DIR)
-    set(TARGET_BIN_DIR "${TARGET_PREFIX_TRIPLE}/bin")
-endif()
+set(TARGET_OUTPUT_MODE "DEFAULT"
+    CACHE STRING "Mode to set the target output directory: `NONE`, `DEFAULT` OR `REDIRECT`.")
 
-if(NOT DEFINED TARGET_OUTPUT_REDIRECT)
-    set(TARGET_OUTPUT_REDIRECT ON)
-endif()
+option(TARGET_STRIP_ON_RELEASE
+    "Strip the target on release build."
+    ON)
 
-if(NOT DEFINED TARGET_STRIP_ON_RELEASE)
-    set(TARGET_STRIP_ON_RELEASE ON)
-endif()
+option(TARGET_CC_PIC
+    "Add the `-fPIC` option to C/C++ compiler by default."
+    ON)
 
-if(NOT DEFINED TARGET_CC_PIC)
-    set(TARGET_CC_PIC ON)
-endif()
+option(TARGET_CC_NO_DELETE_NULL_POINTER_CHECKS
+    "Add option `-fno-delete-null-pointer-checks` to C/C++ compiler by default."
+    OFF)
 
-if(NOT DEFINED TARGET_CC_NO_DELETE_NULL_POINTER_CHECKS)
-    set(TARGET_CC_NO_DELETE_NULL_POINTER_CHECKS OFF)
-endif()
+option(TARGET_CC_VISIBILITY_HIDDEN
+    "Add option `-fvisibility=hidden` to C/C++ compiler by default."
+    ON)
 
-if(NOT DEFINED TARGET_CC_VISIBILITY_HIDDEN)
-    set(TARGET_CC_VISIBILITY_HIDDEN ON)
-endif()
+option(TARGET_MSVC_AFXDLL
+    "Add definition `_AFXDLL` to MSVC compiler by default."
+    ON)
 
-if(NOT DEFINED TARGET_MSVC_AFXDLL)
-    set(TARGET_MSVC_AFXDLL OFF)
-endif()
-
-if(NOT DEFINED TARGET_MSVC_UNICODE)
-    set(TARGET_MSVC_UNICODE ON)
-endif()
-
-if(NOT DEFINED TARGET_MSVC_UTF8)
-    set(TARGET_MSVC_UTF8 ON)
-endif()
-
-if(NOT DEFINED TARGET_MSVC_NO_PDB_WARNING)
-    set(TARGET_MSVC_NO_PDB_WARNING ON)
-endif()
+option(TARGET_MSVC_UNICODE
+    "Add definition `_UNICODE` to MSVC compiler by default."
+    ON)
+option(TARGET_MSVC_UTF8
+    "Add option `/utf-8` to MSVC compiler by default."
+    ON)
+option(TARGET_MSVC_NO_PDB_WARNING
+    "Add option `/ignore:4099` to MSVC linker by default."
+    ON)
 
 # ==============================================================================
 
@@ -82,50 +78,37 @@ if(ZIG AND (CMAKE_IMPORT_LIBRARY_SUFFIX STREQUAL ".dll.a"))
     set(CMAKE_IMPORT_LIBRARY_SUFFIX ".dll.a")
 endif()
 
-if(MSVC)
-    set(CC_DEFINE_OPT "/D")
-else()
-    set(CC_DEFINE_OPT "-D")
-endif()
-
 include(CheckCCompilerFlag)
-check_c_compiler_flag("-s" CC_SUPPORT_STRIP)
-check_c_compiler_flag("-fPIC" CC_SUPPORT_PIC)
-check_c_compiler_flag("-fno-delete-null-pointer-checks" CC_SUPPORT_NO_DELETE_NULL_POINTER_CHECKS)
+check_c_compiler_flag("-s" CC_HAVE_OPTION_S)
+check_c_compiler_flag("-fPIC" CC_HAVE_OPTION_PIC)
+check_c_compiler_flag("-fno-delete-null-pointer-checks" CC_HAVE_OPTION_NO_DELETE_NULL_POINTER_CHECKS)
 
 # Redirect the output directorires to the target directories.
-if(TARGET_OUTPUT_REDIRECT)
+if(TARGET_OUTPUT_MODE MATCHES "^[Rr][Ee][Dd][Ii][Rr][Ee][Cc][Tt]$")
     set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${TARGET_LIB_DIR}$<LOWER_CASE:>")
     set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${TARGET_LIB_DIR}$<LOWER_CASE:>")
     set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${TARGET_BIN_DIR}$<LOWER_CASE:>")
+elseif(TARGET_OUTPUT_MODE MATCHES "^[Dd][Ee][Ff][Aa][Uu][Ll][Tt]$")
+    set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}$<LOWER_CASE:>")
+    set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}$<LOWER_CASE:>")
+    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}$<LOWER_CASE:>")
 endif()
 
-if(TARGET_STRIP_ON_RELEASE AND CC_SUPPORT_STRIP)
-    if(NOT CMAKE_C_FLAGS_RELEASE MATCHES " -s( |$)")
-        # Strip debug info for Release
-        set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -s" CACHE STRING
-            "Flags used by the C compiler during RELEASE builds." FORCE)
-        set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -s" CACHE STRING
-            "Flags used by the CXX compiler during RELEASE builds." FORCE)
-        set(CMAKE_C_FLAGS_MINSIZEREL "${CMAKE_C_FLAGS_MINSIZEREL} -s" CACHE STRING
-            "Flags used by the C compiler during MINSIZEREL builds." FORCE)
-        set(CMAKE_CXX_FLAGS_MINSIZEREL "${CMAKE_CXX_FLAGS_MINSIZEREL} -s" CACHE STRING
-            "Flags used by the CXX compiler during MINSIZEREL builds." FORCE)
+# Define `_DEBUG` for Debug build.
+add_compile_definitions($<$<AND:$<COMPILE_LANGUAGE:C,CXX>,$<CONFIG:DEBUG>>:_DEBUG>)
+
+if(TARGET_STRIP_ON_RELEASE AND CC_HAVE_OPTION_S)
+    if(NOT CMAKE_BUILD_TYPE_LOWER MATCHES "^(debug|relwithdebinfo)$")
+        add_compile_options($<$<AND:$<COMPILE_LANGUAGE:C,CXX>,$<NOT:$<CONFIG:DEBUG>>>:-s>)
+        add_link_options(-s)
     endif()
 endif()
 
-if(NOT CMAKE_C_FLAGS_DEBUG MATCHES " ${CC_DEFINE_OPT}_DEBUG( |$)")
-    set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} ${CC_DEFINE_OPT}_DEBUG" CACHE STRING
-        "Flags used by the C compiler during DEBUG builds." FORCE)
-    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} ${CC_DEFINE_OPT}_DEBUG" CACHE STRING
-        "Flags used by the CXX compiler during DEBUG builds." FORCE)
-endif()
-
-if(TARGET_CC_PIC AND CC_SUPPORT_PIC)
+if(TARGET_CC_PIC AND CC_HAVE_OPTION_PIC)
     add_compile_options($<$<COMPILE_LANGUAGE:C,CXX>:-fPIC>)
 endif()
 
-if(TARGET_CC_NO_DELETE_NULL_POINTER_CHECKS AND CC_SUPPORT_NO_DELETE_NULL_POINTER_CHECKS)
+if(TARGET_CC_NO_DELETE_NULL_POINTER_CHECKS AND CC_HAVE_OPTION_NO_DELETE_NULL_POINTER_CHECKS)
     add_compile_options($<$<COMPILE_LANGUAGE:C,CXX>:-fno-delete-null-pointer-checks>)
 endif()
 

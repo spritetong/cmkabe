@@ -78,6 +78,7 @@ pub const ZigArgFilter = struct {
     pub const Matcher = union(enum) {
         allow_partial_opt: void,
         command: []const u8,
+        linker: bool,
         target: []const u8,
         match: []const u8,
         next: void,
@@ -96,6 +97,9 @@ pub const ZigArgFilter = struct {
     pub const compile_only_opts: []const []const u8 = &.{ "-c", "-E", "-S" };
 
     /// Define libraries that should be skipped only if they are not in library paths.
+    pub const generic_weak_libs = std.StaticStringMap(void).initComptime(.{
+        .{"omp"},
+    });
     pub const windows_gnu_weak_libs = std.StaticStringMap(void).initComptime(.{
         .{"gcc"},
         .{"gcc_eh"},
@@ -123,6 +127,9 @@ pub const ZigArgFilter = struct {
             map.initFilters("-Wl,", 2)
                 .match("-v").eof()
                 .match("-x").replaceWith(&.{"-Wl,--strip-all"}).done();
+            // OpenMP
+            map.initFilter("-v").linker(true).done();
+            map.initFilter("-fopenmp=libomp").linker(true).replaceWithArg(0).replaceWith(&.{"-lomp"}).done();
             // Autoconfig
             map.initFilter("-link").done();
             map.initFilter("-dll").replaceWith(&.{"-shared"}).done();
@@ -152,8 +159,13 @@ pub const ZigArgFilter = struct {
     }
 
     pub fn isWeakLib(ctx: *ZigWrapper, lib: []const u8) bool {
-        if (ctx.target_is_windows and !ctx.target_is_msvc) {
-            return windows_gnu_weak_libs.getIndex(lib) != null;
+        if (generic_weak_libs.getIndex(lib) != null) {
+            return true;
+        }
+        if (ctx.target_is_windows and !ctx.target_is_msvc and
+            windows_gnu_weak_libs.getIndex(lib) != null)
+        {
+            return true;
         }
         return false;
     }
@@ -192,6 +204,11 @@ pub const ZigArgFilter = struct {
 
     pub fn command(self: *Self, pattern: []const u8) *Self {
         self.matchers.append(.{ .command = pattern }) catch unreachable;
+        return self;
+    }
+
+    pub fn linker(self: *Self, is_linker: bool) *Self {
+        self.matchers.append(.{ .linker = is_linker }) catch unreachable;
         return self;
     }
 
@@ -332,6 +349,11 @@ pub const ZigArgFilterMap = struct {
                             },
                             .command => |pattern| {
                                 if (!Matcher.call(pattern, @tagName(ctx.command))) {
+                                    continue :filter;
+                                }
+                            },
+                            .linker => |is_linker| {
+                                if (ctx.is_linker != is_linker) {
                                     continue :filter;
                                 }
                             },
@@ -775,7 +797,7 @@ pub const ZigWrapper = struct {
     /// If the output file is a shared library.
     is_shared_lib: bool = false,
     /// Disallow to parse the compiler flags from `<LANG>FLAGS_<TARGET>` environment variables.
-    allow_target_env_flags: bool = true,
+    allow_target_env_flags: bool = false,
     /// <arch>-<os>-<abi>
     zig_target: []const u8 = "",
     /// <arch>-<vendor>-<os>-<abi>
@@ -988,7 +1010,7 @@ pub const ZigWrapper = struct {
                 try self.args.appendSlice(&[_][]const u8{"-U_WIN32_WINNT"});
             }
             if (self.is_linker) {
-                try self.args.appendSlice(&.{ "-lc++", "-lc++abi" });
+                try self.args.appendSlice(&.{ "-lc++", "-lc++abi", "-lomp" });
             }
         }
 
@@ -1025,8 +1047,32 @@ pub const ZigWrapper = struct {
         try self.writeFlagsFile();
 
         // Execute the command.
-        var proc = std.process.Child.init(self.args.items, self.allocator());
-        const exit_code = (try proc.spawnAndWait()).Exited;
+        var child = std.process.Child.init(self.args.items, self.allocator());
+        var exit_code: u8 = 0;
+        if (self.log.enabled()) {
+            child.stderr_behavior = .Pipe;
+            child.stdout_behavior = .Pipe;
+            var stdout = std.ArrayList(u8).init(self.allocator());
+            var stderr = std.ArrayList(u8).init(self.allocator());
+            defer {
+                stdout.deinit();
+                stderr.deinit();
+            }
+            try child.spawn();
+            try child.collectOutput(&stdout, &stderr, 10 * 1024 * 1024);
+            exit_code = (try child.wait()).Exited;
+            try std.io.getStdErr().writeAll(stderr.items);
+            try std.io.getStdOut().writeAll(stdout.items);
+            self.log.print("    --> exit code: {d}\n", .{exit_code});
+            self.log.write("    --> stdout: ");
+            self.log.write(stdout.items);
+            self.log.write("\n");
+            self.log.write("    --> stderr: ");
+            self.log.write(stderr.items);
+            self.log.write("\n");
+        } else {
+            exit_code = (try child.spawnAndWait()).Exited;
+        }
         try self.postProcess(exit_code == 0);
         if (exit_code != 0) {
             self.log.print("***** error code: {d}\n", .{exit_code});
@@ -1091,7 +1137,6 @@ pub const ZigWrapper = struct {
 
             for ([_][]const u8{
                 self.command.envNameOfFlags() orelse "",
-                if (self.command == .cxx) ZigCommand.cc.envNameOfFlags().? else "",
             }) |flags_name| {
                 if (flags_name.len == 0 or (target.len > 0 and !self.allow_target_env_flags)) {
                     continue;
@@ -1214,8 +1259,8 @@ pub const ZigWrapper = struct {
                         _ = try self.skipped_lib_paths.getOrPut(v);
                     }
                 }
-            } else if (parser.parseNamed(&.{"--deny-target-env-flags"}, false)) {
-                self.allow_target_env_flags = false;
+            } else if (parser.parseNamed(&.{"--allow-target-env-flags"}, false)) {
+                self.allow_target_env_flags = true;
             } else if (parser.parseNamed(&.{"-o"}, true)) {
                 // Autoconfig uses `zig-cc` to compile DLL, wrongly builds out `.dll.a` instead of `.dll`.
                 // We fix it to output the `.dll` file.

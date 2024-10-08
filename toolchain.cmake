@@ -37,7 +37,7 @@ include("${DOT_HOST_CMAKE}")
 
 # Target and toolchain definitions.
 if("${TARGET}" MATCHES "^(|native)$")
-    set(DOT_TARGET_DIR "${TARGET_CMAKE_DIR}/${HOST_TARGET}.native")
+    set(DOT_TARGET_DIR "${TARGET_CMAKE_DIR}/${CMKABE_HOST_SYSTEM_LOWER}-native")
 else()
     set(DOT_TARGET_DIR "${TARGET_CMAKE_DIR}/${TARGET}")
 endif()

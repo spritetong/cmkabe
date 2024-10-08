@@ -25,8 +25,9 @@ set(CMKABE_TARGET "native")
 
 # `CMAKE_BUILD_TYPE`
 if(NOT CMAKE_BUILD_TYPE)
-    set(CMAKE_BUILD_TYPE "Debug")
+    set(CMAKE_BUILD_TYPE "Release")
 endif()
+string(TOLOWER "${CMAKE_BUILD_TYPE}" CMAKE_BUILD_TYPE_LOWER)
 
 # `CMAKE_HOST_SYSTEM_PROCESSOR`
 if(NOT CMAKE_HOST_SYSTEM_PROCESSOR)
@@ -125,27 +126,44 @@ function(cmkabe_add_subdirs parent_dir)
     endforeach()
 endfunction()
 
+# Function:
+#   cmkabe_set_target_output_directory(<target> [NONE | DEFAULT | REDIRECT | DIRECTORY <dir>])
+#
 # Set the output directory of a target.
-# If the specified directory is "RESTORE",
-# restore the target's output directory to ${CMAKE_CURRENT_BINARY_DIR}.
-function(cmkabe_set_target_output_directory target output_dir)
-    if((output_dir STREQUAL "DEFAULT") OR (output_dir STREQUAL ""))
+#   NONE: Set the output directory to `${CMAKE_CURRENT_BINARY_DIR}`.
+#   DEFAULT: Set the output directory to `${CMAKE_BINARY_DIR}`.
+#   REDIRECT: Set the output directory to `${TARGET_LIB_DIR}`, `${TARGET_BIN_DIR}`.
+#   DIRECTORY: Set the output directory to `<dir>`.
+function(cmkabe_set_target_output_directory)
+    list(POP_FRONT ARGN target)
+    if(NOT target)
+        message(FATAL_ERROR "<target> is missing.")
+    endif()
+    cmake_parse_arguments(args "NONE;DEFAULT;REDIRECT" "DIRECTORY" "" ${ARGN})
+
+    if(args_DIRECTORY)
         set_target_properties(${target} PROPERTIES
-            ARCHIVE_OUTPUT_DIRECTORY "${TARGET_LIB_DIR}"
-            LIBRARY_OUTPUT_DIRECTORY "${TARGET_LIB_DIR}"
-            RUNTIME_OUTPUT_DIRECTORY "${TARGET_BIN_DIR}"
+            ARCHIVE_OUTPUT_DIRECTORY "${output_dir}$<LOWER_CASE:>"
+            LIBRARY_OUTPUT_DIRECTORY "${output_dir}$<LOWER_CASE:>"
+            RUNTIME_OUTPUT_DIRECTORY "${output_dir}$<LOWER_CASE:>"
         )
-    elseif(output_dir STREQUAL "RESTORE")
+    elseif(args_REDIRECT)
         set_target_properties(${target} PROPERTIES
-            ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
-            LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
-            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+            ARCHIVE_OUTPUT_DIRECTORY "${TARGET_LIB_DIR}$<LOWER_CASE:>"
+            LIBRARY_OUTPUT_DIRECTORY "${TARGET_LIB_DIR}$<LOWER_CASE:>"
+            RUNTIME_OUTPUT_DIRECTORY "${TARGET_BIN_DIR}$<LOWER_CASE:>"
+        )
+    elseif(args_DEFAULT)
+        set_target_properties(${target} PROPERTIES
+            ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}$<LOWER_CASE:>"
+            LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}$<LOWER_CASE:>"
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}$<LOWER_CASE:>"
         )
     else()
         set_target_properties(${target} PROPERTIES
-            ARCHIVE_OUTPUT_DIRECTORY "${output_dir}"
-            LIBRARY_OUTPUT_DIRECTORY "${output_dir}"
-            RUNTIME_OUTPUT_DIRECTORY "${output_dir}"
+            ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}$<LOWER_CASE:>"
+            LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}$<LOWER_CASE:>"
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}$<LOWER_CASE:>"
         )
     endif()
 endfunction()
@@ -282,13 +300,12 @@ function(cmkabe_make_options result)
     set(debug OFF)
     set(minsize OFF)
     set(dbginfo OFF)
-    string(TOLOWER "${CMAKE_BUILD_TYPE}" build_type)
-    if(build_type STREQUAL "debug")
+    if(CMAKE_BUILD_TYPE_LOWER STREQUAL "debug")
         set(debug ON)
         set(dbginfo ON)
-    elseif(build_type STREQUAL "minsizerel")
+    elseif(CMAKE_BUILD_TYPE_LOWER STREQUAL "minsizerel")
         set(minsize ON)
-    elseif(build_type STREQUAL "relwithdebinfo")
+    elseif(CMAKE_BUILD_TYPE_LOWER STREQUAL "relwithdebinfo")
         set(dbginfo ON)
     endif()
     set(${result}
@@ -377,12 +394,10 @@ endfunction()
 function(cmkabe_add_env_compiler_flags)
     list(POP_FRONT ARGN target)
     foreach(lang IN LISTS ARGN)
-        set(var "${lang}FLAGS_${target}")
-        if(NOT ("$ENV{${var}}" STREQUAL ""))
-            string(REPLACE " " ";" flags "$ENV{${var}}")
-            foreach(flag IN LISTS flags)
-                add_compile_options($<$<COMPILE_LANGUAGE:${lang}>:${flag}>)
-            endforeach()
+        set(name "${lang}FLAGS_${target}")
+        string(STRIP "$ENV{${name}}" value)
+        if(NOT value STREQUAL "")
+            set(CMAKE_${lang}_FLAGS " ${value}" PARENT_SCOPE)
         endif()
     endforeach()
 endfunction()
@@ -402,26 +417,68 @@ function(_cmkabe_build_make_deps)
 endfunction()
 
 function(_cmkabe_apply_extra_flags)
-    if(TARGET_PREFIX_INCLUDES)
-        include_directories(SYSTEM ${TARGET_PREFIX_INCLUDES})
-    endif()
-    if (TARGET_INCLUDE_DIR AND (NOT TARGET_INCLUDE_DIR IN_LIST TARGET_PREFIX_INCLUDES))
-        include_directories(SYSTEM "${TARGET_INCLUDE_DIR}")
-    endif()
+    # Read global flags
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS}")
+    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS}")
+    set(CMAKE_SYSTEM_PREFIX_PATH "${CMAKE_SYSTEM_PREFIX_PATH}")
 
-    if(CARGO_TARGET_OUT_DIR)
-        link_directories(BEFORE "${CARGO_TARGET_OUT_DIR}")
-    endif()
-    if (TARGET_LIB_DIR AND (NOT TARGET_LIB_DIR IN_LIST TARGET_PREFIX_LIBS))
-        link_directories("${TARGET_LIB_DIR}")
-    endif()
-    if(TARGET_PREFIX_LIBS)
-        link_directories(${TARGET_PREFIX_LIBS})
-    endif()
-
-    if(CARGO_TARGET_UNDERSCORE AND (NOT ZIG))
+    if(CARGO_TARGET_UNDERSCORE)
         cmkabe_add_env_compiler_flags(${CARGO_TARGET_UNDERSCORE} C CXX)
     endif()
+
+    if(MSVC)
+        set(I "/I ")
+        set(L "/LIBPATH:")
+    elseif(CMAKE_C_COMPILER_ID MATCHES "(Clang|GNU)")
+        set(I "-isystem ")
+        set(L "-L ")
+    else()
+        set(I "-I ")
+        set(L "-L ")
+    endif()
+
+    if (TARGET_INCLUDE_DIR)
+        string(APPEND CMAKE_C_FLAGS " ${I}\"${TARGET_INCLUDE_DIR}\"")
+        string(APPEND CMAKE_CXX_FLAGS " ${I}\"${TARGET_INCLUDE_DIR}\"")
+    endif()
+    foreach(dir IN LISTS TARGET_PREFIX_INCLUDES)
+        if((NOT dir STREQUAL "${TARGET_INCLUDE_DIR}") AND (IS_DIRECTORY "${dir}"))
+            string(APPEND CMAKE_C_FLAGS " ${I}\"${dir}\"")
+            string(APPEND CMAKE_CXX_FLAGS " ${I}\"${dir}\"")
+        endif()
+    endforeach()
+
+    set(path)
+    foreach(dir IN ITEMS "${CARGO_TARGET_OUT_DIR}" "${CMAKE_BINARY_DIR}" "${TARGET_LIB_DIR}")
+        if(NOT "${dir}" IN_LIST path)
+            list(APPEND path "${dir}")
+            string(APPEND CMAKE_EXE_LINKER_FLAGS " ${L}\"${dir}\"")
+            string(APPEND CMAKE_SHARED_LINKER_FLAGS " ${L}\"${dir}\"")
+        endif()
+    endforeach()
+    foreach(dir IN LISTS TARGET_PREFIX_LIBS)
+        if((NOT "${dir}" IN_LIST path) AND (IS_DIRECTORY "${dir}"))
+            string(APPEND CMAKE_EXE_LINKER_FLAGS " ${L}\"${dir}\"")
+            string(APPEND CMAKE_SHARED_LINKER_FLAGS " ${L}\"${dir}\"")
+        endif()
+    endforeach()
+
+    set(path)
+    foreach(dir IN LISTS TARGET_PREFIX_SUBDIRS)
+        if(IS_DIRECTORY "${dir}")
+            list(APPEND path "${dir}")
+        endif()
+    endforeach()
+    list(INSERT CMAKE_SYSTEM_PREFIX_PATH 0 "${path}")
+
+    # Write global flags
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS}" PARENT_SCOPE)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}" PARENT_SCOPE)
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS}" PARENT_SCOPE)
+    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS}" PARENT_SCOPE)
+    set(CMAKE_SYSTEM_PREFIX_PATH "${CMAKE_SYSTEM_PREFIX_PATH}" PARENT_SCOPE)
 endfunction()
 
 endif()
