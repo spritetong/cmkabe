@@ -1004,10 +1004,12 @@ pub const ZigWrapper = struct {
                         );
                     }
                 }
+                // https://github.com/ziglang/zig/wiki/FAQ#why-do-i-get-illegal-instruction-when-using-with-zig-cc-to-build-c-code
+                try self.args.append("-fno-sanitize=undefined");
             }
             if (self.target_is_windows) {
                 // Undefine `_WIN32_WINNT` for Windows targets.
-                try self.args.appendSlice(&[_][]const u8{"-U_WIN32_WINNT"});
+                try self.args.append("-U_WIN32_WINNT");
             }
             if (self.is_linker) {
                 try self.args.appendSlice(&.{ "-lc++", "-lc++abi", "-lomp" });
