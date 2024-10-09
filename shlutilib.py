@@ -1301,7 +1301,8 @@ class TargetParser(ShellCmd):
             elif self.host_is_unix:
                 self.cmake_generator = 'Unix Makefiles'
 
-        if self.target_is_native and self.target == self.cargo_target:
+        if ((self.target_is_native or self.cargo_target != self.host_cargo_target) and
+                self.target == self.cargo_target):
             self.cargo_target_dir = self.target_dir
         else:
             self.cargo_target_dir = '{}/{}'.format(
