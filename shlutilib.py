@@ -2191,7 +2191,7 @@ class TargetParser(ShellCmd):
             fwrite(f, 'export CMKABE_DBGINFO := $(DBGINFO)\n')
             fwrite(f, 'export CMKABE_CMAKE_BUILD_TYPE := $(CMAKE_BUILD_TYPE)\n')
             fwrite(f, 'export CMKABE_CMAKE_BUILD_DIR := $(CMAKE_BUILD_DIR)\n')
-            fwrite(f, 'export CMKABE_CARGO_OUT_DIR "{}")\n'.format(
+            fwrite(f, 'export CMKABE_CARGO_OUT_DIR := {}\n'.format(
                 self.cargo_out_dir(make=True)))
             fwrite(f, 'export CMKABE_MAKE_BUILD_VARS = {}\n'.format(
                 ';'.join(_make_build_vars)))
