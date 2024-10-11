@@ -40,10 +40,6 @@ option(TARGET_CC_PIC
     "Add the `-fPIC` option to C/C++ compiler by default."
     ON)
 
-option(TARGET_CC_NO_DELETE_NULL_POINTER_CHECKS
-    "Add option `-fno-delete-null-pointer-checks` to C/C++ compiler by default."
-    OFF)
-
 option(TARGET_CC_VISIBILITY_HIDDEN
     "Add option `-fvisibility=hidden` to C/C++ compiler by default."
     ON)
@@ -79,9 +75,13 @@ if(ZIG AND (CMAKE_IMPORT_LIBRARY_SUFFIX STREQUAL ".dll.a"))
 endif()
 
 include(CheckCCompilerFlag)
-check_c_compiler_flag("-s" CC_HAVE_OPTION_S)
 check_c_compiler_flag("-fPIC" CC_HAVE_OPTION_PIC)
-check_c_compiler_flag("-fno-delete-null-pointer-checks" CC_HAVE_OPTION_NO_DELETE_NULL_POINTER_CHECKS)
+
+if(CMAKE_C_COMPILER_ID MATCHES "(Clang|GNU)")
+    check_c_compiler_flag("-s" CC_HAVE_OPTION_STRIP)
+else()
+    set(CC_HAVE_OPTION_STRIP OFF)
+endif()
 
 # Redirect the output directorires to the target directories.
 if(TARGET_OUTPUT_MODE MATCHES "^[Rr][Ee][Dd][Ii][Rr][Ee][Cc][Tt]$")
@@ -95,21 +95,18 @@ elseif(TARGET_OUTPUT_MODE MATCHES "^[Dd][Ee][Ff][Aa][Uu][Ll][Tt]$")
 endif()
 
 # Define `_DEBUG` for Debug build.
-add_compile_definitions($<$<AND:$<COMPILE_LANGUAGE:C,CXX>,$<CONFIG:DEBUG>>:_DEBUG>)
+add_compile_definitions($<$<AND:$<COMPILE_LANGUAGE:C,CXX>,$<CONFIG:Debug>>:_DEBUG>)
 
-if(TARGET_STRIP_ON_RELEASE AND CC_HAVE_OPTION_S)
-    if(NOT CMAKE_BUILD_TYPE_LOWER MATCHES "^(debug|relwithdebinfo)$")
-        add_compile_options($<$<AND:$<COMPILE_LANGUAGE:C,CXX>,$<NOT:$<CONFIG:DEBUG>>>:-s>)
-        add_link_options(-s)
-    endif()
+if(TARGET_STRIP_ON_RELEASE AND CC_HAVE_OPTION_STRIP)
+    add_compile_options($<$<AND:$<COMPILE_LANGUAGE:C,CXX>,$<CONFIG:Release>>:-s>)
+    add_link_options($<$<CONFIG:Release>:-s>)
+
+    add_compile_options($<$<AND:$<COMPILE_LANGUAGE:C,CXX>,$<CONFIG:MinSizeRel>>:-s>)
+    add_link_options($<$<CONFIG:MinSizeRel>:-s>)
 endif()
 
 if(TARGET_CC_PIC AND CC_HAVE_OPTION_PIC)
     add_compile_options($<$<COMPILE_LANGUAGE:C,CXX>:-fPIC>)
-endif()
-
-if(TARGET_CC_NO_DELETE_NULL_POINTER_CHECKS AND CC_HAVE_OPTION_NO_DELETE_NULL_POINTER_CHECKS)
-    add_compile_options($<$<COMPILE_LANGUAGE:C,CXX>:-fno-delete-null-pointer-checks>)
 endif()
 
 if(TARGET_CC_VISIBILITY_HIDDEN)
@@ -123,7 +120,7 @@ if(TARGET_MSVC_AFXDLL AND (MSVC OR TARGET_IS_MSVC))
 endif()
 
 if(TARGET_MSVC_UNICODE AND (MSVC OR TARGET_IS_MSVC))
-    add_compile_definitions($<$<COMPILE_LANGUAGE:C,CXX>:_UNICODE>)
+    add_compile_definitions($<$<COMPILE_LANGUAGE:C,CXX>:UNICODE> $<$<COMPILE_LANGUAGE:C,CXX>:_UNICODE>)
 endif()
 
 if(TARGET_MSVC_UTF8 AND (MSVC OR TARGET_IS_MSVC))
@@ -132,7 +129,7 @@ endif()
 
 if(TARGET_MSVC_NO_PDB_WARNING AND (MSVC OR TARGET_IS_MSVC))
     # MSVC warning LNK4099: PDB 'vc80.pdb' was not found
-    add_link_options("/ignore:4099")
+    add_link_options(/ignore:4099)
 endif()
 
 _cmkabe_apply_extra_flags()
