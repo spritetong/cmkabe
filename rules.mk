@@ -175,16 +175,25 @@ ifeq ($(TARGET_IS_ANDROID),ON)
 endif
 _X_CMAKE_INIT += $(addprefix -D,$(CMAKE_DEFS))
 
-cmake_init = $(_X_CMAKE_INIT) $(CMAKE_INIT_OPTS)
-cmake_build = cmake --build "$(CMAKE_BUILD_DIR)" $(addprefix --target ,$(if $(1),$(1),$(CMAKE_TARGETS))) \
-    --config $(if $(2),$(2),$(CMAKE_BUILD_TYPE)) --parallel $(CMAKE_OPTS)
-cmake_install = cmake --install "$(CMAKE_BUILD_DIR)" \
-    $(addprefix --component ,$(CMAKE_COMPONENTS)) \
-    --config $(if $(2),$(2),$(CMAKE_BUILD_TYPE)) \
-    --prefix $(if $(3),$(3),"$(CMAKE_INSTALL_TARGET_PREFIX)/$(TARGET)") $(CMAKE_OPTS)
-cmake_clean = $(call cmake_build) --target clean
 CMAKE_BUILD_DEPS += $(CMAKE_BUILD_DIR)
 CMAKE_CLEAN_DEPS += cmake-clean-output
+
+# cmake_init()
+cmake_init = $(_X_CMAKE_INIT) $(CMAKE_INIT_OPTS)
+
+# cmake_build(<targets:list<str>>)
+cmake_build = cmake --build "$(CMAKE_BUILD_DIR)" \
+    $(addprefix --target ,$(if $(1),$(1),$(subst ;,$(SPACE),$(CMAKE_TARGETS)))) \
+    --config $(CMAKE_BUILD_TYPE) --parallel $(CMAKE_OPTS)
+
+# cmake_install(<components:list<str>>,<install_target_prefix:str>)
+cmake_install = cmake --install "$(CMAKE_BUILD_DIR)" \
+    $(addprefix --component ,$(if $(1),$(1),$(subst ;,$(SPACE),$(CMAKE_COMPONENTS)))) \
+    --config $(CMAKE_BUILD_TYPE) \
+    --prefix "$(if $(2),$(2),$(CMAKE_INSTALL_TARGET_PREFIX))/$(TARGET)" $(CMAKE_OPTS)
+
+# cmake_clean()
+cmake_clean = $(call cmake_build) --target clean
 
 # ==============================================================================
 # = Android NDK
