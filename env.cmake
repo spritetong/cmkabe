@@ -428,6 +428,12 @@ function(_cmkabe_apply_extra_flags)
         cmkabe_add_env_compiler_flags(${CARGO_TARGET_UNDERSCORE} C CXX)
     endif()
 
+    # Allow `__declspec(dllexport)` by defaults.
+    if(ZIG AND (NOT ZIG_CC_DISABLE_DLLEXPORT))
+        string(REPLACE "--disable-dllexport" "" CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
+        string(REPLACE "--disable-dllexport" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+    endif()
+
     if(MSVC OR TARGET_IS_MSVC)
         set(I "/I ")
         set(L "/LIBPATH:")

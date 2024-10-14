@@ -2041,6 +2041,8 @@ class TargetParser(ShellCmd):
                 'ZIG_WRAPPER_TARGET = {}'.format(self.zig_target))
             cc_exports.append(
                 'ZIG_WRAPPER_CLANG_TARGET = {}'.format(self.cargo_target))
+            # Fix compilation issues of Rust native crates.
+            cc_options.append("--disable-dllexport")
             # On windows-gnu, linux-musl, and wasi targets:
             #     https://doc.rust-lang.org/rustc/codegen-options/index.html
             if ((self.os == 'windows' and self.env == 'gnu') or
@@ -2284,6 +2286,7 @@ class TargetParser(ShellCmd):
             fwrite(f, 'include("{}/.{}.settings.cmake")\n'.format(
                 self.cmake_target_dir, self.host_system.lower()))
             fwrite(f, 'set(TARGET "{}")\n'.format(self.cmkabe_target))
+            fwrite(f, 'set(ZIG_CC_DISABLE_DLLEXPORT ON)\n')
             fwrite(f, '\n')
             fwrite(f, 'set(TARGET "${TARGET}" CACHE STRING "" FORCE)\n')
             fwrite(

@@ -36,10 +36,6 @@ option(TARGET_STRIP_ON_RELEASE
     "Strip the target on release build."
     ON)
 
-option(TARGET_CC_PIC
-    "Add the `-fPIC` option to C/C++ compiler by default."
-    ON)
-
 option(TARGET_CC_VISIBILITY_HIDDEN
     "Add option `-fvisibility=hidden` to C/C++ compiler by default."
     ON)
@@ -47,7 +43,6 @@ option(TARGET_CC_VISIBILITY_HIDDEN
 option(TARGET_MSVC_AFXDLL
     "Add definition `_AFXDLL` to MSVC compiler by default."
     ON)
-
 option(TARGET_MSVC_UNICODE
     "Add definition `_UNICODE` to MSVC compiler by default."
     ON)
@@ -75,7 +70,6 @@ if(ZIG AND (CMAKE_IMPORT_LIBRARY_SUFFIX STREQUAL ".dll.a"))
 endif()
 
 include(CheckCCompilerFlag)
-check_c_compiler_flag("-fPIC" CC_HAVE_OPTION_PIC)
 
 if(CMAKE_C_COMPILER_ID MATCHES "(Clang|GNU)")
     check_c_compiler_flag("-s" CC_HAVE_OPTION_STRIP)
@@ -105,10 +99,6 @@ if(TARGET_STRIP_ON_RELEASE AND CC_HAVE_OPTION_STRIP)
     add_link_options($<$<CONFIG:MinSizeRel>:-s>)
 endif()
 
-if(TARGET_CC_PIC AND CC_HAVE_OPTION_PIC)
-    add_compile_options($<$<COMPILE_LANGUAGE:C,CXX>:-fPIC>)
-endif()
-
 if(TARGET_CC_VISIBILITY_HIDDEN)
     set(CMAKE_C_VISIBILITY_PRESET "hidden")
     set(CMAKE_CXX_VISIBILITY_PRESET "hidden")
@@ -119,7 +109,7 @@ if(TARGET_MSVC_AFXDLL AND (MSVC OR TARGET_IS_MSVC))
     add_compile_definitions($<$<COMPILE_LANGUAGE:C,CXX>:_AFXDLL>)
 endif()
 
-if(TARGET_MSVC_UNICODE AND (MSVC OR TARGET_IS_MSVC))
+if(TARGET_MSVC_UNICODE AND (MSVC OR TARGET_IS_WIN32))
     add_compile_definitions($<$<COMPILE_LANGUAGE:C,CXX>:UNICODE> $<$<COMPILE_LANGUAGE:C,CXX>:_UNICODE>)
 endif()
 

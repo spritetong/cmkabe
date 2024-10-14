@@ -796,8 +796,10 @@ pub const ZigWrapper = struct {
     is_preprocessor: bool = false,
     /// If the output file is a shared library.
     is_shared_lib: bool = false,
-    /// Disallow to parse the compiler flags from `<LANG>FLAGS_<TARGET>` environment variables.
+    /// Allow to parse the compiler flags from `<LANG>FLAGS_<TARGET>` environment variables.
     allow_target_env_flags: bool = false,
+    /// Disable `__declspec(dllexport)` for Windows targets.
+    disable_dllexport: bool = false,
     /// <arch>-<os>-<abi>
     zig_target: []const u8 = "",
     /// <arch>-<vendor>-<os>-<abi>
@@ -1004,8 +1006,15 @@ pub const ZigWrapper = struct {
                         );
                     }
                 }
+
                 // https://github.com/ziglang/zig/wiki/FAQ#why-do-i-get-illegal-instruction-when-using-with-zig-cc-to-build-c-code
                 try self.args.append("-fno-sanitize=undefined");
+
+                // Fix compilation issues of Rust native crates.
+                if (self.disable_dllexport) {
+                    try self.args.append("-fvisibility-ms-compat");
+                    try self.args.append("-Ddllexport=nodebug");
+                }
             }
             if (self.target_is_windows) {
                 // Undefine `_WIN32_WINNT` for Windows targets.
@@ -1263,6 +1272,12 @@ pub const ZigWrapper = struct {
                 }
             } else if (parser.parseNamed(&.{"--allow-target-env-flags"}, false)) {
                 self.allow_target_env_flags = true;
+            } else if (parser.parseNamed(&.{"--disallow-target-env-flags"}, false)) {
+                self.allow_target_env_flags = false;
+            } else if (parser.parseNamed(&.{"--enable-dllexport"}, false)) {
+                self.disable_dllexport = false;
+            } else if (parser.parseNamed(&.{"--disable-dllexport"}, false)) {
+                self.disable_dllexport = true;
             } else if (parser.parseNamed(&.{"-o"}, true)) {
                 // Autoconfig uses `zig-cc` to compile DLL, wrongly builds out `.dll.a` instead of `.dll`.
                 // We fix it to output the `.dll` file.

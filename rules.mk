@@ -50,6 +50,20 @@ else
 endif
 
 # ==============================================================================
+# = Compiler Flags
+
+#! `ar` flags
+TARGET_ARFLAGS +=
+#! `cc` flags
+TARGET_CFLAGS +=
+#! `c++` flags
+TARGET_CXXFLAGS +=
+#! `ranlib` flags
+TARGET_RANLIBFLAGS +=
+#! `rust` flags
+TARGET_RUSTFLAGS +=
+
+# ==============================================================================
 # Target definitions
 
 #! Target triple or `native` for the current system
