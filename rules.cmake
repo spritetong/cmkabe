@@ -40,11 +40,11 @@ option(TARGET_CC_VISIBILITY_HIDDEN
     "Add option `-fvisibility=hidden` to C/C++ compiler by default."
     ON)
 
+option(TARGET_WIN32_UNICODE
+    "Add definition `_UNICODE` on Windows targets by default."
+    ON)
 option(TARGET_MSVC_AFXDLL
     "Add definition `_AFXDLL` to MSVC compiler by default."
-    ON)
-option(TARGET_MSVC_UNICODE
-    "Add definition `_UNICODE` to MSVC compiler by default."
     ON)
 option(TARGET_MSVC_UTF8
     "Add option `/utf-8` to MSVC compiler by default."
@@ -105,12 +105,12 @@ if(TARGET_CC_VISIBILITY_HIDDEN)
     set(CMAKE_ASM_VISIBILITY_PRESET "hidden")
 endif()
 
-if(TARGET_MSVC_AFXDLL AND (MSVC OR TARGET_IS_MSVC))
-    add_compile_definitions($<$<COMPILE_LANGUAGE:C,CXX>:_AFXDLL>)
+if(TARGET_WIN32_UNICODE AND (MSVC OR TARGET_IS_WIN32))
+    add_compile_definitions($<$<COMPILE_LANGUAGE:C,CXX>:UNICODE> $<$<COMPILE_LANGUAGE:C,CXX>:_UNICODE>)
 endif()
 
-if(TARGET_MSVC_UNICODE AND (MSVC OR TARGET_IS_WIN32))
-    add_compile_definitions($<$<COMPILE_LANGUAGE:C,CXX>:UNICODE> $<$<COMPILE_LANGUAGE:C,CXX>:_UNICODE>)
+if(TARGET_MSVC_AFXDLL AND (MSVC OR TARGET_IS_MSVC))
+    add_compile_definitions($<$<COMPILE_LANGUAGE:C,CXX>:_AFXDLL>)
 endif()
 
 if(TARGET_MSVC_UTF8 AND (MSVC OR TARGET_IS_MSVC))
