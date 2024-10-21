@@ -15,7 +15,7 @@ ifndef __ENV_MK__
 __ENV_MK__ = $(abspath $(lastword $(MAKEFILE_LIST)))
 CMKABE_HOME := $(abspath $(dir $(__ENV_MK__)))
 
-CMKABE_VERSION = 0.8.2
+CMKABE_VERSION = 0.8.3
 
 # ==============================================================================
 # = Environment Variables
@@ -202,9 +202,6 @@ ifeq ($(HOST_SYSTEM),Windows)
 
     WINREG   = $(SHLUTIL) winreg
 endif
-
-# HOST_SYSTEM_LOWER: lowercase version of `HOST_SYSTEM`
-override HOST_SYSTEM_LOWER := $(call lower,$(HOST_SYSTEM))
 
 # export CMKABE_COMPLETED_PORJECTS which is from command line.
 ifeq ($(origin CMKABE_COMPLETED_PORJECTS),command line)

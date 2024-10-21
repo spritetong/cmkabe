@@ -878,7 +878,7 @@ class TargetParser(ShellCmd):
         self.target_cmake_dir = self.normpath(os.path.abspath(
             target_cmake_dir or (self.target_dir + '/.cmake')))
         self.cmake_lock_file = self.normpath(os.path.join(
-            self.target_cmake_dir, '.{}.cmake.lock'.format(self.host_system.lower())))
+            self.target_cmake_dir, self.host_system, '.cmake.lock'))
         self.cmake_target_prefix = self.normpath(os.path.abspath(
             cmake_target_prefix or (self.workspace_dir + '/installed')))
         self.cmake_prefix_dir = ''
@@ -1351,9 +1351,10 @@ class TargetParser(ShellCmd):
             pass
 
     def _cmake_init(self):
-        self.cmake_target_dir = '{}/{}'.format(
+        self.cmake_target_dir = '{}/{}/{}'.format(
             self.target_cmake_dir,
-            (self.host_system.lower() + '-native') if self.target_is_native else self.target)
+            self.host_system,
+            "native" if self.target_is_native else self.target)
         self.makedirs(self.cmake_target_dir)
 
     def _zig_init(self):
@@ -1369,7 +1370,7 @@ class TargetParser(ShellCmd):
             os.path.realpath(os.path.dirname(zig_path)))
 
         self.zig_cc_dir = self.normpath(os.path.join(
-            self.target_dir, '.zig', self.host_system.lower()))
+            self.target_dir, '.zig', self.host_system))
         src = self.script_dir + '/zig-wrapper.zig'
         exe = self.zig_cc_dir + '/zig-wrapper' + self.EXE_EXT
         dir = self.zig_cc_dir
@@ -1756,8 +1757,8 @@ class TargetParser(ShellCmd):
                 'endif()\n',
             ])
 
-        with open(os.path.join(self.target_cmake_dir,
-                               '.{}.host.mk'.format(self.host_system.lower())), 'wb') as f:
+        with open(os.path.join(self.target_cmake_dir, self.host_system,
+                               '.host.mk'), 'wb') as f:
             fwrite(f, 'override HOST_SYSTEM = {}\n'.format(self.host_system))
             fwrite(f, 'override HOST_TARGET = {}\n'.format(self.host_target))
             fwrite(f, 'override HOST_CARGO_TARGET = {}\n'.format(
@@ -1777,8 +1778,8 @@ class TargetParser(ShellCmd):
             for key in self.GCC_ENV_KEYS:
                 fwrite(f, 'unexport {}\n'.format(key))
 
-        with open(os.path.join(self.target_cmake_dir,
-                               '.{}.host.cmake'.format(self.host_system.lower())), 'wb') as f:
+        with open(os.path.join(self.target_cmake_dir, self.host_system,
+                               '.host.cmake'), 'wb') as f:
             fwrite(f, 'set(HOST_SYSTEM "{}")\n'.format(self.host_system))
             fwrite(f, 'set(HOST_TARGET "{}")\n'.format(self.host_target))
             fwrite(f, 'set(HOST_CARGO_TARGET "{}")\n'.format(
@@ -1794,8 +1795,7 @@ class TargetParser(ShellCmd):
             fwrite(f, 'set(HOST_PATHSEP "{}")\n'.format(os.pathsep))
             fwrite(f, 'set(HOST_EXE_EXT "{}")\n'.format(self.EXE_EXT))
 
-        with open(os.path.join(self.cmake_target_dir,
-                               '.{}.settings.mk'.format(self.host_system.lower())), 'wb') as f:
+        with open(os.path.join(self.cmake_target_dir, '.settings.mk'), 'wb') as f:
             fwrite(f, '# Home directory\n')
             fwrite(f, 'override CMKABE_HOME = {}\n'.format(self.script_dir))
             fwrite(f, '\n')
@@ -1908,8 +1908,7 @@ class TargetParser(ShellCmd):
             fwrite(f, 'override TARGET_IS_APPLE = {}\n'.format(onoff(self.apple)))
             fwrite(f, 'override TARGET_IS_IOS = {}\n'.format(onoff(self.ios)))
 
-        with open(os.path.join(self.cmake_target_dir,
-                               '.{}.settings.cmake'.format(self.host_system.lower())), 'wb') as f:
+        with open(os.path.join(self.cmake_target_dir, '.settings.cmake'), 'wb') as f:
             fwrite(f, '# Home directory\n')
             fwrite(f, 'set(CMKABE_HOME "{}")\n'.format(self.script_dir))
             fwrite(f, '\n')
@@ -2076,8 +2075,7 @@ class TargetParser(ShellCmd):
             ranlib = cc_prefix + '-ranlib' + cc_ext
             strip = cc_prefix + '-strip' + cc_ext
 
-        with open(os.path.join(self.cmake_target_dir,
-                               '.{}.environ.mk'.format(self.host_system.lower())), 'wb') as f:
+        with open(os.path.join(self.cmake_target_dir, '.environ.mk'), 'wb') as f:
             if cc_exports:
                 for line in cc_exports:
                     [k, v] = list(map(lambda x: x.strip(), line.split('=', 1)))
@@ -2132,8 +2130,8 @@ class TargetParser(ShellCmd):
             fwrite(f, '\n')
 
             fwrite(f, '# For Rust cmake\n')
-            fwrite(f, 'export CMAKE_TOOLCHAIN_FILE_{} = {}/.{}.toolchain.cmake\n'.format(
-                cargo_target, self.cmake_target_dir, self.host_system.lower()))
+            fwrite(f, 'export CMAKE_TOOLCHAIN_FILE_{} = {}/.toolchain.cmake\n'.format(
+                cargo_target, self.cmake_target_dir))
             if self.cmake_generator:
                 fwrite(f, 'export CMAKE_GENERATOR_{} = {}\n'.format(
                     cargo_target, self.cmake_generator))
@@ -2202,8 +2200,7 @@ class TargetParser(ShellCmd):
             fwrite(f, 'export CMKABE_INCLUDE_DIRS = {}\n'.format(
                 os.path.pathsep.join(self.enum_prefix_subdirs_of('include', make=True))))
 
-        with open(os.path.join(self.cmake_target_dir,
-                               '.{}.environ.cmake'.format(self.host_system.lower())), 'wb') as f:
+        with open(os.path.join(self.cmake_target_dir, '.environ.cmake'), 'wb') as f:
             if cc_exports:
                 for line in cc_exports:
                     [k, v] = list(map(lambda x: x.strip(), line.split('=', 1)))
@@ -2279,12 +2276,11 @@ class TargetParser(ShellCmd):
             fwrite(f, 'set(ENV{{CMKABE_INCLUDE_DIRS}} "{}")\n'.format(
                 os.path.pathsep.join(self.enum_prefix_subdirs_of('include', cmake=True))))
 
-        with open(os.path.join(self.cmake_target_dir,
-                               '.{}.toolchain.cmake'.format(self.host_system.lower())), 'wb') as f:
+        with open(os.path.join(self.cmake_target_dir, '.toolchain.cmake'), 'wb') as f:
             fwrite(f, 'cmake_minimum_required(VERSION 3.16)\n')
             fwrite(f, '\n')
-            fwrite(f, 'include("{}/.{}.settings.cmake")\n'.format(
-                self.cmake_target_dir, self.host_system.lower()))
+            fwrite(f, 'include("{}/.settings.cmake")\n'.format(
+                self.cmake_target_dir))
             fwrite(f, 'set(TARGET "{}")\n'.format(self.cmkabe_target))
             fwrite(f, 'set(ZIG_CC_DISABLE_DLLEXPORT ON)\n')
             fwrite(f, '\n')

@@ -88,24 +88,28 @@ ifneq ($(filter clean,$(MAKECMDGOALS)),)
     cmake_build_target_deps += MAKE_CLEAN=ON
 endif
 
-# include .$(HOST_SYSTEM_LOWER).host.mk
-_X_DOT_HOST_MK = $(TARGET_CMAKE_DIR)/.$(HOST_SYSTEM_LOWER).host.mk
+# include .host.mk
+_X_DOT_HOST_MK = $(TARGET_CMAKE_DIR)/$(HOST_SYSTEM)/.host.mk
+_X_CMAKE_TARGET_DEPS_BUILT = OFF
 ifneq ($(filter cmake-init,$(if $(wildcard $(_X_DOT_HOST_MK)),,cmake-init) $(MAKECMDGOALS)),)
     ifneq ($(shell $(cmake_build_target_deps) >$(NULL) || echo 1),)
         $(error Failed to build target: $(TARGET))
     endif
+    _X_CMAKE_TARGET_DEPS_BUILT = ON
 endif
 include $(_X_DOT_HOST_MK)
 
-_X_DOT_VARS_DIR := $(TARGET_CMAKE_DIR)/$(if $(filter-out native,$(TARGET)),$(TARGET),$(HOST_SYSTEM_LOWER)-native)
-_X_DOT_SETTINGS_MK = $(_X_DOT_VARS_DIR)/.$(HOST_SYSTEM_LOWER).settings.mk
-_X_DOT_ENVIRON_MK = $(_X_DOT_VARS_DIR)/.$(HOST_SYSTEM_LOWER).environ.mk
+_X_DOT_TARGET_DIR := $(TARGET_CMAKE_DIR)/$(HOST_SYSTEM)/$(if $(filter-out native,$(TARGET)),$(TARGET),native)
+_X_DOT_SETTINGS_MK = $(_X_DOT_TARGET_DIR)/.settings.mk
+_X_DOT_ENVIRON_MK = $(_X_DOT_TARGET_DIR)/.environ.mk
 
 # Auto rebuild dependencies.
-$(_X_DOT_SETTINGS_MK): $(addprefix $(CMKABE_HOME)/,shlutilib.py zig-wrapper.zig)
-	@$(cmake_build_target_deps)
+ifneq ($(_X_CMAKE_TARGET_DEPS_BUILT),ON)
+    $(_X_DOT_SETTINGS_MK): $(addprefix $(CMKABE_HOME)/,shlutilib.py zig-wrapper.zig)
+		@$(cmake_build_target_deps)
+endif
 
-# include .$(HOST_SYSTEM_LOWER).settings.mk
+# include .settings.mk
 ifeq ($(wildcard $(_X_DOT_SETTINGS_MK)),)
     ifneq ($(shell $(cmake_build_target_deps) >$(NULL) || echo 1),)
         $(error Failed to build target: $(TARGET))

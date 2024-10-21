@@ -47,9 +47,6 @@ if(NOT CMAKE_HOST_SYSTEM_PROCESSOR)
     endif()
 endif()
 
-# `CMKABE_HOST_SYSTEM_LOWER`: lowercase version of `CMAKE_HOST_SYSTEM_NAME`
-string(TOLOWER "${CMAKE_HOST_SYSTEM_NAME}" CMKABE_HOST_SYSTEM_LOWER)
-
 # Find the value of a key in a key-value map string.
 function(cmkabe_value_from_map map_string key default result)
     set(value "${default}")
