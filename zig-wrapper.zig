@@ -1,3 +1,16 @@
+// * @file       zig-wrapper.zig
+// * @brief      This file contains the command line wrapper of the Zig compiler.
+// * @details    This file is the part of the `cmkabe` library
+// *             (https://github.com/spritetong/cmkabe),
+// *             which is licensed under the MIT license
+// *             (https://opensource.org/licenses/MIT).
+// *             Copyright (C) 2024 spritetong@gmail.com.
+// * @author     spritetong@gmail.com
+// * @date       2024
+// * @version    1.0, 7/20/2024, Tong
+// *             - Initial revision.
+// *
+
 const std = @import("std");
 const builtin = @import("builtin");
 const ArgIteratorGeneral = std.process.ArgIteratorGeneral(.{});

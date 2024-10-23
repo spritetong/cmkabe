@@ -1,6 +1,6 @@
 # User Manual
 
-<https://github.com/spritetong/cmake-abe>
+<https://github.com/spritetong/cmkabe>
 
 ## Usage
 

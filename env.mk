@@ -1,10 +1,10 @@
 # * @file       env.mk
 # * @brief      This file contains environment and common utilities for CMake.
-# * @details    This file is the part of the cmake-abe library
-# *             (https://github.com/spritetong/cmake-abe),
+# * @details    This file is the part of the `cmkabe` library
+# *             (https://github.com/spritetong/cmkabe),
 # *             which is licensed under the MIT license
 # *             (https://opensource.org/licenses/MIT).
-# *             Copyright (C) 2022 spritetong@gmail.com.
+# *             Copyright (C) 2024 spritetong@gmail.com.
 # * @author     spritetong@gmail.com
 # * @date       2022
 # * @version    1.0, 7/9/2022, Tong
@@ -30,7 +30,7 @@ override HOST_SYSTEM := $(if $(filter Windows_NT,$(OS)),Windows,$(shell uname -s
 cmkabe_version_required = $(eval $(call _x_cmkabe_version_check,$(1)))
 define _x_cmkabe_version_check
     ifeq ($$(call version_compare,$(1),$$(CMKABE_VERSION)),+)
-        $$(error Please upgrade cmake-abe to >=$(1). Try: git submodule update --init)
+        $$(error Please upgrade `cmkabe` to >=$(1). Try: git submodule update --init)
     endif
 endef
 

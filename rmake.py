@@ -3,10 +3,10 @@
 
 """The main entry of the `rsync-make` utility
 
-This file is the part of the cmake-abe library (https://github.com/spritetong/cmake-abe),
+This file is the part of the `cmkabe` library (https://github.com/spritetong/cmkabe),
 which is licensed under the MIT license (https://opensource.org/licenses/MIT).
 
-Copyright (C) 2023 spritetong@gmail.com.
+Copyright (C) 2024 spritetong@gmail.com.
 """
 
 if __name__ == '__main__':
