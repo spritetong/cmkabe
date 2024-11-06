@@ -570,6 +570,10 @@ class ShellCmd:
         TargetParser.zig_patch()
         return 0
 
+    def run__zig_clean_cache(self):
+        TargetParser.zig_clean_cache()
+        return 0
+
     @classmethod
     def makedirs(Self, dir):
         if not os.path.isdir(dir):
@@ -1472,29 +1476,42 @@ class TargetParser(ShellCmd):
     @classmethod
     def zig_patch(Self):
         import shutil
-        import subprocess
-        import json
         import glob
         import re
 
-        def patch_file(filename, search, insert=b''):
+        def patch_file(filename, search, insert=b'', replace=None, count=1):
             with open(filename, 'rb') as file:
                 content = file.read()
-            # Find the index of the search string
-            index = content.find(search)
-            if index < 0:
-                return False
-            # Calculate the position to insert the new text
-            insert_position = index + len(search)
-            if content[insert_position:insert_position + len(insert)] == insert:
-                return False
-            # Open the file for writing and save the modified content
-            print('Patching {}'.format(filename))
-            with open(filename, 'wb') as file:
-                file.write(content[:insert_position])
-                file.write(insert)
-                file.write(content[insert_position:])
-            return True
+            slices = []
+            changed = False
+            while count > 0:
+                # Find the index of the search string
+                index = content.find(search)
+                if index < 0:
+                    break
+                # Calculate the position to insert the new text
+                insert_position = index + len(search)
+                if content[insert_position:insert_position + len(insert)] != insert or replace is not None:
+                    slices.append(content[:index])
+                    if replace is not None:
+                        slices.append(replace)
+                    else:
+                        slices.append(content[index:insert_position])
+                    slices.append(insert)
+                    changed = True
+                else:
+                    insert_position += len(insert)
+                    slices.append(content[:insert_position])
+                content = content[insert_position:]
+                count -= 1
+            slices.append(content)
+            if changed:
+                # Open the file for writing and save the modified content
+                print('Patching {}'.format(filename))
+                with open(filename, 'wb') as file:
+                    for slice in slices:
+                        file.write(slice)
+            return changed
 
         def patch_visibility(filename):
             dll_import = b'__declspec(dllimport)'
@@ -1577,7 +1594,12 @@ class TargetParser(ShellCmd):
             zig_root, 'lib', 'libc', 'include', 'any-linux-any')
         lib_src_patched = False
 
-        # 1. Set symbol visibility to `hidden` in `libunwind`.
+        # 1. fix `lib/compiler_rt/stack_probe.zig` with Zig <= 0.13.
+        if patch_file(os.path.join(zig_root, 'lib', 'compiler_rt', 'stack_probe.zig'),
+              b'.linkage = strong_linkage', b'', replace=b'.linkage = linkage', count=sys.maxsize):
+            lib_src_patched = True
+
+        # 2. Set symbol visibility to `hidden` in `libunwind`.
         libunwind_src = os.path.join(zig_root, 'lib', 'libunwind', 'src')
         for (file, tag) in [('assembly.h', 'UNWIND_ASSEMBLY_H'),
                             ('config.h', 'LIBUNWIND_CONFIG_H')]:
@@ -1611,7 +1633,7 @@ class TargetParser(ShellCmd):
             if patch_file(os.path.join(libunwind_src, 'assembly.h'), search, insert):
                 lib_src_patched = True
 
-        # 2. Set symbol visibility to `hidden` in `mingw32`.
+        # 3. Set symbol visibility to `hidden` in `mingw32`.
         for libc in ['mingw']:
             zig_libc = os.path.join(zig_root, 'lib', 'libc', libc)
             mingw_libsrc = '/mingw/libsrc/'
@@ -1621,7 +1643,7 @@ class TargetParser(ShellCmd):
                         if patch_func(file_path):
                             lib_src_patched = True
 
-        # 3. <sys/sysctl.h> is required by ffmpeg 6.0
+        # 4. <sys/sysctl.h> is required by ffmpeg 6.0
         sys_ctl_h = os.path.join(any_linux_any, 'sys', 'sysctl.h')
         sys_ctl_h_src = os.path.join(any_linux_any, 'linux', 'sysctl.h')
         if not os.path.exists(sys_ctl_h) and os.path.isfile(sys_ctl_h_src):
@@ -1630,10 +1652,17 @@ class TargetParser(ShellCmd):
                 sys_ctl_h_src, os.path.dirname(sys_ctl_h)), sys_ctl_h)
 
         if lib_src_patched:
-            zig_env = json.loads(subprocess.run(
-                ['zig' + Self.EXE_EXT, 'env'],
-                capture_output=True, check=True).stdout)
-            shutil.rmtree(zig_env['global_cache_dir'], ignore_errors=True)
+            Self.zig_clean_cache()
+
+    @classmethod
+    def zig_clean_cache(Self):
+        import shutil
+        import subprocess
+        import json
+        zig_env = json.loads(subprocess.run(
+            ['zig' + Self.EXE_EXT, 'env'],
+            capture_output=True, check=True).stdout)
+        shutil.rmtree(zig_env['global_cache_dir'], ignore_errors=True)
 
     def _cc_init(self):
         if not os.path.isfile(self.target_cc):

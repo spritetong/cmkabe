@@ -1014,7 +1014,7 @@ pub const ZigWrapper = struct {
 
                         _ = try self.arg_filter.next(
                             self,
-                            @constCast(&.{ .args = &.{opt} }),
+                            @constCast(&SimpleOptionParser{ .args = &.{opt} }),
                             &self.args,
                         );
                     }

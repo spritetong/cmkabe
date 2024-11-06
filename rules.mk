@@ -357,9 +357,17 @@ cargo-upgrade:
 	@cargo update
 	@$(call cargo_upgrade)
 
+# Patch Zig source files
 .PHONY: zig-patch
 zig-patch:
 	@$(SHLUTIL) zig_patch
+
+# Clean Zig cache
+.PHONY: zig-clean-cache
+zig-clean-cache:
+	@$(SHLUTIL) zig_clean_cache || $(OK)
+	@$(RM) -rf "$(TARGET_DIR)/.zig" || $(OK)
+	@$(cmake_build_target_deps)
 
 # Execute a shell command
 .PHONY: shell
