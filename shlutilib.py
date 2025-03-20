@@ -1030,16 +1030,16 @@ class TargetParser(ShellCmd):
                 yield '{}{}{}'.format(dir, '/' if subdir else '', subdir)
 
     # Check if the host operating system is Windows.
-    @ classmethod
+    @classmethod
     def normpath(Self, path):
         return os.path.normpath(path).replace('\\', '/')
 
-    @ classmethod
+    @classmethod
     def need_update(Self, source_file, dest_file):
         return not os.path.isfile(dest_file) or (
             os.path.getmtime(dest_file) < os.path.getmtime(source_file))
 
-    @ classmethod
+    @classmethod
     def host_target_info(Self):
         import platform
         # (compatible with Make & CMake) Windows, Linux, Darwin
@@ -1128,7 +1128,7 @@ class TargetParser(ShellCmd):
             'cargo_triple': cargo_target_triple,
         }
 
-    @ classmethod
+    @classmethod
     def join_triple(Self, arch, vendor, os, env):
         return '{}{}{}{}{}{}{}'.format(
             arch,
@@ -1140,7 +1140,7 @@ class TargetParser(ShellCmd):
             env or '',
         )
 
-    @ classmethod
+    @classmethod
     def parse_triple(Self, target_triple):
         triple = target_triple.lower().split('-')
 
@@ -1525,6 +1525,7 @@ class TargetParser(ShellCmd):
                 'wdirent.c': b'#include "dirent.c"\n',
                 'ucrtexewin.c': b'#include "crtexewin.c"\n',
                 'pseudo-reloc.c': b'# define NO_COPY\n#endif\n',
+                'thread.c': b'#include "winpthread_internal.h"\n',
             }
 
             with open(filename, 'rb') as file:
@@ -1596,7 +1597,7 @@ class TargetParser(ShellCmd):
 
         # 1. fix `lib/compiler_rt/stack_probe.zig` with Zig <= 0.13.
         if patch_file(os.path.join(zig_root, 'lib', 'compiler_rt', 'stack_probe.zig'),
-              b'.linkage = strong_linkage', b'', replace=b'.linkage = linkage', count=sys.maxsize):
+                      b'.linkage = strong_linkage', b'', replace=b'.linkage = linkage', count=sys.maxsize):
             lib_src_patched = True
 
         # 2. Set symbol visibility to `hidden` in `libunwind`.
@@ -2153,7 +2154,8 @@ class TargetParser(ShellCmd):
             bindgen_includes = list(
                 self.enum_prefix_subdirs_of('include', make=True)) + self.cxx_includes
             fwrite(f, 'override BINDGEN_EXTRA_CLANG_ARGS := $(TARGET_BINDGEN_CLANG_ARGS) {} {}\n'.format(
-                '-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_FAST',
+                '-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_FAST' +
+                ('' if self.apple else ' -D_LIBCPP_HAS_NO_VENDOR_AVAILABILITY_ANNOTATIONS=1'),
                 ' '.join(map(lambda x: '-I"{}"'.format(x), bindgen_includes))))
             fwrite(f, 'export BINDGEN_EXTRA_CLANG_ARGS\n')
             fwrite(f, '\n')

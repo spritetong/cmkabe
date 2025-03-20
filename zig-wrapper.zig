@@ -118,7 +118,6 @@ pub const ZigArgFilter = struct {
         .{"gcc_eh"},
         .{"msvcrt"},
         .{"msvcrtd"},
-        .{"pthread"},
         .{"synchronization"},
     });
 
@@ -481,7 +480,7 @@ pub const BufferedAllocator = struct {
     }
 
     pub fn clear(self: *Self) void {
-        while (self.items.popOrNull()) |*de| {
+        while (self.items.pop()) |*de| {
             @constCast(de).deinit();
         }
         self.items.clearRetainingCapacity();
@@ -1076,14 +1075,12 @@ pub const ZigWrapper = struct {
         if (self.log.enabled()) {
             child.stderr_behavior = .Pipe;
             child.stdout_behavior = .Pipe;
-            var stdout = std.ArrayList(u8).init(self.allocator());
-            var stderr = std.ArrayList(u8).init(self.allocator());
-            defer {
-                stdout.deinit();
-                stderr.deinit();
-            }
+            var stdout: std.ArrayListUnmanaged(u8) = .empty;
+            defer stdout.deinit(self.allocator());
+            var stderr: std.ArrayListUnmanaged(u8) = .empty;
+            defer stderr.deinit(self.allocator());
             try child.spawn();
-            try child.collectOutput(&stdout, &stderr, 10 * 1024 * 1024);
+            try child.collectOutput(self.allocator(), &stdout, &stderr, 10 * 1024 * 1024);
             exit_code = (try child.wait()).Exited;
             try std.io.getStdErr().writeAll(stderr.items);
             try std.io.getStdOut().writeAll(stdout.items);
