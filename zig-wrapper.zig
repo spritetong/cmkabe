@@ -111,6 +111,7 @@ pub const ZigArgFilter = struct {
 
     /// Define libraries that should be skipped only if they are not in library paths.
     pub const generic_weak_libs = std.StaticStringMap(void).initComptime(.{
+        .{"atomic"},
         .{"omp"},
     });
     pub const windows_gnu_weak_libs = std.StaticStringMap(void).initComptime(.{
