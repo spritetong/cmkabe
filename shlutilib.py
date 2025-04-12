@@ -1393,6 +1393,13 @@ class TargetParser(ShellCmd):
             for name in ['ar', 'cc', 'c++', 'dlltool', 'lib', 'link', 'ranlib', 'objcopy', 'rc', 'windres']:
                 dst = os.path.join(dir, 'zig-' + name + self.EXE_EXT)
                 os.symlink(os.path.basename(exe), dst)
+            for name in ['dlltool', 'windres']:
+                dst = os.path.join(dir, name + self.EXE_EXT)
+                os.symlink(os.path.basename(exe), dst)
+            for name in ['elf_path_fixer.py']:
+                dst = os.path.join(dir, name)
+                os.symlink(os.path.relpath(
+                    os.path.join(self.script_dir, name), dir).replace('/', os.sep), dst)
 
         # Override the target CC for Zig.
         self.target_cc = self.normpath(
@@ -2180,6 +2187,7 @@ class TargetParser(ShellCmd):
             fwrite(f, '# Set system paths.\n')
             if self.target_is_runnable:
                 fwrite(f, make_export_paths('PATH',
+                                            [self.zig_cc_dir] +
                                             list(self.enum_prefix_subdirs_of('bin', make=True)), []))
                 if not self.host_is_windows:
                     fwrite(f, make_export_paths('LD_LIBRARY_PATH',

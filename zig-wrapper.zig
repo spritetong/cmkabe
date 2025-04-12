@@ -1,15 +1,136 @@
-// * @file       zig-wrapper.zig
-// * @brief      This file contains the command line wrapper of the Zig compiler.
-// * @details    This file is the part of the `cmkabe` library
-// *             (https://github.com/spritetong/cmkabe),
-// *             which is licensed under the MIT license
-// *             (https://opensource.org/licenses/MIT).
-// *             Copyright (C) 2024 spritetong@gmail.com.
-// * @author     spritetong@gmail.com
-// * @date       2024
-// * @version    1.0, 7/20/2024, Tong
-// *             - Initial revision.
-// *
+//! Zig Compiler Wrapper Documentation
+//! ================================
+//!
+//! Overview
+//! --------
+//! This wrapper provides a compatibility layer for using the Zig compiler as a drop-in
+//! replacement for various compilation tools (gcc, clang, ar, etc.). It translates
+//! command-line arguments and environment variables to their Zig equivalents.
+//!
+//! Flow Diagram
+//! -----------
+//! ```
+//!                           ┌─────────────────┐
+//!                           │     Start       │
+//!                           └────────┬────────┘
+//!                                    │
+//!                           ┌────────▼────────┐
+//!                           │  Parse Command  │
+//!                           │  Line Arguments │
+//!                           └────────┬────────┘
+//!                                    │
+//!                           ┌────────▼────────┐
+//!                           │  Initialize     │
+//!                           │  ZigWrapper     │
+//!                           └────────┬────────┘
+//!                                    │
+//!                    ┌───────────────▼──────────────┐
+//!                    │     Process Environment      │
+//!                    │     Variables & Flags        │
+//!                    └───────────────┬──────────────┘
+//!                                    │
+//!                    ┌───────────────▼──────────────┐
+//!                    │   Transform Arguments to     │
+//!                    │      Zig Equivalents         │
+//!                    └───────────────┬──────────────┘
+//!                                    │
+//!                    ┌───────────────▼──────────────┐
+//!                    │    Execute Zig Command       │
+//!                    └───────────────┬──────────────┘
+//!                                    │
+//!                           ┌────────▼────────┐
+//!                           │  Post-Process   │
+//!                           │    Results      │
+//!                           └────────┬────────┘
+//!                                    │
+//!                           ┌────────▼────────┐
+//!                           │      End        │
+//!                           └─────────────────┘
+//! ```
+//!
+//! Key Components
+//! -------------
+//! 1. ZigCommand (enum):
+//!    - Represents supported compiler commands (cc, c++, ar, etc.)
+//!    - Maps traditional compiler names to Zig equivalents
+//!
+//! 2. ZigWrapper (struct):
+//!    - Main wrapper structure managing the compilation process
+//!    - Handles argument parsing, environment variables, and command execution
+//!
+//! 3. ZigArgFilter (struct):
+//!    - Filters and transforms command line arguments
+//!    - Provides compatibility mappings for different compiler options
+//!
+//! Environment Variables
+//! -------------------
+//! - ZIG_EXECUTABLE: Path to Zig compiler executable
+//! - ZIG_WRAPPER_TARGET: Target triple (<arch>-<os>-<abi>)
+//! - ZIG_WRAPPER_CLANG_TARGET: Clang-style target triple
+//! - ZIG_WRAPPER_LOG: Log file path for debugging
+//! - CFLAGS, CXXFLAGS, LDFLAGS: Traditional compiler flags
+//!
+//! Usage Examples
+//! -------------
+//! 1. As C Compiler:
+//!    ```bash
+//!    zig-wrapper cc -c source.c -o source.o
+//!    ```
+//!
+//! 2. As C++ Compiler:
+//!    ```bash
+//!    zig-wrapper c++ -c source.cpp -o source.o
+//!    ```
+//!
+//! 3. As Linker:
+//!    ```bash
+//!    zig-wrapper ld -o program source.o
+//!    ```
+//!
+//! Special Features
+//! ---------------
+//! - Automatic handling of system include paths
+//! - Library path management
+//! - Windows DLL support
+//! - OpenMP integration
+//! - Logging capabilities for debugging
+//!
+//! Error Handling
+//! -------------
+//! - Uses Zig's error union type for robust error handling
+//! - Provides detailed logging when enabled
+//! - Maintains compatibility with traditional compiler error outputs
+//!
+//! Memory Management
+//! ----------------
+//! - Uses Zig's allocator interface for memory management
+//! - Implements proper cleanup through deinit() functions
+//! - Handles temporary files and resources appropriately
+//!
+//! Limitations
+//! ----------
+//! - Some compiler-specific features might not be fully supported
+//! - Platform-specific behaviors may vary
+//! - Certain advanced compiler options may need manual translation
+//!
+//! Documentation
+//! ------------
+//! This file contains the command line wrapper of the Zig compiler.
+//! It provides a compatibility layer for using the Zig compiler as a drop-in
+//! replacement for various compilation tools (gcc, clang, ar, etc.). It translates
+//! command-line arguments and environment variables to their Zig equivalents.
+//!
+//! This file is the part of the `cmkabe` library
+//! (https://github.com/spritetong/cmkabe),
+//! which is licensed under the MIT license
+//! (https://opensource.org/licenses/MIT).
+//! Copyright (C) 2024 spritetong@gmail.com.
+//!
+//! @author     spritetong@gmail.com
+//! @date       2024
+//! @version    1.0, 7/20/2024, Tong
+//!             - Initial revision.
+//! *
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -17,21 +138,37 @@ const ArgIteratorGeneral = std.process.ArgIteratorGeneral(.{});
 const StringArray = std.ArrayList([]const u8);
 const StringSet = std.StringArrayHashMap(void);
 
+/// Represents a command that can be executed by the Zig compiler
 pub const ZigCommand = enum {
-    const Self = @This();
+    /// Represents the archive utility (similar to ar)
     ar,
+    /// C compiler mode
     cc,
+    /// C++ compiler mode
     cxx,
+    /// DLL tool for Windows
     dlltool,
+    /// Linker mode (LLD)
     ld,
+    /// Library manager
     lib,
+    /// MSVC-style linker
     link,
+    /// Object file copy utility
     objcopy,
+    /// Archive index generator
     ranlib,
+    /// Resource compiler
     rc,
+    /// Symbol stripper
     strip,
+    /// Windows resource compiler
     windres,
 
+    const Self = @This();
+
+    /// Converts a string command name to its corresponding ZigCommand
+    /// Returns null if the command is not recognized
     fn fromStr(str: []const u8) ?Self {
         const map = std.StaticStringMap(ZigCommand).initComptime(.{
             .{ "ar", .ar },
@@ -54,6 +191,8 @@ pub const ZigCommand = enum {
         return map.get(str);
     }
 
+    /// Returns the actual command name to be passed to Zig
+    /// Some commands need special naming (e.g., cxx -> c++)
     fn toName(self: Self) []const u8 {
         return switch (self) {
             .cxx => "c++",
@@ -791,6 +930,7 @@ const SimpleOptionParser = struct {
     }
 };
 
+/// Main wrapper structure for the Zig compiler
 pub const ZigWrapper = struct {
     const Self = @This();
     alloc: BufferedAllocator,
@@ -849,6 +989,7 @@ pub const ZigWrapper = struct {
     // CC linker
     cc_dll_lib: ?[]const u8 = null,
     cc_dll_a: ?[]const u8 = null,
+    cc_output: ?[]const u8 = null,
 
     pub fn init(allocator_: std.mem.Allocator) !Self {
         var self = outer: {
@@ -1290,6 +1431,10 @@ pub const ZigWrapper = struct {
             } else if (parser.parseNamed(&.{"--disable-dllexport"}, false)) {
                 self.disable_dllexport = true;
             } else if (parser.parseNamed(&.{"-o"}, true)) {
+                // Save the output file path for post-processing.
+                if (parser.consumed.len == 2) {
+                    self.cc_output = parser.value;
+                }
                 // Autoconfig uses `zig-cc` to compile DLL, wrongly builds out `.dll.a` instead of `.dll`.
                 // We fix it to output the `.dll` file.
                 if (parser.consumed.len == 2 and self.command.isCompiler() and
@@ -1740,6 +1885,58 @@ pub const ZigWrapper = struct {
                 }
             },
             else => {},
+        }
+
+        // Work around:
+        //    https://github.com/ziglang/zig/issues/22847
+        //    zig build: Incorrect path prefix added to Linux shared library paths in ELF dynamic section
+        if (self.cc_output) |output| {
+            if (self.is_linker and !self.target_is_windows) {
+                // Get the real path of `elf_path_fixer.py`
+                const script_dir = std.fs.path.dirname(self.sys_argv0) orelse ".";
+                const script = try std.fs.path.join(self.allocator(), &.{
+                    script_dir,
+                    "elf_path_fixer.py",
+                });
+                defer self.allocator().free(script);
+                if ((std.fs.accessAbsolute(script, .{}) catch null) == null) {
+                    return;
+                }
+
+                // Arguments passed to `elf_path_fixer.py`.
+                var args = StringArray.init(self.allocator());
+                defer args.deinit();
+
+                if (builtin.os.tag == .windows) {
+                    try args.append("python.exe");
+                } else {
+                    try args.append("python3");
+                }
+
+                try args.appendSlice(&.{ script, output, "--no-backup" });
+
+                // Remove paths containing backslash on Windows.
+                try args.appendSlice(&.{ "-t", "[:\\\\]" });
+                try args.appendSlice(&.{ "-t", "^/mnt/[a-z]/" });
+
+                if (self.alloc.getEnvVar("CARGO_WORKSPACE_DIR")) |ws| {
+                    const ws_esc = try std.mem.replaceOwned(u8, self.allocator(), ws, "\\", "\\\\");
+                    self.alloc.addString(ws_esc);
+                    try args.appendSlice(&.{ "-t", ws_esc });
+                } else |_| {}
+
+                for (&[_][]const u8{ "CMKABE_TARGET", "CMKABE_CARGO_TARGET", "CMKABE_ZIG_TARGET" }) |env| {
+                    if (self.alloc.getEnvVar(env)) |target| {
+                        try args.appendSlice(&.{ "-t", try self.alloc.allocPrint("{s}/", .{target}) });
+                    } else |_| {}
+                }
+
+                var child = std.process.Child.init(args.items, self.allocator());
+                const exit_code = (try child.spawnAndWait()).Exited;
+                if (exit_code != 0) {
+                    self.log.print("***** elf_path_fixer.py error code: {d}\n", .{exit_code});
+                }
+            }
         }
     }
 };

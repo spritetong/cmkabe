@@ -179,14 +179,14 @@ class ElfParser:
         return paths
 
 
-def modify_elf_file(elf_path, target_pattern, create_backup=True, verbose=False):
+def modify_elf_file(elf_path, target_patterns, create_backup=True, verbose=False):
     """Modify the ELF file to remove directory paths containing the target string."""
     try:
         temp_dir = None
         temp_elf = None
 
         # Compile the regular expression pattern
-        pattern = re.compile(target_pattern)
+        patterns = [re.compile(pat) for pat in target_patterns]
 
         # First, analyze the original ELF file
         with ElfParser(elf_path) as parser:
@@ -206,16 +206,16 @@ def modify_elf_file(elf_path, target_pattern, create_backup=True, verbose=False)
         # Check if any modifications are needed
         modified_libs = []
         for lib, offset in needed_libs:
-            if pattern.search(lib):
+            if any(pat.search(lib) is not None for pat in patterns):
                 filename = os.path.basename(lib)
                 modified_libs.append((lib, filename, offset))
 
         modified_paths = []
         for path, offset, tag_type in paths:
-            if pattern.search(path):
+            if any(pat.search(path) is not None for pat in patterns):
                 new_paths = []
                 for p in path.split(':'):
-                    if pattern.search(p):
+                    if any(pat.search(p) is not None for pat in patterns):
                         print_info(f"  Removing directory path from: {p}")
                     else:
                         new_paths.append(p)
@@ -351,7 +351,7 @@ def main():
     parser.add_argument(
         'elf_file', help='Path to the ELF executable file to process')
     parser.add_argument('--target', '-t',
-                        required=True,
+                        required=True, dest="targets", action='append',
                         help='Regular expression pattern to match in library paths (e.g. "aarch64-.*-linux-gnu/lib")')
     parser.add_argument('--no-backup', dest='backup', action='store_false', default=True,
                         help='Do not create a backup of the original file')
@@ -383,10 +383,10 @@ def main():
         sys.exit(1)
 
     print_info(f"Processing ELF file: {args.elf_file}")
-    print_info(f"Target pattern: {args.target}")
+    print_info(f"Target patterns: {args.targets}")
 
     # Modify the ELF file
-    if modify_elf_file(args.elf_file, args.target, args.backup, args.verbose):
+    if modify_elf_file(args.elf_file, args.targets, args.backup, args.verbose):
         sys.exit(0)
     else:
         sys.exit(1)
