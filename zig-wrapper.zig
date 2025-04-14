@@ -268,9 +268,11 @@ pub const ZigArgFilter = struct {
                 .match("/usr/include").replaceWith(&.{"-idirafter"}).replaceWithOptValue().eof()
                 .match("/usr/local/include").replaceWith(&.{"-idirafter"}).replaceWithOptValue().done();
             // MSVC
-            map.initFilters("-Xlinker", 2)
+            map.initFilters("-Xlinker", 3)
                 .match("/MANIFEST:EMBED").eof()
-                .match("/version:0.0").done();
+                .match("/version:0.0").eof()
+                // CMake
+                .next().match("--dependency-file=*").done();
             // -m <target>, unknown Clang option: '-m'
             map.initFilter("-m").match("*").done();
             // -verbose
@@ -1913,7 +1915,7 @@ pub const ZigWrapper = struct {
                     try args.append("python3");
                 }
 
-                try args.appendSlice(&.{ script, output, "--no-backup" });
+                try args.appendSlice(&.{ script, output, "--no-backup", "--quiet" });
 
                 // Remove paths containing backslash on Windows.
                 try args.appendSlice(&.{ "-t", "[:\\\\]" });
