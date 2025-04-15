@@ -121,6 +121,11 @@ elseif(ZIG OR TARGET_CC)
     if(TARGET_RC)
         set(CMAKE_RC_COMPILER "${TARGET_RC}")
     endif()
+
+    # Check if `CMAKE_ASM_MASM_COMPILER` is a valid file
+    if(DEFINED CMAKE_ASM_MASM_COMPILER AND (NOT EXISTS "${CMAKE_ASM_MASM_COMPILER}"))
+        unset(CMAKE_ASM_MASM_COMPILER CACHE)
+    endif()
 else()
     # Native
 

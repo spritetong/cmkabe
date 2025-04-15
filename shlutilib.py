@@ -1917,10 +1917,12 @@ class TargetParser(ShellCmd):
                 self.android_arch))
             fwrite(f, 'override ANDROID_ABI = {}\n'.format(
                 self.android_abi))
-            fwrite(f, 'override ANDROID_NDK_ROOT = {}\n'.format(
-                self.android_ndk_root))
-            fwrite(f, 'override ANDROID_NDK_BIN = {}\n'.format(
-                self.android_ndk_bin))
+            if self.android_ndk_root:
+                fwrite(f, 'override ANDROID_NDK_ROOT = {}\n'.format(
+                    self.android_ndk_root))
+            if self.android_ndk_bin:
+                fwrite(f, 'override ANDROID_NDK_BIN = {}\n'.format(
+                    self.android_ndk_bin))
             if self.android:
                 fwrite(f, 'override CMAKE_SYSTEM_VERSION = $(ANDROID_SDK_VERSION)\n')
             fwrite(f, '\n')
@@ -2023,9 +2025,12 @@ class TargetParser(ShellCmd):
                 self.android_arch))
             fwrite(f, 'set(ANDROID_ABI "{}")\n'.format(
                 self.android_abi))
-            fwrite(f, 'set(ANDROID_NDK_ROOT "{}")\n'.format(
-                self.android_ndk_root))
-            fwrite(f, 'set(ANDROID_NDK_BIN "{}")\n'.format(self.android_ndk_bin))
+            if self.android_ndk_root:
+                fwrite(f, 'set(ANDROID_NDK_ROOT "{}")\n'.format(
+                    self.android_ndk_root))
+            if self.android_ndk_bin:
+                fwrite(f, 'set(ANDROID_NDK_BIN "{}")\n'.format(
+                    self.android_ndk_bin))
             if self.android:
                 fwrite(
                     f, 'set(CMAKE_SYSTEM_VERSION "${ANDROID_SDK_VERSION}")\n')
