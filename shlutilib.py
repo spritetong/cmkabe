@@ -1279,7 +1279,8 @@ class TargetParser(ShellCmd):
         # Find the cross compiler.
         self.zig = (os.path.splitext(
             os.path.basename(self.target_cc))[0] in ('zig', 'zig-cc',))
-        if (not self.target_is_native and not self.android and not self.zig and
+        zig = shutil.which('zig' + self.EXE_EXT) if self.zig else None
+        if (not self.target_is_native and not self.android and (zig is None) and
                 (not self.target_cc or not shutil.which(self.target_cc)) and
                 self.is_cross_compiling):
             # Try gcc cross-compiler.
@@ -1287,10 +1288,13 @@ class TargetParser(ShellCmd):
                 self.target + '-gcc' + self.EXE_EXT) or shutil.which(self.target + '-cc' + self.EXE_EXT)
             if target_cc:
                 self.target_cc = self.normpath(target_cc)
+                # Disable Zig if gcc is found.
+                self.zig = False
             elif (self.vendor != self.host_vendor or self.os != self.host_os or
                   self.env != self.host_env) or (self.host_is_linux and self.os == 'linux'):
                 # Try Zig cross-compiler.
-                zig = shutil.which('zig' + self.EXE_EXT)
+                if zig is None:
+                    zig = shutil.which('zig' + self.EXE_EXT)
                 if zig:
                     self.zig = True
 
