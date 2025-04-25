@@ -179,7 +179,8 @@ class ElfParser:
         return paths
 
 
-def modify_elf_file(elf_path, target_patterns, create_backup=True, verbose=False):
+def modify_elf_file(elf_path, target_patterns, *,
+                    fix_rpath=False, create_backup=True, verbose=False):
     """Modify the ELF file to remove directory paths containing the target string."""
     try:
         temp_dir = None
@@ -212,7 +213,7 @@ def modify_elf_file(elf_path, target_patterns, create_backup=True, verbose=False
 
         modified_paths = []
         for path, offset, tag_type in paths:
-            if any(pat.search(path) is not None for pat in patterns):
+            if fix_rpath and any(pat.search(path) is not None for pat in patterns):
                 new_paths = []
                 for p in path.split(':'):
                     if any(pat.search(p) is not None for pat in patterns):
@@ -353,9 +354,11 @@ def main():
     parser.add_argument('--target', '-t',
                         required=True, dest="targets", action='append',
                         help='Regular expression pattern to match in library paths (e.g. "aarch64-.*-linux-gnu/lib")')
+    parser.add_argument('--fix-rpath', dest="fix_rpath", action='store_true', default=False,
+                        help='fix both RPATH and RUNPATH (default is False)')
     parser.add_argument('--no-backup', dest='backup', action='store_false', default=True,
                         help='Do not create a backup of the original file')
-    parser.add_argument('--verbose', '-v', action='store_true',
+    parser.add_argument('--verbose', '-v', action='store_true', default=False,
                         help='Enable verbose output')
     parser.add_argument('--quiet', '-q', action='store_true',
                         help='Suppress all output except errors')
@@ -386,7 +389,8 @@ def main():
     print_info(f"Target patterns: {args.targets}")
 
     # Modify the ELF file
-    if modify_elf_file(args.elf_file, args.targets, args.backup, args.verbose):
+    if modify_elf_file(args.elf_file, args.targets,
+                       fix_rpath=args.fix_rpath, create_backup=args.backup, verbose=args.verbose):
         sys.exit(0)
     else:
         sys.exit(1)

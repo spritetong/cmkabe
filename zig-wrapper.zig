@@ -1920,6 +1920,7 @@ pub const ZigWrapper = struct {
                 // Remove paths containing backslash on Windows.
                 try args.appendSlice(&.{ "-t", "[:\\\\]" });
                 try args.appendSlice(&.{ "-t", "^/mnt/[a-z]/" });
+                try args.appendSlice(&.{ "-t", "/.rmake/" });
 
                 if (self.alloc.getEnvVar("CARGO_WORKSPACE_DIR")) |ws| {
                     const ws_esc = try std.mem.replaceOwned(u8, self.allocator(), ws, "\\", "\\\\");
@@ -1927,7 +1928,7 @@ pub const ZigWrapper = struct {
                     try args.appendSlice(&.{ "-t", ws_esc });
                 } else |_| {}
 
-                for (&[_][]const u8{ "CMKABE_TARGET", "CMKABE_CARGO_TARGET", "CMKABE_ZIG_TARGET" }) |env| {
+                for (&[_][]const u8{ "CMKABE_TARGET", "CMKABE_CARGO_TARGET" }) |env| {
                     if (self.alloc.getEnvVar(env)) |target| {
                         try args.appendSlice(&.{ "-t", try self.alloc.allocPrint("{s}/", .{target}) });
                     } else |_| {}
