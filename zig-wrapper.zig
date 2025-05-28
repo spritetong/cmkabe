@@ -238,8 +238,9 @@ pub const ZigArgFilter = struct {
 
     pub const Replacer = union(enum) {
         opt_value: void,
-        arg_index: usize,
         string: []const u8,
+        /// { index, needle, replacement }
+        arg_index: struct { usize, []const u8, []const u8 },
     };
 
     /// Options to query the compiler version only.
@@ -273,6 +274,8 @@ pub const ZigArgFilter = struct {
                 .match("/version:0.0").eof()
                 // CMake
                 .next().match("--dependency-file=*").done();
+            // CC
+            map.initFilter("-std").command("cc").replaceWithSubString(0, "++", "").done();
             // -m <target>, unknown Clang option: '-m'
             map.initFilter("-m").match("*").done();
             // -verbose
@@ -392,7 +395,21 @@ pub const ZigArgFilter = struct {
     }
 
     pub fn replaceWithArg(self: *Self, arg_index: usize) *Self {
-        self.replacers.append(.{ .arg_index = arg_index }) catch unreachable;
+        self.replacers.append(.{ .arg_index = .{ arg_index, "", "" } }) catch unreachable;
+        return self;
+    }
+
+    pub fn replaceWithSubString(
+        self: *Self,
+        arg_index: usize,
+        needle: []const u8,
+        replacement: []const u8,
+    ) *Self {
+        self.replacers.append(.{ .arg_index = .{
+            arg_index,
+            needle,
+            replacement,
+        } }) catch unreachable;
         return self;
     }
 };
@@ -403,7 +420,9 @@ pub const ZigArgFilterMap = struct {
 
     pub fn init(allocator: std.mem.Allocator) Self {
         return .{
-            .map = std.StringArrayHashMap(std.ArrayList(ZigArgFilter)).init(allocator),
+            .map = std.StringArrayHashMap(
+                std.ArrayList(ZigArgFilter),
+            ).init(allocator),
         };
     }
 
@@ -555,15 +574,26 @@ pub const ZigArgFilterMap = struct {
                                     try output.append(opt_value);
                                 }
                             },
-                            .arg_index => |arg_index| {
-                                if (arg_index == 0) {
-                                    try output.append(opt);
-                                } else if (arg_index <= consumed) {
-                                    try output.append(input.args[arg_index - 1]);
-                                }
-                            },
                             .string => |str| {
                                 try output.append(str);
+                            },
+                            .arg_index => |triple| {
+                                const arg_index = triple[0];
+                                const s = if (arg_index == 0)
+                                    opt
+                                else if (arg_index <= consumed)
+                                    input.args[arg_index - 1]
+                                else
+                                    continue;
+                                const replaced = try std.mem.replaceOwned(
+                                    u8,
+                                    ctx.allocator(),
+                                    s,
+                                    triple[1],
+                                    triple[2],
+                                );
+                                ctx.alloc.addString(replaced);
+                                try output.append(replaced);
                             },
                         }
                     }
@@ -951,6 +981,8 @@ pub const ZigWrapper = struct {
     is_preprocessor: bool = false,
     /// If the output file is a shared library.
     is_shared_lib: bool = false,
+    /// If the input file is a C source file.
+    input_is_c_file: bool = false,
     /// Allow to parse the compiler flags from `<LANG>FLAGS_<TARGET>` environment variables.
     allow_target_env_flags: bool = false,
     /// Disable `__declspec(dllexport)` for Windows targets.
@@ -1073,6 +1105,15 @@ pub const ZigWrapper = struct {
         try self.sys_argv.ensureUnusedCapacity(argv.items.len);
         try self.parseCustomArgs(argv.items, &self.sys_argv);
         argv.clearRetainingCapacity();
+
+        // Correct `c++` to `cc`.
+        if (self.input_is_c_file) {
+            if (self.is_linker) {
+                self.input_is_c_file = false;
+            } else if (self.command == .cxx) {
+                self.command = .cc;
+            }
+        }
 
         // Parse Zig flags in the environment variables.
         try self.parseEnvFlags(&argv);
@@ -1349,7 +1390,15 @@ pub const ZigWrapper = struct {
     fn parseCustomArgs(self: *Self, args: []const []const u8, dest: *StringArray) !void {
         var parser = SimpleOptionParser{ .args = args };
         while (parser.hasArgument()) {
-            if (parser.parsePositional(true)) |_| {
+            if (parser.parsePositional(true)) |opt| {
+                // Check if `opt` is C source file or not.
+                if (self.command.isCompiler() and !self.is_linker) {
+                    if (strEndsWith(opt, ".c")) {
+                        if (std.fs.cwd().access(opt, .{})) |_| {
+                            self.input_is_c_file = true;
+                        } else |_| {}
+                    }
+                }
                 // Skip positional arguments.
                 try dest.appendSlice(parser.consumed);
             } else if (parser.parseNamed(ZigArgFilter.query_version_opts, false)) {
