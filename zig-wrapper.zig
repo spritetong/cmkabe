@@ -276,6 +276,8 @@ pub const ZigArgFilter = struct {
                 .next().match("--dependency-file=*").done();
             // CC
             map.initFilter("-std").command("cc").replaceWithSubString(0, "++", "").done();
+            // GCC / Clang
+            map.initFilter("-Werror").replaceWithArg(0).replaceWith(&.{"-Wno-error=date-time"}).done();
             // -m <target>, unknown Clang option: '-m'
             map.initFilter("-m").match("*").done();
             // -verbose
@@ -585,15 +587,19 @@ pub const ZigArgFilterMap = struct {
                                     input.args[arg_index - 1]
                                 else
                                     continue;
-                                const replaced = try std.mem.replaceOwned(
-                                    u8,
-                                    ctx.allocator(),
-                                    s,
-                                    triple[1],
-                                    triple[2],
-                                );
-                                ctx.alloc.addString(replaced);
-                                try output.append(replaced);
+                                if (triple[1].len == 0) {
+                                    try output.append(s);
+                                } else {
+                                    const replaced = try std.mem.replaceOwned(
+                                        u8,
+                                        ctx.allocator(),
+                                        s,
+                                        triple[1],
+                                        triple[2],
+                                    );
+                                    ctx.alloc.addString(replaced);
+                                    try output.append(replaced);
+                                }
                             },
                         }
                     }
@@ -1187,6 +1193,10 @@ pub const ZigWrapper = struct {
         // `cc`, `c++`: -target <target> [-march=<cpu>] [-mtune=<cpu>]
         if (self.command.isCompiler()) {
             try self.args.appendSlice(&[_][]const u8{ "-target", self.zig_target });
+
+            // Disable 'date-time' error by default.
+            try self.args.append("-Wno-error=date-time");
+
             if (!self.is_preprocessor) {
                 for (&[_]*StringArray{ &self.zig_cpu_opts, &self.zig_cpu_tune_opts }) |options| {
                     for (options.items) |opt| {
