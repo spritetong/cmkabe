@@ -16,7 +16,9 @@ cmake_minimum_required(VERSION 3.16)
 if(NOT DEFINED _CMKABE_RULES_INITIALIZED)
 set(_CMKABE_RULES_INITIALIZED ON)
 
-include("${CMAKE_CURRENT_LIST_DIR}/toolchain.cmake")
+if(NOT DEFINED _CMKABE_TOOLCHAIN_INITED)
+    include("${CMAKE_CURRENT_LIST_DIR}/toolchain.cmake")
+endif()
 
 if(NOT DEFINED TARGET_PREFIX_DIR)
     message(FATAL_ERROR "`TARGET_PREFIX_DIR` is not defined.")
@@ -35,6 +37,10 @@ set(TARGET_OUTPUT_MODE "DEFAULT"
 option(TARGET_STRIP_ON_RELEASE
     "Strip the target on release build."
     ON)
+cmkabe_c_compiler_is_gnu_clang(_cmkabe_target_cc_have_option_strip)
+option(TARGET_CC_HAVE_OPTION_STRIP
+    "Whether the compiler supports the `-s` option to strip debug info."
+    ${_cmkabe_target_cc_have_option_strip})
 
 option(TARGET_CC_VISIBILITY_HIDDEN
     "Add option `-fvisibility=hidden` to C/C++ compiler by default."
@@ -55,26 +61,13 @@ option(TARGET_MSVC_NO_PDB_WARNING
 
 # ==============================================================================
 
-if(NOT "${PROJECT_NAME}" STREQUAL "")
-    message(FATAL_ERROR "Can not define any project before `include <cmkabe>/rules.cmake`.")
-endif()
-# Define a dummy project.
-project(CMKABE LANGUAGES C CXX ASM)
-
-if(ZIG AND (CMAKE_IMPORT_LIBRARY_SUFFIX STREQUAL ".dll.a"))
+if(ZIG AND ((CMAKE_IMPORT_LIBRARY_SUFFIX STREQUAL ".dll.a") OR
+            ("${TARGET_OS}-${TARGET_ENV}" STREQUAL "windows-gnu")))
     # Change the DLL file name from `lib<name>.dll` to `<name>.dll`
     set(CMAKE_SHARED_LIBRARY_PREFIX "")
     set(CMAKE_SHARED_LIBRARY_SUFFIX ".dll")
     set(CMAKE_IMPORT_LIBRARY_PREFIX "lib")
     set(CMAKE_IMPORT_LIBRARY_SUFFIX ".dll.a")
-endif()
-
-include(CheckCCompilerFlag)
-
-if(CMAKE_C_COMPILER_ID MATCHES "(Clang|GNU)")
-    check_c_compiler_flag("-s" CC_HAVE_OPTION_STRIP)
-else()
-    set(CC_HAVE_OPTION_STRIP OFF)
 endif()
 
 # Redirect the output directorires to the target directories.
@@ -91,10 +84,9 @@ endif()
 # Define `_DEBUG` for Debug build.
 add_compile_definitions($<$<AND:$<COMPILE_LANGUAGE:C,CXX>,$<CONFIG:Debug>>:_DEBUG>)
 
-if(TARGET_STRIP_ON_RELEASE AND CC_HAVE_OPTION_STRIP)
+if(TARGET_STRIP_ON_RELEASE AND TARGET_CC_HAVE_OPTION_STRIP)
     add_compile_options($<$<AND:$<COMPILE_LANGUAGE:C,CXX>,$<CONFIG:Release>>:-s>)
     add_link_options($<$<CONFIG:Release>:-s>)
-
     add_compile_options($<$<AND:$<COMPILE_LANGUAGE:C,CXX>,$<CONFIG:MinSizeRel>>:-s>)
     add_link_options($<$<CONFIG:MinSizeRel>:-s>)
 endif()
@@ -105,21 +97,21 @@ if(TARGET_CC_VISIBILITY_HIDDEN)
     set(CMAKE_ASM_VISIBILITY_PRESET "hidden")
 endif()
 
-if(TARGET_WIN32_UNICODE AND (MSVC OR TARGET_IS_WIN32))
+if(TARGET_WIN32_UNICODE AND (TARGET_IS_WIN32 OR (CMAKE_C_COMPILER_ID STREQUAL "MSVC")))
     add_compile_definitions($<$<COMPILE_LANGUAGE:C,CXX>:UNICODE> $<$<COMPILE_LANGUAGE:C,CXX>:_UNICODE>)
 endif()
 
-if(TARGET_MSVC_AFXDLL AND (MSVC OR TARGET_IS_MSVC))
+if(TARGET_MSVC_AFXDLL AND (TARGET_IS_MSVC OR (CMAKE_C_COMPILER_ID STREQUAL "MSVC")))
     add_compile_definitions($<$<COMPILE_LANGUAGE:C,CXX>:_AFXDLL>)
 endif()
 
-if(TARGET_MSVC_UTF8 AND (MSVC OR TARGET_IS_MSVC))
+if(TARGET_MSVC_UTF8 AND (TARGET_IS_MSVC OR (CMAKE_C_COMPILER_ID STREQUAL "MSVC")))
     add_compile_options($<$<COMPILE_LANGUAGE:C,CXX>:/utf-8>)
 endif()
 
-if(TARGET_MSVC_NO_PDB_WARNING AND (MSVC OR TARGET_IS_MSVC))
+if(TARGET_MSVC_NO_PDB_WARNING AND (TARGET_IS_MSVC OR (CMAKE_C_COMPILER_ID STREQUAL "MSVC")))
     # MSVC warning LNK4099: PDB 'vc80.pdb' was not found
-    add_link_options(/ignore:4099)
+    add_link_options($<$<COMPILE_LANGUAGE:C,CXX>:/ignore:4099>)
 endif()
 
 _cmkabe_apply_extra_flags()

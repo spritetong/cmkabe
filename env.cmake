@@ -20,8 +20,23 @@ if(NOT DEFINED CMKABE_HOME)
     set(CMKABE_HOME "${CMAKE_CURRENT_LIST_DIR}")
 endif()
 
-# if `TARGET_IS_NATIVE` is `ON`, return `native`; otherwise, return `${TARGET}`.
+# If `TARGET_IS_NATIVE` is `ON`, return `native`; otherwise, return `${TARGET}`.
 set(CMKABE_TARGET "native")
+
+# `CMKABE_IS_LOADED_AS_TOOLCHAIN_FILE`:
+#    If the CMKABE module is loaded as a toolchain file, the value is `ON`; otherwise `OFF`.
+if(NOT DEFINED CMKABE_IS_LOADED_AS_TOOLCHAIN_FILE)
+    get_filename_component(_cmkabe_path "${CMAKE_CURRENT_LIST_FILE}" DIRECTORY)
+    get_filename_component(_cmkabe_path "${_cmkabe_path}/toolchain.cmake" ABSOLUTE)
+    if ("${CMAKE_TOOLCHAIN_FILE}" STREQUAL "${_cmkabe_path}")
+        set(CMKABE_IS_LOADED_AS_TOOLCHAIN_FILE ON)
+    else()
+        set(CMKABE_IS_LOADED_AS_TOOLCHAIN_FILE OFF)
+    endif()
+    set(CMKABE_IS_LOADED_AS_TOOLCHAIN_FILE "${CMKABE_IS_LOADED_AS_TOOLCHAIN_FILE}"
+        CACHE INTERNAL "CMKABE is loaded as toolchain file or not.")
+    unset(_cmkabe_path)
+endif()
 
 # `CMAKE_BUILD_TYPE`
 if(NOT CMAKE_BUILD_TYPE)
@@ -46,6 +61,21 @@ if(NOT CMAKE_HOST_SYSTEM_PROCESSOR)
         )
     endif()
 endif()
+
+# Check if the C compiler is GNU or Clang
+function(cmkabe_c_compiler_is_gnu_clang result)
+    set(value OFF)
+    if(DEFINED CMAKE_C_COMPILER_ID)
+        if(CMAKE_C_COMPILER_ID MATCHES "(Clang|GNU)")
+            set(value ON)
+        endif()
+    elseif(TARGET_CC MATCHES "(clang|gcc|armcc|zig-cc)(\\.exe)?$")
+        set(value ON)
+    elseif((NOT TARGET_CC) AND (NOT TARGET_IS_MSVC))
+        set(value ON)
+    endif()
+    set(${result} "${value}" PARENT_SCOPE)
+endfunction()
 
 # Find the value of a key in a key-value map string.
 function(cmkabe_value_from_map map_string key default result)
@@ -431,10 +461,11 @@ function(_cmkabe_apply_extra_flags)
         string(REPLACE "--disable-dllexport" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
     endif()
 
-    if(MSVC OR TARGET_IS_MSVC)
+    cmkabe_c_compiler_is_gnu_clang(is_gcc_clang)
+    if(TARGET_IS_MSVC OR (CMAKE_C_COMPILER_ID STREQUAL "MSVC"))
         set(I "/I ")
         set(L "/LIBPATH:")
-    elseif(CMAKE_C_COMPILER_ID MATCHES "(Clang|GNU)")
+    elseif(is_gcc_clang)
         set(I "-isystem ")
         set(L "-L ")
     else()

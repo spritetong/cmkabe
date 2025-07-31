@@ -85,10 +85,10 @@ if(TARGET_IS_ANDROID)
     set(CMAKE_SYSTEM_NAME "Android")
     set(CMAKE_SYSTEM_PROCESSOR "${ANDROID_ABI}")
     set(CMAKE_SYSTEM_VERSION "${ANDROID_SDK_VERSION}")
-    set(CMAKE_TOOLCHAIN_FILE "${ANDROID_NDK}/build/cmake/android.toolchain.cmake")
     set(CMAKE_ANDROID_ARCH_ABI "${ANDROID_ARCH}")
     set(CMAKE_ANDROID_NDK "${ANDROID_NDK}")
     set(CMAKE_ANDROID_NDK_TOOLCHAIN_VERSION clang)
+    include("${ANDROID_NDK}/build/cmake/android.toolchain.cmake")
 elseif(ZIG OR TARGET_CC)
     # Cross compiler
 
@@ -138,6 +138,10 @@ else()
     else()
         set(CMAKE_SYSTEM_PROCESSOR "${TARGET_ARCH}")
     endif()
+endif()
+
+if(CMKABE_IS_LOADED_AS_TOOLCHAIN_FILE)
+    include("${CMAKE_CURRENT_LIST_DIR}/rules.cmake")
 endif()
 
 endif()
