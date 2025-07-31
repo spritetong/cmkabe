@@ -140,8 +140,4 @@ else()
     endif()
 endif()
 
-if((NOT DEFINED _CMKABE_RULES_INITIALIZED) AND CMKABE_IS_LOADED_AS_TOOLCHAIN_FILE)
-    include("${CMAKE_CURRENT_LIST_DIR}/rules.cmake")
-endif()
-
-endif()
+endif() # _CMKABE_TOOLCHAIN_INITED
