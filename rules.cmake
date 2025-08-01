@@ -14,52 +14,51 @@
 cmake_minimum_required(VERSION 3.16)
 
 if(NOT DEFINED _CMKABE_OPTIONS_INITIALIZED)
-set(_CMKABE_OPTIONS_INITIALIZED ON)
+    set(_CMKABE_OPTIONS_INITIALIZED ON)
 
-if(NOT DEFINED _CMKABE_TOOLCHAIN_INITED)
-    include("${CMAKE_CURRENT_LIST_DIR}/toolchain.cmake")
-endif()
+    if(NOT DEFINED _CMKABE_TOOLCHAIN_INITED)
+        include("${CMAKE_CURRENT_LIST_DIR}/toolchain.cmake")
+    endif()
 
-if(NOT DEFINED TARGET_PREFIX_DIR)
-    message(FATAL_ERROR "`TARGET_PREFIX_DIR` is not defined.")
-endif()
+    if(NOT DEFINED TARGET_PREFIX_DIR)
+        message(FATAL_ERROR "`TARGET_PREFIX_DIR` is not defined.")
+    endif()
 
-set(TARGET_INCLUDE_DIR "${TARGET_PREFIX_DIR}/include"
-    CACHE STRING "Target include directory.")
-set(TARGET_LIB_DIR "${TARGET_PREFIX_DIR}/lib"
-    CACHE STRING "Target library output directory while `TARGET_OUTPUT_MODE` is `REDIRECT`.")
-set(TARGET_BIN_DIR "${TARGET_PREFIX_DIR}/bin"
-    CACHE STRING "Target binary output directory while `TARGET_OUTPUT_MODE` is `REDIRECT`.")
+    set(TARGET_INCLUDE_DIR "${TARGET_PREFIX_DIR}/include"
+        CACHE STRING "Target include directory.")
+    set(TARGET_LIB_DIR "${TARGET_PREFIX_DIR}/lib"
+        CACHE STRING "Target library output directory while `TARGET_OUTPUT_MODE` is `REDIRECT`.")
+    set(TARGET_BIN_DIR "${TARGET_PREFIX_DIR}/bin"
+        CACHE STRING "Target binary output directory while `TARGET_OUTPUT_MODE` is `REDIRECT`.")
 
-set(TARGET_OUTPUT_MODE "DEFAULT"
-    CACHE STRING "Mode to set the target output directory: `NONE`, `DEFAULT` OR `REDIRECT`.")
+    set(TARGET_OUTPUT_MODE "DEFAULT"
+        CACHE STRING "Mode to set the target output directory: `NONE`, `DEFAULT` OR `REDIRECT`.")
 
-option(TARGET_STRIP_ON_RELEASE
-    "Strip the target on release build."
-    ON)
+    option(TARGET_STRIP_ON_RELEASE
+        "Strip the target on release build."
+        ON)
 
-option(TARGET_CC_VISIBILITY_HIDDEN
-    "Add option `-fvisibility=hidden` to C/C++ compiler by default."
-    ON)
+    option(TARGET_CC_VISIBILITY_HIDDEN
+        "Add option `-fvisibility=hidden` to C/C++ compiler by default."
+        ON)
 
-option(TARGET_WIN32_UNICODE
-    "Add definition `_UNICODE` on Windows targets by default."
-    ON)
-option(TARGET_MSVC_AFXDLL
-    "Add definition `_AFXDLL` to MSVC compiler by default."
-    ON)
-option(TARGET_MSVC_UTF8
-    "Add option `/utf-8` to MSVC compiler by default."
-    ON)
-option(TARGET_MSVC_NO_PDB_WARNING
-    "Add option `/ignore:4099` to MSVC linker by default."
-    ON)
-
+    option(TARGET_WIN32_UNICODE
+        "Add definition `_UNICODE` on Windows targets by default."
+        ON)
+    option(TARGET_MSVC_AFXDLL
+        "Add definition `_AFXDLL` to MSVC compiler by default."
+        ON)
+    option(TARGET_MSVC_UTF8
+        "Add option `/utf-8` to MSVC compiler by default."
+        ON)
+    option(TARGET_MSVC_NO_PDB_WARNING
+        "Add option `/ignore:4099` to MSVC linker by default."
+        ON)
 endif() # _CMKABE_OPTIONS_INITIALIZED
 
-
-if(NOT DEFINED _CMKABE_RULES_INITIALIZED)
-
+if(DEFINED _CMKABE_RULES_INITIALIZED)
+    return()
+endif()
 if(CMKABE_IS_LOADED_AS_TOOLCHAIN_FILE)
     # Skip if no project is defined.
     if(NOT PROJECT_NAME)
@@ -138,5 +137,3 @@ if(TARGET_MSVC_NO_PDB_WARNING AND (MSVC OR TARGET_IS_MSVC))
 endif()
 
 _cmkabe_apply_extra_flags()
-
-endif() # _CMKABE_RULES_INITIALIZED

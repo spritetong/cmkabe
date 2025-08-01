@@ -13,7 +13,10 @@
 
 cmake_minimum_required(VERSION 3.16)
 
-if(NOT DEFINED _CMKABE_TOOLCHAIN_INITED)
+# Allow this file to run once.
+if(DEFINED _CMKABE_TOOLCHAIN_INITED)
+    return()
+endif()
 set(_CMKABE_TOOLCHAIN_INITED ON)
 
 include("${CMAKE_CURRENT_LIST_DIR}/env.cmake")
@@ -139,5 +142,3 @@ else()
         set(CMAKE_SYSTEM_PROCESSOR "${TARGET_ARCH}")
     endif()
 endif()
-
-endif() # _CMKABE_TOOLCHAIN_INITED

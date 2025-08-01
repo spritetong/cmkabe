@@ -13,7 +13,10 @@
 
 cmake_minimum_required(VERSION 3.16)
 
-if(NOT DEFINED _CMKABE_ENV_INITED)
+# Allow this file to run once.
+if(DEFINED _CMKABE_ENV_INITED)
+    return()
+endif()
 set(_CMKABE_ENV_INITED ON)
 
 if(NOT DEFINED CMKABE_HOME)
@@ -28,7 +31,7 @@ set(CMKABE_TARGET "native")
 if(NOT DEFINED CMKABE_IS_LOADED_AS_TOOLCHAIN_FILE)
     get_filename_component(_cmkabe_path "${CMAKE_CURRENT_LIST_FILE}" DIRECTORY)
     get_filename_component(_cmkabe_path "${_cmkabe_path}/toolchain.cmake" ABSOLUTE)
-    if ("${CMAKE_TOOLCHAIN_FILE}" STREQUAL "${_cmkabe_path}")
+    if("${CMAKE_TOOLCHAIN_FILE}" STREQUAL "${_cmkabe_path}")
         set(CMKABE_IS_LOADED_AS_TOOLCHAIN_FILE ON)
     else()
         set(CMKABE_IS_LOADED_AS_TOOLCHAIN_FILE OFF)
@@ -56,8 +59,8 @@ if(NOT CMAKE_HOST_SYSTEM_PROCESSOR)
     if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Windows")
         set(CMAKE_HOST_SYSTEM_PROCESSOR "$ENV{PROCESSOR_ARCHITECTURE}")
         if(("${CMAKE_HOST_SYSTEM_PROCESSOR}" STREQUAL "x86") AND
-                (NOT "$ENV{ProgramW6432}" STREQUAL "$ENV{ProgramFiles}") AND
-                (NOT "$ENV{ProgramW6432}" STREQUAL ""))
+            (NOT "$ENV{ProgramW6432}" STREQUAL "$ENV{ProgramFiles}") AND
+            (NOT "$ENV{ProgramW6432}" STREQUAL ""))
             set(CMAKE_HOST_SYSTEM_PROCESSOR "x64")
         endif()
     else()
@@ -192,7 +195,7 @@ endfunction()
 function(cmkabe_find_in_ancesters directory name result)
     get_filename_component(current_dir "${directory}" ABSOLUTE)
     while(true)
-        if (EXISTS "${current_dir}/${name}")
+        if(EXISTS "${current_dir}/${name}")
             set(${result} "${current_dir}/${name}" PARENT_SCOPE)
             return()
         endif()
@@ -220,7 +223,7 @@ endfunction()
 # On Windows MSVC, add a suffix ".dll.lib" to each item of the dll list and return the result list.
 # On other platforms, return the input list directly.
 #
-# Library File Name Format of Rust:
+# Library File Name Formats of Rust:
 # Windows MSVC: Shared (`<name>.dll`, `<name>.dll.lib`); Static `<name>.lib`
 # Windows GNU: Shared (`<name>.dll`, `lib<name>.dll.a`); Static `lib<name>.a`
 # Linux: Shared `lib<name>.so`; Static `lib<name>.a`
@@ -361,7 +364,7 @@ function(cmkabe_add_make_target)
     set(options ALL VERBATIM USES_TERMINAL COMMAND_EXPAND_LISTS)
     set(one_value_args WORKING_DIRECTORY COMMENT JOB_POOL JOB_SERVER_AWARE)
     set(multi_value_args DEPENDS BYPRODUCTS SOURCES)
-    cmake_parse_arguments(PARSE_ARGV 0 args 
+    cmake_parse_arguments(PARSE_ARGV 0 args
         "${options}" "${one_value_args}" "TARGETS;ENVIRONMENT;${multi_value_args}")
 
     set(lst)
@@ -464,7 +467,7 @@ function(_cmkabe_apply_extra_flags)
         set(L "-L ")
     endif()
 
-    if (TARGET_INCLUDE_DIR)
+    if(TARGET_INCLUDE_DIR)
         string(APPEND CMAKE_C_FLAGS " ${I}\"${TARGET_INCLUDE_DIR}\"")
         string(APPEND CMAKE_CXX_FLAGS " ${I}\"${TARGET_INCLUDE_DIR}\"")
     endif()
@@ -505,5 +508,3 @@ function(_cmkabe_apply_extra_flags)
     set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS}" PARENT_SCOPE)
     set(CMAKE_SYSTEM_PREFIX_PATH "${CMAKE_SYSTEM_PREFIX_PATH}" PARENT_SCOPE)
 endfunction()
-
-endif() # _CMKABE_ENV_INITED
