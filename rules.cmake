@@ -59,6 +59,14 @@ endif() # _CMKABE_OPTIONS_INITIALIZED
 if(DEFINED _CMKABE_RULES_INITIALIZED)
     return()
 endif()
+# Ensure that CMake will use MASM as the assembler for MSVC projects.
+if(${CMAKE_VERSION} VERSION_GREATER_EQUAL "4.1")
+    if(CMAKE_ASM_COMPILER)
+        cmake_policy(SET CMP0194 NEW)
+    else()
+        cmake_policy(SET CMP0194 OLD)
+    endif()
+endif()
 if(CMKABE_IS_LOADED_AS_TOOLCHAIN_FILE)
     # Skip if no project is defined.
     if(NOT PROJECT_NAME)
