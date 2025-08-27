@@ -350,8 +350,8 @@ endfunction()
 #     Name [ALL]
 #     TARGETS target1 [target2...]
 #     [ENVIRONMENT [env1...]]
-#     [DEPENDS depend depend depend ... ]
-#     [BYPRODUCTS [files...]]
+#     [DEPENDS file1 [file2...]]
+#     [BYPRODUCTS file1 [files...]]
 #     [WORKING_DIRECTORY dir]
 #     [COMMENT comment]
 #     [JOB_POOL job_pool]
@@ -359,15 +359,16 @@ endfunction()
 #     [VERBATIM] [USES_TERMINAL]
 #     [COMMAND_EXPAND_LISTS]
 #     [SOURCES src1 [src2...]]
+#     [DEPENDENCIES dep1 [dep2...]]
 # )
 function(cmkabe_add_make_target)
     set(options ALL VERBATIM USES_TERMINAL COMMAND_EXPAND_LISTS)
     set(one_value_args WORKING_DIRECTORY COMMENT JOB_POOL JOB_SERVER_AWARE)
     set(multi_value_args DEPENDS BYPRODUCTS SOURCES)
     cmake_parse_arguments(PARSE_ARGV 0 args
-        "${options}" "${one_value_args}" "TARGETS;ENVIRONMENT;${multi_value_args}")
+        "${options}" "${one_value_args}" "TARGETS;ENVIRONMENT;DEPENDENCIES;${multi_value_args}")
 
-    set(lst)
+    set(argv)
     cmkabe_make_options(make_options)
 
     if(NOT args_WORKING_DIRECTORY)
@@ -376,39 +377,41 @@ function(cmkabe_add_make_target)
 
     # name
     list(POP_FRONT args_UNPARSED_ARGUMENTS name)
-    list(APPEND lst "${name}")
     # options
     foreach(arg IN LISTS options)
         if(args_${arg})
-            list(APPEND lst "${arg}")
+            list(APPEND argv "${arg}")
         endif()
     endforeach()
     # one-value args
     foreach(arg IN LISTS one_value_args)
         if(args_${arg})
-            list(APPEND lst "${arg}" "${args_${arg}}")
+            list(APPEND argv "${arg}" "${args_${arg}}")
         endif()
     endforeach()
     # multi-value args
     foreach(arg IN LISTS multi_value_args)
         if(args_${arg})
-            list(APPEND lst "${arg}" ${args_${arg}})
+            list(APPEND argv "${arg}" ${args_${arg}})
         endif()
     endforeach()
     # command
-    list(APPEND lst "COMMAND")
+    list(APPEND argv "COMMAND")
     if(args_ENVIRONMENT)
-        list(APPEND lst "${CMAKE_COMMAND}" "-E" "env" ${args_ENVIRONMENT})
+        list(APPEND argv "${CMAKE_COMMAND}" "-E" "env" ${args_ENVIRONMENT})
     endif()
-    list(APPEND lst "make")
-    list(APPEND lst ${args_TARGETS})
-    list(APPEND lst ${make_options})
-    if(args_DEPENDS)
-        list(JOIN args_DEPENDS "," depends)
-        list(APPEND lst "CMKABE_COMPLETED_PORJECTS=${depends}")
+    list(APPEND argv "make")
+    list(APPEND argv ${args_TARGETS})
+    list(APPEND argv ${make_options})
+    if(args_DEPENDENCIES)
+        list(JOIN args_DEPENDENCIES "," dependencies)
+        list(APPEND argv "CMKABE_COMPLETED_PORJECTS=${dependencies}")
     endif()
 
-    add_custom_target(${lst})
+    add_custom_target(${name} ${argv})
+    if(args_DEPENDENCIES)
+         add_dependencies(${name} ${args_DEPENDENCIES})
+    endif()
 endfunction()
 
 # Function:
