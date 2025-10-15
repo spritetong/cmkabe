@@ -214,11 +214,15 @@ ANDROID_STL ?=
 # ==============================================================================
 # = Cargo
 
-#! Triple of Cargo target
-CARGO_TARGET ?=
 #! Cargo toolchain
 CARGO_TOOLCHAIN +=
-#! Extra options passed to "cargo build" or "cargo run"
+#! Triple of Cargo target
+CARGO_TARGET ?=
+#! Cargo manifest path
+CARGO_MANIFEST_PATH ?=
+#! Cargo package to build
+CARGO_PACKAGE ?=
+#! Extra options passed to "cargo"
 CARGO_OPTS +=
 #! Arguments passed "cargo run", "cargo test" or "cargo bench"
 CARGO_RUN_ARGS ?= $(ARGS)
@@ -228,8 +232,10 @@ CARGO_EXECUTABLES +=
 CARGO_LIBRARIES +=
 
 _X_CARGO_OPTS = $(if $(filter $(HOST_CARGO_TARGET),$(CARGO_TARGET)),,--target $(CARGO_TARGET))
-_X_CARGO_OPTS += $(call bsel,$(DEBUG),,--release)
+_X_CARGO_OPTS += $(if $(CARGO_MANIFEST_PATH),--manifest-path $(CARGO_MANIFEST_PATH),)
+_X_CARGO_OPTS += $(if $(CARGO_PACKAGE),-p $(CARGO_PACKAGE),)
 _X_CARGO_OPTS += --target-dir $(CARGO_TARGET_DIR)
+_X_CARGO_OPTS += $(call bsel,$(DEBUG),,--release)
 _X_CARGO_OPTS += $(CARGO_OPTS)
 _X_CARGO_RUN_ARGS = $(if $(CARGO_RUN_ARGS),-- $(CARGO_RUN_ARGS),)
 
