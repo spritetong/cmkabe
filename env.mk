@@ -70,21 +70,20 @@ lower = $(subst A,a,$(subst B,b,$(subst C,c,$(subst D,d,$(subst E,e,$(subst F,f,
 # upper(value:str)
 upper = $(subst a,A,$(subst b,B,$(subst c,C,$(subst d,D,$(subst e,E,$(subst f,F,$(subst g,G,$(subst h,H,$(subst i,I,$(subst j,J,$(subst k,K,$(subst l,L,$(subst m,M,$(subst n,N,$(subst o,O,$(subst p,P,$(subst q,Q,$(subst r,R,$(subst s,S,$(subst t,T,$(subst u,U,$(subst v,V,$(subst w,W,$(subst x,X,$(subst y,Y,$(subst z,Z,$(1)))))))))))))))))))))))))))
 
-# greater_than(x:int[1,100],y:int[1,100])
+# greater_than(x:int[0,99999999],y:int[0,99999999])
 #     if x > y, return ON, OFF otherwise
-# greater_or_equal(x:int[1,100],y:int[1,100])
+# greater_or_equal(x:int[0,99999999],y:int[0,99999999])
 #     if x >= y, return ON, OFF otherwise
-# number_compare(x:int[1,100],y:int[1,100])
+# number_compare(x:int[0,99999999],y:int[0,99999999])
 #     (x > y) -> +
 #     (x == y) -> =
 #     (x < y) -> -
-greater_than = $(if $(filter $(2),$(call _less_than_subset_,$(1))),ON,OFF)
-greater_or_equal = $(if $(filter $(2),$(call _less_than_subset_,$(1)) $(1)),ON,OFF)
-number_compare = $(if $(filter $(2),$(call _less_than_subset_,$(1))),+,$(if $(filter $(1),$(2)),=,-))
-_less_than_subset_ = $(wordlist 1,$(1),0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 \
-31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 \
-61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 \
-92 93 94 95 96 97 98 99 100)
+greater_than = $(if $(filter $(1),$(2)),OFF,$(if $(filter $(call _compare_pad8,$(1)),$(firstword $(sort $(call _compare_pad8,$(1)) $(call _compare_pad8,$(2))))),OFF,ON))
+greater_or_equal = $(if $(filter $(1),$(2)),ON,$(if $(filter $(call _compare_pad8,$(1)),$(firstword $(sort $(call _compare_pad8,$(1)) $(call _compare_pad8,$(2))))),OFF,ON))
+number_compare = $(if $(filter $(1),$(2)),=,$(if $(filter $(call _compare_pad8,$(1)),$(firstword $(sort $(call _compare_pad8,$(1)) $(call _compare_pad8,$(2))))),-,+))
+_compare_to_x = $(subst 0,x ,$(subst 1,x ,$(subst 2,x ,$(subst 3,x ,$(subst 4,x ,$(subst 5,x ,$(subst 6,x ,$(subst 7,x ,$(subst 8,x ,$(subst 9,x ,$(1)))))))))))
+_compare_to_chars = $(subst 0,0 ,$(subst 1,1 ,$(subst 2,2 ,$(subst 3,3 ,$(subst 4,4 ,$(subst 5,5 ,$(subst 6,6 ,$(subst 7,7 ,$(subst 8,8 ,$(subst 9,9 ,$(1)))))))))))
+_compare_pad8 = $(subst $(SPACE),,$(wordlist $(words x $(call _compare_to_x,$(1))),$(words x x x x x x x x $(call _compare_to_x,$(1))),0 0 0 0 0 0 0 0 $(call _compare_to_chars,$(1))))
 
 # version_compare(x:str,y:str)
 #     (x > y) -> +
@@ -182,15 +181,15 @@ WSL2WIN = $(SHLUTIL) wsl2win_path
 ifeq ($(HOST_SYSTEM),Windows)
     exists   = (IF NOT EXIST $(subst /,$(SEP),$(1)) $(ERR))
     set_env  = (SET $(1)=$(2))
-    wsl_run  = wsl --shell-type login$(if $(WSL_DISTRO), -d "$(WSL_DISTRO)",)$(if $(WSL_USER), -u "$(WSL_USER)",) $(1)
+    wsl_run  = wsl.exe --shell-type login$(if $(WSL_DISTRO), -d "$(WSL_DISTRO)",)$(if $(WSL_USER), -u "$(WSL_USER)",) $(1)
     xargs_do = (FOR /F "tokens=*" %%x IN ('$(1)') DO $(subst {},%%x,$(2)))
 
     EXE_EXT  = .exe
     PS       = ;
 
     NULL     = NUL
-    OK       = SET _=
-    ERR      = cmd.exe /C EXIT 1
+    OK       = CD .
+    ERR      = (CALL)
 
     CD       = CD /D
     CP       = $(SHLUTIL) cp
@@ -198,9 +197,9 @@ ifeq ($(HOST_SYSTEM),Windows)
     MV       = $(SHLUTIL) mv
     PY       = python.exe
     TOUCH    = $(SHLUTIL) touch
-    WHICH    = where
+    WHICH    = where.exe
 
-    WINREG   = $(SHLUTIL) winreg
+    WINREG   = $(SHLUTIL) winreg.exe
 endif
 
 # export CMKABE_COMPLETED_PORJECTS which is from command line.
