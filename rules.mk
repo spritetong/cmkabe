@@ -88,34 +88,36 @@ ifneq ($(filter clean,$(MAKECMDGOALS)),)
     cmake_build_target_deps += MAKE_CLEAN=ON
 endif
 
-# include .host.mk
 _X_DOT_HOST_MK = $(TARGET_CMAKE_DIR)/$(HOST_SYSTEM)/.host.mk
-_X_CMAKE_TARGET_DEPS_BUILT = OFF
+_X_BUILD_DEPS_RUN = OFF
+
+# Phase 1: Build host info if missing or cmake-init is requested
 ifneq ($(filter cmake-init,$(if $(wildcard $(_X_DOT_HOST_MK)),,cmake-init) $(MAKECMDGOALS)),)
     ifneq ($(shell $(cmake_build_target_deps) >$(NULL) || echo 1),)
         $(error Failed to build target: $(TARGET))
     endif
-    _X_CMAKE_TARGET_DEPS_BUILT = ON
+    _X_BUILD_DEPS_RUN = ON
 endif
 include $(_X_DOT_HOST_MK)
 
+# Define target paths (HOST_SYSTEM might have been overridden by .host.mk)
 _X_DOT_TARGET_DIR := $(TARGET_CMAKE_DIR)/$(HOST_SYSTEM)/$(if $(filter-out native,$(TARGET)),$(TARGET),native)
 _X_DOT_SETTINGS_MK = $(_X_DOT_TARGET_DIR)/.settings.mk
 _X_DOT_ENVIRON_MK = $(_X_DOT_TARGET_DIR)/.environ.mk
 
-# Auto rebuild dependencies.
-ifneq ($(_X_CMAKE_TARGET_DEPS_BUILT),ON)
-    $(_X_DOT_SETTINGS_MK): $(addprefix $(CMKABE_HOME)/,shlutil.py zig-wrapper.zig)
-		@$(cmake_build_target_deps)
-endif
-
-# include .settings.mk
-ifeq ($(wildcard $(_X_DOT_SETTINGS_MK)),)
-    ifneq ($(shell $(cmake_build_target_deps) >$(NULL) || echo 1),)
-        $(error Failed to build target: $(TARGET))
+# Phase 2: Build target settings if missing and we didn't build them in Phase 1
+ifneq ($(_X_BUILD_DEPS_RUN),ON)
+    ifeq ($(wildcard $(_X_DOT_SETTINGS_MK)),)
+        ifneq ($(shell $(cmake_build_target_deps) >$(NULL) || echo 1),)
+            $(error Failed to build target: $(TARGET))
+        endif
     endif
 endif
 include $(_X_DOT_SETTINGS_MK)
+
+# Auto rebuild dependencies.
+$(_X_DOT_SETTINGS_MK): $(addprefix $(CMKABE_HOME)/,shlutil.py zig-wrapper.zig) $(filter-out $(subst \,/,$(TARGET_CMAKE_DIR))/%,$(subst \,/,$(MAKEFILE_LIST)))
+	@$(cmake_build_target_deps)
 ifeq ($(CMAKE_TARGET_DIR),)
     $(error Can not parse target: $(TARGET))
 endif
@@ -274,6 +276,7 @@ cmake: cmake-build
 # Do something before building
 .PHONY: cmake-before-build
 cmake-before-build:
+
 
 # Initialize the cmake build directory.
 .PHONY: cmake-init
