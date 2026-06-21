@@ -358,11 +358,11 @@ pub const ZigArgFilterMap = struct {
                         switch (replacer) {
                             .opt_value => {
                                 if (opt_value_valid) {
-                                    try output.append(opt_value);
+                                    try output.append(try ctx.allocator.dupe(u8, opt_value));
                                 }
                             },
                             .string => |str| {
-                                try output.append(str);
+                                try output.append(try ctx.allocator.dupe(u8, str));
                             },
                             .arg_index => |triple| {
                                 const arg_index = triple[0];
@@ -373,16 +373,15 @@ pub const ZigArgFilterMap = struct {
                                 else
                                     continue;
                                 if (triple[1].len == 0) {
-                                    try output.append(s);
+                                    try output.append(try ctx.allocator.dupe(u8, s));
                                 } else {
                                     const replaced = try std.mem.replaceOwned(
                                         u8,
-                                        ctx.allocator(),
+                                        ctx.allocator,
                                         s,
                                         triple[1],
                                         triple[2],
                                     );
-                                    ctx.alloc.addString(replaced);
                                     try output.append(replaced);
                                 }
                             },
@@ -395,7 +394,7 @@ pub const ZigArgFilterMap = struct {
             }
         }
 
-        try output.append(opt);
+        try output.append(try ctx.allocator.dupe(u8, opt));
         return;
     }
 };

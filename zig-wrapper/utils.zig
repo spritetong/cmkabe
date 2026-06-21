@@ -227,3 +227,28 @@ pub fn sysArgMax() usize {
         return @intCast(unistd.sysconf(@intCast(unistd._SC_ARG_MAX)));
     }
 }
+
+pub fn getEnvVar(allocator: std.mem.Allocator, key: []const u8) ![]u8 {
+    const val = try std.process.getEnvVarOwned(allocator, key);
+    defer allocator.free(val);
+    const s = strTrimRight(val);
+    if (s.len > 0) {
+        return try allocator.dupe(u8, s);
+    }
+    return error.EnvironmentVariableNotFound;
+}
+
+pub fn freeStringArray(allocator: std.mem.Allocator, array: *std.ArrayList([]const u8)) void {
+    for (array.items) |item| {
+        allocator.free(item);
+    }
+    array.deinit();
+}
+
+pub fn freeStringSet(allocator: std.mem.Allocator, set: *std.StringArrayHashMap(void)) void {
+    for (set.keys()) |key| {
+        allocator.free(key);
+    }
+    set.deinit();
+}
+
