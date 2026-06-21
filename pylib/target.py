@@ -10,6 +10,7 @@ from typing import Any, Dict, Generator, List, Optional, Tuple
 
 from cmk.pylib.sys_utils import (
     EXE_EXT,
+    GCC_ENV_KEYS,
     HOST_ARCH_MAP,
     HOST_SYSTEM_MAP,
     RUST_ARCH_MAP,
@@ -650,17 +651,7 @@ class TargetParser:
                 f,
                 '# Unexport environment variables that may affect the CC compiler.\n',
             )
-            for key in copy_env_for_cc():
-                pass
-            for key in [
-                'BINDGEN_EXTRA_CLANG_ARGS',
-                'CPATH',
-                'C_INCLUDE_PATH',
-                'CPLUS_INCLUDE_PATH',
-                'OBJC_INCLUDE_PATH',
-                'COMPILER_PATH',
-                'LIBRARY_PATH',
-            ]:
+            for key in GCC_ENV_KEYS:
                 fwrite(f, 'unexport {}\n'.format(key))
 
         with open(
