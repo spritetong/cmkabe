@@ -1,0 +1,148 @@
+# * @file       toolchain.cmake
+# * @brief      This file contains target triple definitions to build cmake targets.
+# * @details    This file is the part of the `cmkabe` library
+# *             (https://github.com/spritetong/cmkabe),
+# *             which is licensed under the MIT license
+# *             (https://opensource.org/licenses/MIT).
+# *             Copyright (C) 2024 spritetong@gmail.com.
+# * @author     spritetong@gmail.com
+# * @date       2022
+# * @version    1.0, 7/9/2022, Tong
+# *             - Initial revision.
+# *
+
+cmake_minimum_required(VERSION 3.16)
+
+# Allow this file to run once.
+if(DEFINED _cmkabe_toolchain_inited)
+    return()
+endif()
+set(_cmkabe_toolchain_inited ON)
+
+include("${CMAKE_CURRENT_LIST_DIR}/env.cmake")
+
+# Default value of `CARGO_TARGET_DIR`
+if(NOT DEFINED TARGET_DIR)
+    set(TARGET_DIR "${CMAKE_SOURCE_DIR}/target")
+endif()
+
+# The root of CMake build directories.
+if(NOT DEFINED TARGET_CMAKE_DIR)
+    set(TARGET_CMAKE_DIR "${TARGET_DIR}/.cmake")
+endif()
+
+# `HOST_TARGET`
+set(DOT_HOST_CMAKE "${TARGET_CMAKE_DIR}/${CMAKE_HOST_SYSTEM_NAME}/.host.cmake")
+if(NOT EXISTS "${DOT_HOST_CMAKE}")
+    _cmkabe_build_make_deps()
+endif()
+include("${DOT_HOST_CMAKE}")
+
+# Target and toolchain definitions.
+if("${TARGET}" MATCHES "^(|native)$")
+    set(DOT_TARGET_DIR "${TARGET_CMAKE_DIR}/${CMAKE_HOST_SYSTEM_NAME}/native")
+else()
+    set(DOT_TARGET_DIR "${TARGET_CMAKE_DIR}/${CMAKE_HOST_SYSTEM_NAME}/${TARGET}")
+endif()
+if(NOT EXISTS "${DOT_TARGET_DIR}/.settings.cmake")
+    _cmkabe_build_make_deps()
+endif()
+include("${DOT_TARGET_DIR}/.settings.cmake")
+include("${DOT_TARGET_DIR}/.environ.cmake")
+
+# Update `CMKABE_TARGET` 
+if(NOT TARGET_IS_NATIVE)
+    set(CMKABE_TARGET "${TARGET}")
+endif()
+
+if(TARGET_IS_ANDROID)
+    # Android
+    if(NOT DEFINED ANDROID_SDK_VERSION)
+        set(ANDROID_SDK_VERSION 24)
+    endif()
+    if(TARGET_ARCH STREQUAL "thumbv7neon")
+        if(NOT DEFINED ANDROID_ARM_MODE)
+            set(ANDROID_ARM_MODE "thumb")
+        endif()
+        if(NOT DEFINED ANDROID_ARM_NEON)
+            set(ANDROID_ARM_NEON ON)
+        endif()
+    else()
+        unset(ANDROID_ARM_MODE)
+        unset(ANDROID_ARM_NEON)
+    endif()
+    if(NOT DEFINED ANDROID_STL)
+        set(ANDROID_STL "c++_static")
+    endif()
+
+    set(ANDROID_TOOLCHAIN clang)
+    set(ANDROID_ARCH "${ANDROID_ARCH}")
+    set(ANDROID_ABI "${ANDROID_ABI}")
+    set(ANDROID_SDK_VERSION "${ANDROID_SDK_VERSION}")
+    set(ANDROID_NATIVE_API_LEVEL "${ANDROID_SDK_VERSION}")
+    set(ANDROID_NDK "${ANDROID_NDK_ROOT}")
+    set(ANDROID_PLATFORM "android-${ANDROID_SDK_VERSION}")
+
+    set(CMAKE_SYSTEM_NAME "Android")
+    set(CMAKE_SYSTEM_PROCESSOR "${ANDROID_ABI}")
+    set(CMAKE_SYSTEM_VERSION "${ANDROID_SDK_VERSION}")
+    set(CMAKE_ANDROID_ARCH_ABI "${ANDROID_ARCH}")
+    set(CMAKE_ANDROID_NDK "${ANDROID_NDK}")
+    set(CMAKE_ANDROID_NDK_TOOLCHAIN_VERSION clang)
+    include("${ANDROID_NDK}/build/cmake/android.toolchain.cmake")
+elseif(ZIG OR TARGET_CC)
+    # Cross compiler
+    if(TARGET_IS_WIN32)
+        set(_system "Windows")
+    elseif(TARGET_IS_ANDROID)
+        set(_system "Android")
+    elseif(TARGET_IS_APPLE AND NOT TARGET_IS_IOS)
+        set(_system "Darwin")
+    elseif(TARGET_IS_APPLE AND TARGET_IS_IOS)
+        set(_system "iOS")
+    else()
+        cmkabe_initial_capitalize("${TARGET_OS}" _system)
+    endif()
+
+    set(CMAKE_SYSTEM_NAME "${_system}")
+    set(CMAKE_SYSTEM_PROCESSOR "${TARGET_ARCH}")
+
+    set(CMAKE_C_COMPILER "${TARGET_CC}")
+    set(CMAKE_C_COMPILER_AR "${TARGET_AR}")
+    set(CMAKE_C_COMPILER_RANLIB "${TARGET_RANLIB}")
+    set(CMAKE_CXX_COMPILER "${TARGET_CXX}")
+    set(CMAKE_CXX_COMPILER_AR "${TARGET_AR}")
+    set(CMAKE_CXX_COMPILER_RANLIB "${TARGET_RANLIB}")
+    set(CMAKE_ASM_COMPILER "${TARGET_CC}")
+    set(CMAKE_ASM_COMPILER_AR "${TARGET_AR}")
+    set(CMAKE_ASM_COMPILER_RANLIB "${TARGET_RANLIB}")
+    set(CMAKE_ASM-ATT_COMPILER "${TARGET_CC}")
+    if(MSVC_MASM)
+        set(CMAKE_ASM_MASM_COMPILER "${MSVC_MASM}")
+    endif()
+    set(CMAKE_AR "${TARGET_AR}")
+    set(CMAKE_RANLIB "${TARGET_RANLIB}")
+
+    if(TARGET_RC)
+        set(CMAKE_RC_COMPILER "${TARGET_RC}")
+    endif()
+
+    if(DEFINED CMAKE_ASM_MASM_COMPILER AND (NOT EXISTS "${CMAKE_ASM_MASM_COMPILER}"))
+        unset(CMAKE_ASM_MASM_COMPILER CACHE)
+    endif()
+else()
+    # Native
+    set(CMAKE_SYSTEM_NAME "${CMAKE_HOST_SYSTEM_NAME}")
+    if(MSVC_ARCH)
+        set(CMAKE_SYSTEM_PROCESSOR "${MSVC_ARCH}")
+        if(MSVC_MASM)
+            set(CMAKE_ASM_COMPILER "${MSVC_MASM}")
+            set(CMAKE_ASM_MASM_COMPILER "${MSVC_MASM}")
+        endif()
+        if(CMAKE_GENERATOR MATCHES "^($|Visual Studio)")
+            set(CMAKE_GENERATOR_PLATFORM "${MSVC_ARCH}")
+        endif()
+    else()
+        set(CMAKE_SYSTEM_PROCESSOR "${TARGET_ARCH}")
+    endif()
+endif()

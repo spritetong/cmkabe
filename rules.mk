@@ -105,7 +105,7 @@ _X_DOT_ENVIRON_MK = $(_X_DOT_TARGET_DIR)/.environ.mk
 
 # Auto rebuild dependencies.
 ifneq ($(_X_CMAKE_TARGET_DEPS_BUILT),ON)
-    $(_X_DOT_SETTINGS_MK): $(addprefix $(CMKABE_HOME)/,shlutilib.py zig-wrapper.zig)
+    $(_X_DOT_SETTINGS_MK): $(addprefix $(CMKABE_HOME)/,shlutil.py zig-wrapper.zig)
 		@$(cmake_build_target_deps)
 endif
 
@@ -158,7 +158,7 @@ CMAKE_OPTS +=
 #! If automatically clean the $(CMAKE_TARGET_PREFIX) directory
 CMAKE_AUTO_CLEAN_TARGET ?= ON
 
-_X_CMAKE_INIT = cmake --toolchain "$(CMKABE_HOME)/toolchain.cmake" -B "$(CMAKE_BUILD_DIR)"
+_X_CMAKE_INIT = cmake --toolchain "$(CMKABE_HOME)/cmake/toolchain.cmake" -B "$(CMAKE_BUILD_DIR)"
 _X_CMAKE_INIT += $(if $(CMAKE_GENERATOR),-G "$(CMAKE_GENERATOR)",)
 _X_CMAKE_INIT += -D "TARGET:STRING=$(CMKABE_TARGET)"
 _X_CMAKE_INIT += -D "TARGET_DIR:FILEPATH=$(TARGET_DIR)"

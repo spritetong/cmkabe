@@ -14,13 +14,14 @@
 cmake_minimum_required(VERSION 3.16)
 
 # Allow this file to run once.
-if(DEFINED _CMKABE_ENV_INITED)
+if(DEFINED _cmkabe_env_inited)
     return()
 endif()
-set(_CMKABE_ENV_INITED ON)
+set(_cmkabe_env_inited ON)
 
 if(NOT DEFINED CMKABE_HOME)
-    set(CMKABE_HOME "${CMAKE_CURRENT_LIST_DIR}")
+    # Since env.cmake is in cmk/cmake/, CMKABE_HOME should be the parent cmk/ directory.
+    get_filename_component(CMKABE_HOME "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
 endif()
 
 # If `TARGET_IS_NATIVE` is `ON`, return `native`; otherwise, return `${TARGET}`.
@@ -72,6 +73,10 @@ if(NOT CMAKE_HOST_SYSTEM_PROCESSOR)
     endif()
 endif()
 
+# ==============================================================================
+# = String Utilities
+# ==============================================================================
+
 # Find the value of a key in a key-value map string.
 function(cmkabe_value_from_map map_string key default result)
     set(value "${default}")
@@ -86,9 +91,8 @@ function(cmkabe_value_from_map map_string key default result)
     set(${result} "${value}" PARENT_SCOPE)
 endfunction()
 
-# Capitalize the initial fo a string.
+# Capitalize the initial of a string.
 function(cmkabe_initial_capitalize str result)
-    # Convert the system name to camel case.
     string(SUBSTRING "${str}" 0 1 x)
     string(TOUPPER "${x}" x)
     string(REGEX REPLACE "^.(.*)$" "${x}\\1" x "${str}")
@@ -122,8 +126,11 @@ function(cmkabe_camel_case_to_upper_underscore str result)
     set(${result} "${value}" PARENT_SCOPE)
 endfunction()
 
+# ==============================================================================
+# = Path and Directory Utilities
+# ==============================================================================
+
 # Get the full path of an executable.
-# There is no `NO_CACHE` option for `find_program` before CMake 3.21.
 function(cmkabe_get_exe_path executable result)
     find_program(_cmkabe_get_exe_path "${executable}")
     if(_cmkabe_get_exe_path STREQUAL "_cmkabe_get_exe_path-NOTFOUND")
@@ -131,7 +138,7 @@ function(cmkabe_get_exe_path executable result)
     else()
         set(${result} "${_cmkabe_get_exe_path}" PARENT_SCOPE)
     endif()
-    unset(_cmkabe_get_exe_path CACHE)
+    unset(_cmkabe_get_exe_path cache)
 endfunction()
 
 # Search in a directory and add all projects in its child directories.
@@ -148,18 +155,40 @@ function(cmkabe_add_subdirs parent_dir)
     endforeach()
 endfunction()
 
-# Function:
-#   cmkabe_set_target_output_directory(<target> [NONE | DEFAULT | REDIRECT | DIRECTORY <dir>])
-#
+# Find a target file or directory in a directory and its ancestors.
+function(cmkabe_find_in_ancesters directory name result)
+    get_filename_component(current_dir "${directory}" absolute)
+    while(true)
+        if(EXISTS "${current_dir}/${name}")
+            set(${result} "${current_dir}/${name}" PARENT_SCOPE)
+            return()
+        endif()
+        get_filename_component(current_dir "${current_dir}" directory)
+        if(NOT current_dir MATCHES "^([A-Za-z]:)?/$")
+            break()
+        endif()
+    endwhile()
+    set(${result} "" PARENT_SCOPE)
+endfunction()
+
+# ==============================================================================
+# = Target Configuration Utilities
+# ==============================================================================
+
+# Set C++ standard (11, 14, or 17 ...)
+function(cmkabe_set_cxx_standard cxx_standard)
+    set(CMAKE_CXX_STANDARD ${cxx_standard} CACHE STRING "C++ standard version." FORCE)
+    set(CMAKE_CXX_STANDARD_REQUIRED ON CACHE BOOL "Enable/disable setting of C++ standard version." FORCE)
+    if(MSVC OR TARGET_IS_MSVC)
+        add_compile_options($<$<COMPILE_LANGUAGE:CXX>:/Zc:__cplusplus>)
+    endif()
+endfunction()
+
 # Set the output directory of a target.
-#   NONE: Set the output directory to `${CMAKE_CURRENT_BINARY_DIR}`.
-#   DEFAULT: Set the output directory to `${CMAKE_BINARY_DIR}`.
-#   REDIRECT: Set the output directory to `${TARGET_LIB_DIR}`, `${TARGET_BIN_DIR}`.
-#   DIRECTORY: Set the output directory to `<dir>`.
 function(cmkabe_set_target_output_directory)
     list(POP_FRONT ARGN target)
     if(NOT target)
-        message(FATAL_ERROR "<target> is missing.")
+        message(fatal_error "<target> is missing.")
     endif()
     cmake_parse_arguments(args "NONE;DEFAULT;REDIRECT" "DIRECTORY" "" ${ARGN})
 
@@ -190,48 +219,15 @@ function(cmkabe_set_target_output_directory)
     endif()
 endfunction()
 
-# Find a target file or directory in a directory and its ancesters,
-# Set the full path in ${result} if the target is found.
-function(cmkabe_find_in_ancesters directory name result)
-    get_filename_component(current_dir "${directory}" ABSOLUTE)
-    while(true)
-        if(EXISTS "${current_dir}/${name}")
-            set(${result} "${current_dir}/${name}" PARENT_SCOPE)
-            return()
-        endif()
-        # Get the parent directory.
-        get_filename_component(current_dir "${current_dir}" DIRECTORY)
-        if(NOT current_dir MATCHES "^([A-Za-z]:)?/$")
-            break()
-        endif()
-    endwhile()
-    set(${result} "" PARENT_SCOPE)
-endfunction()
+# ==============================================================================
+# = Rust Library Link / Installation Integration
+# ==============================================================================
 
-# Set C++ standard (11, 14, or 17 ...)
-function(cmkabe_set_cxx_standard cxx_standard)
-    set(CMAKE_CXX_STANDARD ${cxx_standard} CACHE STRING "C++ stardard version." FORCE)
-    set(CMAKE_CXX_STANDARD_REQUIRED ON CACHE BOOL "Enable/disable setting of C++ stardard version." FORCE)
-    if(MSVC OR TARGET_IS_MSVC)
-        add_compile_options($<$<COMPILE_LANGUAGE:CXX>:/Zc:__cplusplus>)
-    endif()
-endfunction()
-
-# Function:
-#   cmkabe_rust_dlls_for_linker(<result> [name1 name2 ...])
-#
-# On Windows MSVC, add a suffix ".dll.lib" to each item of the dll list and return the result list.
-# On other platforms, return the input list directly.
-#
-# Library File Name Formats of Rust:
-# Windows MSVC: Shared (`<name>.dll`, `<name>.dll.lib`); Static `<name>.lib`
-# Windows GNU: Shared (`<name>.dll`, `lib<name>.dll.a`); Static `lib<name>.a`
-# Linux: Shared `lib<name>.so`; Static `lib<name>.a`
-# Apple: Shared `lib<name>.dylib`; Static `lib<name>.a`
+# On Windows MSVC, add a suffix ".dll.lib" to each item of the dll list.
 function(cmkabe_rust_dlls_for_linker)
     list(POP_FRONT ARGN result)
-    if(NOT result)
-        message(FATAL_ERROR "<result> is missing.")
+    if(not result)
+        message(fatal_error "<result> is missing.")
     endif()
 
     set(dlls)
@@ -250,14 +246,11 @@ function(cmkabe_rust_dlls_for_linker)
     set(${result} ${dlls} PARENT_SCOPE)
 endfunction()
 
-# Function:
-#   cmkabe_target_link_rust_dlls(<target> <INTERFACE|PUBLIC|PRIVATE> [name1 name2 ...])
-#
 # Link the specified Rust DLLs to the <target>.
 function(cmkabe_target_link_rust_dlls)
     list(POP_FRONT ARGN target)
     if(NOT target)
-        message(FATAL_ERROR "<target> is missing.")
+        message(fatal_error "<target> is missing.")
     endif()
     cmake_parse_arguments(args "INTERFACE;PUBLIC;PRIVATE" "" "" ${ARGN})
 
@@ -274,14 +267,7 @@ function(cmkabe_target_link_rust_dlls)
     target_link_libraries(${target} ${args})
 endfunction()
 
-# Function:
-#   cmkabe_install_rust_dlls(name1 name2 ... [DIRECTORY dir] EXCLUDE_FROM_ALL [COMPONENT component])
-#
 # Install the specified DLL files.
-# <dir> is the source directory if specified.
-# EXCLUDE_FROM_ALL Specify that the file is excluded from a full installation and
-#   only installed as part of a component-specific installation.
-# <component> is the install component if specified.
 function(cmkabe_install_rust_dlls)
     cmake_parse_arguments(args "EXCLUDE_FROM_ALL" "DIRECTORY;COMPONENT" "" ${ARGN})
 
@@ -314,9 +300,10 @@ function(cmkabe_install_rust_dlls)
     endforeach()
 endfunction()
 
-# Function:
-# cmkabe_make_options(result)
-#
+# ==============================================================================
+# = Make Wrappers / External Commands
+# ==============================================================================
+
 # Returns the common options to pass to the `make` command.
 function(cmkabe_make_options result)
     set(debug OFF)
@@ -345,22 +332,7 @@ function(cmkabe_make_options result)
     )
 endfunction()
 
-# Function:
-# cmkabe_add_make_target(
-#     Name [ALL]
-#     TARGETS target1 [target2...]
-#     [ENVIRONMENT [env1...]]
-#     [DEPENDS file1 [file2...]]
-#     [BYPRODUCTS file1 [files...]]
-#     [WORKING_DIRECTORY dir]
-#     [COMMENT comment]
-#     [JOB_POOL job_pool]
-#     [JOB_SERVER_AWARE <bool>]
-#     [VERBATIM] [USES_TERMINAL]
-#     [COMMAND_EXPAND_LISTS]
-#     [SOURCES src1 [src2...]]
-#     [DEPENDENCIES dep1 [dep2...]]
-# )
+# Add a Makefile-backed target.
 function(cmkabe_add_make_target)
     set(options ALL VERBATIM USES_TERMINAL COMMAND_EXPAND_LISTS)
     set(one_value_args WORKING_DIRECTORY COMMENT JOB_POOL JOB_SERVER_AWARE)
@@ -375,27 +347,22 @@ function(cmkabe_add_make_target)
         set(args_WORKING_DIRECTORY "${WORKSPACE_DIR}")
     endif()
 
-    # name
     list(POP_FRONT args_UNPARSED_ARGUMENTS name)
-    # options
     foreach(arg IN LISTS options)
         if(args_${arg})
             list(APPEND argv "${arg}")
         endif()
     endforeach()
-    # one-value args
     foreach(arg IN LISTS one_value_args)
         if(args_${arg})
             list(APPEND argv "${arg}" "${args_${arg}}")
         endif()
     endforeach()
-    # multi-value args
     foreach(arg IN LISTS multi_value_args)
         if(args_${arg})
             list(APPEND argv "${arg}" ${args_${arg}})
         endif()
     endforeach()
-    # command
     list(APPEND argv "COMMAND")
     if(args_ENVIRONMENT)
         list(APPEND argv "${CMAKE_COMMAND}" "-E" "env" ${args_ENVIRONMENT})
@@ -414,8 +381,7 @@ function(cmkabe_add_make_target)
     endif()
 endfunction()
 
-# Function:
-# cmkabe_add_env_compiler_flags(target lang1 lang2 ...)
+# Add compiler flags based on environment variables.
 function(cmkabe_add_env_compiler_flags)
     list(POP_FRONT ARGN target)
     foreach(lang IN LISTS ARGN)
@@ -427,6 +393,7 @@ function(cmkabe_add_env_compiler_flags)
     endforeach()
 endfunction()
 
+# Rebuild dependencies by calling shlutil.py.
 function(_cmkabe_build_make_deps)
     if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Windows")
         set(python "python.exe")
@@ -435,14 +402,18 @@ function(_cmkabe_build_make_deps)
     endif()
     cmkabe_make_options(options)
     execute_process(
-        COMMAND ${python} ${CMAKE_CURRENT_LIST_DIR}/shlutil.py build_target_deps ${options}
-        OUTPUT_VARIABLE output
-        OUTPUT_STRIP_TRAILING_WHITESPACE
+        COMMAND ${python} ${CMKABE_HOME}/shlutil.py build_target_deps ${options}
+        RESULT_VARIABLE res
+        OUTPUT_VARIABLE out
+        ERROR_VARIABLE err
     )
+    if(NOT res EQUAL 0)
+        message(WARNING "Failed to build target deps. Exit code: ${res}\nCMKABE_HOME: ${CMKABE_HOME}\nCmd: ${python} ${CMKABE_HOME}/shlutil.py build_target_deps ${options}\nOUT: ${out}\nERR: ${err}")
+    endif()
 endfunction()
 
+# Apply extra flags for cross compilation or specific compiler environments.
 function(_cmkabe_apply_extra_flags)
-    # Read global flags
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS}")
@@ -453,7 +424,6 @@ function(_cmkabe_apply_extra_flags)
         cmkabe_add_env_compiler_flags(${CARGO_TARGET_UNDERSCORE} C CXX)
     endif()
 
-    # Allow `__declspec(dllexport)` by defaults.
     if(ZIG AND (NOT ZIG_CC_DISABLE_DLLEXPORT))
         string(REPLACE "--disable-dllexport" "" CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
         string(REPLACE "--disable-dllexport" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
@@ -504,7 +474,6 @@ function(_cmkabe_apply_extra_flags)
     endforeach()
     list(INSERT CMAKE_SYSTEM_PREFIX_PATH 0 "${path}")
 
-    # Write global flags
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS}" PARENT_SCOPE)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}" PARENT_SCOPE)
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS}" PARENT_SCOPE)

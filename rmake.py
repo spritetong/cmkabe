@@ -12,6 +12,17 @@ Copyright (C) 2024 spritetong@gmail.com.
 if __name__ == '__main__':
     import os
     import sys
-    sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
-    from rmakelib import RsyncMake
-    sys.exit(RsyncMake.main(os.path.basename(__file__)))
+    # Insert the parent directory of cmk to sys.path
+    cmk_parent = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+    if cmk_parent not in sys.path:
+        sys.path.insert(0, cmk_parent)
+    from cmk.pylib.rmake import RsyncMake
+    try:
+        sys.exit(RsyncMake.main(os.path.basename(__file__)))
+    except Exception as e:
+        if os.environ.get("CMKABE_DEBUG") == "1":
+            import traceback
+            traceback.print_exc(file=sys.stderr)
+        else:
+            print("[ERROR] {}".format(e), file=sys.stderr)
+        sys.exit(1)

@@ -3,3 +3,4 @@ ninja
 paramiko
 pycryptodome
 toml
+pefile
