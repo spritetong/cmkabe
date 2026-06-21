@@ -37,38 +37,50 @@ def patch_file(
     replace: Optional[bytes] = None,
     count: int = 1,
 ) -> bool:
-    """Patch a binary/text file in-place by searching and inserting/replacing contents."""
+    """Patch a binary/text file in-place by searching and inserting/replacing contents (line-ending agnostic)."""
     with open(filename, "rb") as file:
         content = file.read()
+
+    # Detect line endings and normalize to LF in memory
+    has_crlf = b"\r\n" in content
+    content_lf = content.replace(b"\r\n", b"\n")
+    search_lf = search.replace(b"\r\n", b"\n")
+    insert_lf = insert.replace(b"\r\n", b"\n")
+    replace_lf = replace.replace(b"\r\n", b"\n") if replace is not None else None
+
     slices: List[bytes] = []
     changed = False
+    temp_content = content_lf
+
     while count > 0:
-        index = content.find(search)
+        index = temp_content.find(search_lf)
         if index < 0:
             break
-        insert_position = index + len(search)
+        insert_position = index + len(search_lf)
         if (
-            content[insert_position : insert_position + len(insert)] != insert
-            or replace is not None
+            temp_content[insert_position : insert_position + len(insert_lf)] != insert_lf
+            or replace_lf is not None
         ):
-            slices.append(content[:index])
-            if replace is not None:
-                slices.append(replace)
+            slices.append(temp_content[:index])
+            if replace_lf is not None:
+                slices.append(replace_lf)
             else:
-                slices.append(content[index:insert_position])
-            slices.append(insert)
+                slices.append(temp_content[index:insert_position])
+            slices.append(insert_lf)
             changed = True
         else:
-            insert_position += len(insert)
-            slices.append(content[:insert_position])
-        content = content[insert_position:]
+            insert_position += len(insert_lf)
+            slices.append(temp_content[:insert_position])
+        temp_content = temp_content[insert_position:]
         count -= 1
-    slices.append(content)
+    slices.append(temp_content)
+
     if changed:
         print("Patching {}".format(filename))
+        patched_lf = b"".join(slices)
+        content_to_write = patched_lf.replace(b"\n", b"\r\n") if has_crlf else patched_lf
         with open(filename, "wb") as file:
-            for s in slices:
-                file.write(s)
+            file.write(content_to_write)
     return changed
 
 
@@ -80,6 +92,8 @@ def patch_visibility(filename: str) -> bool:
     insert = b"\n/* XPATCH: do not export symbols. */\n#pragma GCC visibility push(hidden)\n\n"
     append = b"\n/* XPATCH: do not export symbols. */\n#pragma GCC visibility pop\n"
 
+    # Precise matching targets for headers with conditional compilation blocks.
+    # We use LF-only formatting for mapping checks.
     file_map = {
         "crtexewin.c": b"#include <mbctype.h>\n#endif\n",
         "wdirent.c": b"#include \"dirent.c\"\n",
@@ -91,54 +105,80 @@ def patch_visibility(filename: str) -> bool:
     with open(filename, "rb") as file:
         content = file.read()
 
-    if dll_import in content and vis_default not in content:
-        content = content.replace(
+    has_crlf = b"\r\n" in content
+    content_lf = content.replace(b"\r\n", b"\n")
+
+    # If the patch is already applied, do not apply it again.
+    if insert in content_lf:
+        return False
+
+    if dll_import in content_lf and vis_default not in content_lf:
+        content_lf = content_lf.replace(
             dll_import, dll_import + b" " + vis_default
         )
 
     insert_position = 0
     search = file_map.get(os.path.basename(filename))
     if search:
-        index = content.find(search)
+        index = content_lf.find(search)
         if index >= 0:
             insert_position = index + len(search)
-    if insert_position == 0 and (
-        content.find(b"<windows.h>") >= 0
-        or content.find(b"<stdlib.h>") >= 0
-        or content.find(b"<wchar.h>") >= 0
-    ):
-        index = content.rfind(b"#include <")
-        if index >= 0:
-            insert_position = index + content[index:].find(b"\n") + 1
 
-    if content[insert_position : insert_position + len(insert)] == insert:
-        return False
+    # Fallback auto-detection if not specified in mapping or pattern not found
+    if insert_position == 0:
+        # Locate the last #include directive in the file (covers <...> and "...")
+        last_include_idx = max(content_lf.rfind(b"#include <"), content_lf.rfind(b"#include \""))
+        if last_include_idx >= 0:
+            eol_idx = content_lf.find(b"\n", last_include_idx)
+            if eol_idx >= 0:
+                insert_position = eol_idx + 1
+
+    # Fallback to the top of the file if no includes are found
+    if insert_position == 0:
+        insert_position = 0
 
     print("Patching {}".format(filename))
+    patched_lf = (
+        content_lf[:insert_position] +
+        insert +
+        content_lf[insert_position:] +
+        append
+    )
+
+    content_to_write = patched_lf.replace(b"\n", b"\r\n") if has_crlf else patched_lf
     with open(filename, "wb") as file:
-        file.write(content[:insert_position])
-        file.write(insert)
-        file.write(content[insert_position:])
-        file.write(append)
+        file.write(content_to_write)
     return True
 
 
 def patch_visibility_mingw_S(filename: str) -> bool:
     """Patch symbol visibility in assembly (.S) files for mingw."""
-    pattern = re.compile(rb"\b__MINGW_USYMBOL\((\w+)\)")
+    pattern_mingw = re.compile(rb"\b__MINGW_USYMBOL\((\w+)\)")
+    pattern_globl = re.compile(rb"\.(?:globl|global)\s+([a-zA-Z0-9_]+)")
     symbols: Set[bytes] = set()
 
     with open(filename, "rb") as file:
         content = file.read()
-    for line in content.splitlines():
-        matches = pattern.findall(line)
-        for match in matches:
+
+    has_crlf = b"\r\n" in content
+    content_lf = content.replace(b"\r\n", b"\n")
+
+    for line in content_lf.splitlines():
+        # Match MinGW symbol macro wrapper
+        for match in pattern_mingw.findall(line):
             symbols.add(match.strip())
+        # Match standard assembly global declarations
+        for match in pattern_globl.findall(line):
+            sym = match.strip()
+            if not sym.startswith(b"__MINGW_USYMBOL"):
+                symbols.add(sym)
+
     sorted_symbols = list(sorted(symbols)) + [
         b"_" + x for x in sorted(symbols)
     ]
     if not sorted_symbols:
         return False
+
     code = (
         b"\n/* XPATCH: do not export symbols. */\n.section .drectve,\"yni\"\n"
     )
@@ -148,22 +188,25 @@ def patch_visibility_mingw_S(filename: str) -> bool:
     )
     code += b"\n"
 
-    if content.endswith(code):
+    if content_lf.endswith(code):
         return False
 
     print("Patching {}".format(filename))
+    patched_lf = content_lf + code
+    content_to_write = patched_lf.replace(b"\n", b"\r\n") if has_crlf else patched_lf
     with open(filename, "wb") as file:
-        file.write(content)
-        file.write(code)
+        file.write(content_to_write)
     return True
 
 
-def zig_patch() -> None:
+def zig_patch(zig_root: Optional[str] = None) -> None:
     """Patch Zig source libraries to hide internal exports (such as libunwind, mingw32)."""
-    zig_path = shutil.which("zig" + EXE_EXT)
-    if not zig_path:
-        return
-    zig_root = os.path.realpath(os.path.dirname(zig_path))
+    if not zig_root:
+        zig_path = shutil.which("zig" + EXE_EXT)
+        if not zig_path:
+            return
+        zig_root = os.path.realpath(os.path.dirname(zig_path))
+
     any_linux_any = os.path.join(
         zig_root, "lib", "libc", "include", "any-linux-any"
     )
@@ -248,10 +291,14 @@ def zig_patch() -> None:
     sys_ctl_h_src = os.path.join(any_linux_any, "linux", "sysctl.h")
     if not os.path.exists(sys_ctl_h) and os.path.isfile(sys_ctl_h_src):
         os.makedirs(os.path.dirname(sys_ctl_h), exist_ok=True)
-        os.symlink(
-            os.path.relpath(sys_ctl_h_src, os.path.dirname(sys_ctl_h)),
-            sys_ctl_h,
-        )
+        try:
+            os.symlink(
+                os.path.relpath(sys_ctl_h_src, os.path.dirname(sys_ctl_h)),
+                sys_ctl_h,
+            )
+        except OSError:
+            # Fallback to copy if symlink creation is not permitted (e.g., on Windows without Developer Mode)
+            shutil.copy2(sys_ctl_h_src, sys_ctl_h)
 
     if lib_src_patched:
         zig_clean_cache()
