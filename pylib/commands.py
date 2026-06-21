@@ -30,7 +30,14 @@ class ShellCmd:
         self.args: List[str] = namespace.args
 
     def run__rm(self) -> int:
-        """Simulate rm / rm -rf."""
+        """Simulate rm / rm -rf.
+
+        Removes files, directories, or glob patterns. Automatically handles Windows read-only file system permissions.
+        Options:
+            -r / -R / --recursive: Recursively remove directories.
+            -f / --force: Ignore nonexistent files and execution errors.
+            --stdin / --args-from-stdin: Read arguments from stdin.
+        """
 
         def read_arg() -> Generator[str, None, None]:
             if self.options.args_from_stdin:
@@ -107,7 +114,12 @@ class ShellCmd:
         return status
 
     def run__mkdir(self) -> int:
-        """Simulate mkdir / mkdir -p."""
+        """Simulate mkdir / mkdir -p.
+
+        Creates directory paths. Always acts like Unix `mkdir -p` (creates parent directories, ignores existing paths).
+        Options:
+            -f / --force: Ignore execution errors.
+        """
         status = 0
         for path in self.args:
             ok = False
@@ -136,7 +148,13 @@ class ShellCmd:
         return status
 
     def run__rmdir(self) -> int:
-        """Simulate rmdir."""
+        """Simulate rmdir.
+
+        Removes directory paths.
+        Options:
+            -e / --empty-dirs: Recursively prune empty subdirectories and parent directories.
+            -f / --force: Ignore execution errors.
+        """
         status = 0
         for path in self.args:
             if not self.options.remove_empty_dirs:
@@ -172,7 +190,15 @@ class ShellCmd:
         return status
 
     def run__mv(self) -> int:
-        """Simulate mv."""
+        """Simulate mv.
+
+        Moves files, directories, or glob patterns to a destination path.
+        Arguments:
+            args[:-1]: Source file/directory paths or glob patterns.
+            args[-1]: Destination path.
+        Options:
+            -f / --force: Ignore execution errors.
+        """
         import shutil
 
         status = 0
@@ -200,7 +226,17 @@ class ShellCmd:
         return status
 
     def run__cp(self) -> int:
-        """Simulate cp."""
+        """Simulate cp.
+
+        Copies files, directories, or glob patterns to a destination path.
+        Arguments:
+            args[:-1]: Source file/directory paths or glob patterns.
+            args[-1]: Destination path (defaults to '.' if only one argument is provided).
+        Options:
+            -r / -R / --recursive: Recursively copy directories.
+            -P / --no-dereference: Preserve symbolic links without following them.
+            -f / --force: Ignore execution errors.
+        """
         import shutil
 
         def copy_file(src: str, dst: str) -> None:
@@ -249,7 +285,16 @@ class ShellCmd:
         return status
 
     def run__mklink(self) -> int:
-        """Simulate symlink creation."""
+        """Simulate symlink creation.
+
+        Creates file or directory symbolic links.
+        Arguments:
+            args[0]: Link path.
+            args[1]: Target path.
+        Options:
+            -D / --symlinkd: Force directory symlink.
+            -f / --force: Ignore execution errors.
+        """
         status = 0
         if len(self.args) < 2:
             print('Invalid parameter', file=sys.stderr)
@@ -273,7 +318,12 @@ class ShellCmd:
         return status
 
     def run__fix_symlink(self) -> int:
-        """Fix Windows/WSL broken symbolic links."""
+        """Fix Windows/WSL broken symbolic links.
+
+        Fixes directory junctions on Windows and absolute symlinks on WSL recursively.
+        Arguments:
+            args: Glob patterns to search and fix.
+        """
         is_wsl = 'WSL_DISTRO_NAME' in os.environ
 
         def walk(pattern: str) -> None:
@@ -311,12 +361,12 @@ class ShellCmd:
             return self.EFAIL
 
     def run__cwd(self) -> int:
-        """Print current working directory in Unix format."""
+        """Print current working directory in Unix format (forward slashes)."""
         print(os.getcwd().replace('\\', '/'), end='')
         return 0
 
     def run__mydir(self) -> int:
-        """Print the directory of CMK utility in Unix format."""
+        """Print the directory of CMK utility in Unix format (forward slashes)."""
         path = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
         if os.path.isdir(path):
             path = os.path.realpath(path)
@@ -326,7 +376,12 @@ class ShellCmd:
         return 0
 
     def run__relpath(self) -> int:
-        """Print relative path."""
+        """Print relative path.
+
+        Arguments:
+            args[0]: Target path.
+            args[1] (optional): Start directory.
+        """
         start = None if len(self.args) <= 1 else self.args[1]
         try:
             path = self.args[0]
@@ -337,19 +392,32 @@ class ShellCmd:
         return 0
 
     def run__win2wsl_path(self) -> int:
-        """Convert Windows path to WSL."""
+        """Convert Windows path to WSL.
+
+        Arguments:
+            args[0] (optional): Windows path to convert (defaults to current directory).
+        """
         path = win2wsl_path(self.args[0] if self.args else os.getcwd())
         print(path, end='')
         return 0
 
     def run__wsl2win_path(self) -> int:
-        """Convert WSL path to Windows."""
+        """Convert WSL path to Windows.
+
+        Arguments:
+            args[0] (optional): WSL path to convert (defaults to current directory).
+        """
         path = wsl2win_path(self.args[0] if self.args else os.getcwd())
         print(path, end='')
         return 0
 
     def run__is_wsl_win_path(self) -> int:
-        """Check if path is a WSL mapped Windows drive path (/mnt/*)."""
+        """Check if path is a WSL mapped Windows drive path (/mnt/*).
+
+        Prints 'true' or 'false'.
+        Arguments:
+            args[0] (optional): Path to check (defaults to current directory).
+        """
         path = os.path.abspath(self.args[0]) if self.args else os.getcwd()
         path = path.replace('\\', '/')
         if len(path) >= 6 and path.startswith('/mnt/') and path[5].isalpha():
@@ -360,7 +428,14 @@ class ShellCmd:
         return 0
 
     def run__touch(self) -> int:
-        """Simulate touch."""
+        """Simulate touch.
+
+        Creates empty files or updates access and modification times of files.
+        Arguments:
+            args: File paths or glob patterns.
+        Options:
+            -f / --force: Ignore execution errors.
+        """
         status = 0
         for pattern in self.args:
             files = glob.glob(pattern)
@@ -385,12 +460,20 @@ class ShellCmd:
         return status
 
     def run__timestamp(self) -> int:
-        """Print current timestamp."""
+        """Print current epoch timestamp."""
         print(time.time(), end='')
         return 0
 
     def run__cmpver(self) -> int:
-        """Compare two version strings."""
+        """Compare two version strings.
+
+        Prints '+' if v1 > v2, '0' if equal, '-' if v1 < v2.
+        Arguments:
+            args[0]: First version string (v1).
+            args[1]: Second version string (v2).
+        Options:
+            -f / --force: Force return exit code 0.
+        """
         try:
             v1 = [int(x) for x in (self.args[0] + '.0.0.0').split('.')[:4]]
             v2 = [int(x) for x in (self.args[1] + '.0.0.0').split('.')[:4]]
@@ -407,7 +490,11 @@ class ShellCmd:
         return 0 if self.options.force else result[0]
 
     def run__winreg(self) -> int:
-        """Query registry value on Windows."""
+        """Query registry value on Windows.
+
+        Arguments:
+            args: Registry key path (e.g. HKEY_LOCAL_MACHINE\\SOFTWARE\\...).
+        """
         try:
             value = None
             try:
@@ -443,7 +530,7 @@ class ShellCmd:
             return self.EFAIL
 
     def run__ndk_root(self) -> int:
-        """Print Android NDK root."""
+        """Print Android NDK root directory path."""
         root_dir = ndk_root()
         if root_dir:
             print(root_dir, end='')
@@ -451,7 +538,13 @@ class ShellCmd:
         return self.ENOENT
 
     def run__cargo_exec(self) -> int:
-        """Simulate cargo build environment execution."""
+        """Simulate cargo build environment execution.
+
+        Sets up Cargo environment variables from a Cargo.toml file and executes a command.
+        Arguments:
+            args[0]: Path to Cargo.toml or directory.
+            args[1:]: Shell command to execute.
+        """
         import subprocess
 
         if len(self.args) < 1:
@@ -493,7 +586,12 @@ class ShellCmd:
         return subprocess.call(' '.join(self.args[1:]), shell=True)
 
     def run__upload(self) -> int:
-        """Upload file via FTP or SFTP."""
+        """Upload file via FTP or SFTP.
+
+        Arguments:
+            args[0]: Remote server URL (e.g. sftp://user:pass@host/path).
+            args[1:]: File patterns to upload (format: [remote_file=]local_glob).
+        """
         import urllib.parse
 
         if len(self.args) < 2:
@@ -588,7 +686,11 @@ class ShellCmd:
         return 0
 
     def run__build_target_deps(self) -> int:
-        """Call TargetParser to build target dependencies."""
+        """Call TargetParser to build target dependencies.
+
+        Arguments:
+            args: Key-value parameters passed to TargetParser (e.g. TARGET=native).
+        """
         from cmk.pylib.target import TargetParser
 
         try:
@@ -612,7 +714,14 @@ class ShellCmd:
         return 0
 
     def run__dll2lib(self) -> int:
-        """Call dll2lib."""
+        """Call dll2lib to generate MSVC import libraries from DLLs.
+
+        Arguments:
+            args[0]: Path to source DLL file.
+            args[1] (optional): Path to output import library (.lib).
+        Options:
+            -f / --force: Overwrite existing .lib files.
+        """
         if len(self.args) < 1:
             print('Please input the DLL file path', file=sys.stderr)
             return self.EINVAL
@@ -623,13 +732,21 @@ class ShellCmd:
         )
 
     def run__zig_patch(self) -> int:
-        """Call zig_patch."""
+        """Call zig_patch to patch Zig source libraries to hide runtime exports.
+
+        Arguments:
+            args[0] (optional): Path to Zig installation root.
+        """
         zig_root = self.args[0] if self.args and self.args[0] else None
         zig_patch(zig_root)
         return 0
 
     def run__zig_clean_cache(self) -> int:
-        """Call zig_clean_cache."""
+        """Call zig_clean_cache to clean Zig global cache.
+
+        Arguments:
+            args[0] (optional): Path to Zig installation root.
+        """
         zig_root = self.args[0] if self.args and self.args[0] else None
         zig_clean_cache(zig_root)
         return 0
