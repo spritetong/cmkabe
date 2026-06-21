@@ -196,6 +196,10 @@ class TestCommands(unittest.TestCase):
                     args = mock_call.call_args[0][0]
                     self.assertEqual(args[0], 'pwsh.exe')
                     self.assertIn('prompt', args[3])
+                
+                # Check exit-code mode
+                code = ShellCmd.main(['shell', 'exit-code'])
+                self.assertEqual(code, 2)
 
             # 2. Test powershell.exe detection
             with patch.object(ShellCmd, '_detect_win_shell', return_value='powershell.exe'):
@@ -207,12 +211,20 @@ class TestCommands(unittest.TestCase):
                     self.assertEqual(args[0], 'powershell.exe')
                     self.assertIn('prompt', args[3])
 
+                # Check exit-code mode
+                code = ShellCmd.main(['shell', 'exit-code'])
+                self.assertEqual(code, 1)
+
             # 3. Test cmd.exe default/fallback
             with patch.object(ShellCmd, '_detect_win_shell', return_value='cmd.exe'):
                 with patch('subprocess.call', return_value=0) as mock_call:
                     code = ShellCmd.main(['shell'])
                     self.assertEqual(code, 0)
                     mock_call.assert_called_once_with('cmd.exe /k set PROMPT=(make) %PROMPT%', shell=True)
+
+                # Check exit-code mode
+                code = ShellCmd.main(['shell', 'exit-code'])
+                self.assertEqual(code, 0)
 
 
 class TestTargetParser(unittest.TestCase):

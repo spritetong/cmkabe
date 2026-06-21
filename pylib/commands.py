@@ -848,7 +848,11 @@ class ShellCmd:
         """Start an interactive shell matching the parent/ancestor terminal environment."""
         import subprocess
 
+        is_exit_code_mode = len(self.args) > 0 and self.args[0] == 'exit-code'
+
         if sys.platform != 'win32':
+            if is_exit_code_mode:
+                return 0
             # On Unix-like systems, run bash or fallback to sh
             shell_bin = os.environ.get('SHELL', 'bash')
             try:
@@ -857,6 +861,15 @@ class ShellCmd:
                 return subprocess.call(['sh'])
 
         shell_exe = self._detect_win_shell()
+        
+        if is_exit_code_mode:
+            if shell_exe == 'pwsh.exe':
+                return 2
+            elif shell_exe == 'powershell.exe':
+                return 1
+            else:
+                return 0
+
         try:
             if shell_exe == 'pwsh.exe':
                 prompt_cmd = "$old_prompt = $function:prompt; function prompt { '(make) ' + & $old_prompt }"
