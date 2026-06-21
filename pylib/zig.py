@@ -309,12 +309,12 @@ def zig_patch(zig_root: Optional[str] = None) -> None:
         if patch_file(
             os.path.join(libunwind_src, file),
             b'#define ' + tag.encode(),
-            b'\n\n/* XPATCH: do not export symbols. */\n#define _LIBUNWIND_HIDE_SYMBOLS',
+            b'\n\n/* XPATCH: do not export symbols. */\n#ifndef _LIBUNWIND_HIDE_SYMBOLS\n#define _LIBUNWIND_HIDE_SYMBOLS\n#endif\n',
         ):
             lib_src_patched = True
     for search, insert in [
         (
-            b'#define _LIBUNWIND_HIDE_SYMBOLS\n',
+            b'#define _LIBUNWIND_HIDE_SYMBOLS\n#endif\n',
             b"""#if defined(__MINGW32__) && defined(_LIBUNWIND_HIDE_SYMBOLS)
 #define XPATCH_HIDDEN_SYMBOL(name)                                             \\
   .section .drectve,"yni" SEPARATOR                                            \\
