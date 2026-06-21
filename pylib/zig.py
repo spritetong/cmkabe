@@ -1,5 +1,64 @@
 # -*- coding: utf-8 -*-
-"""Zig toolchain support utility functions, including cache cleaning and mingw patch."""
+"""Zig toolchain support utility functions, including cache cleaning and compiler patcher.
+
+================================================================================
+Zig Compiler Library Patching (zig_patch) Design & Details
+================================================================================
+
+1. Purpose & Motivation:
+-------------------------
+When building dynamic shared libraries (.dll on Windows, .so on Linux) in hybrid 
+Rust + C/C++ projects, the Zig compiler statically links helper runtimes, namely:
+  - `libunwind`: C++ exception unwinding runtime.
+  - `mingw-w64`: C runtime start files and standard libraries for Windows targets.
+  - `compiler_rt`: Low-level target-specific helper functions (like stack probing).
+
+By default, these statically-linked libraries export their internal symbols globally
+(e.g., `_Unwind_*`, CRT helper routines, math asm symbols). If multiple dynamic 
+libraries in the same process statically link these, it causes:
+  - Severe duplicate symbol conflicts at runtime.
+  - Pollution of the dynamic library's public API export tables.
+
+To solve this, `zig_patch` modifies the compiler's source libraries on disk to enforce 
+internal symbol hiding (`visibility("hidden")` or `-exclude-symbols`).
+
+2. Key Implementation Modules:
+-------------------------------
+A. Line-Ending Agnostic binary patching (`patch_file`):
+   - Prior to matching, any binary text is normalized to LF (`\n`) in memory. 
+   - Search, insert, and replacement patterns are also normalized to LF.
+   - If modifications are made, the file is written back with its original line 
+     endings (CRLF or LF) preserved, preventing patching failures on Windows systems
+     with custom Git checkout configurations.
+
+B. Symbol Visibility Hiding for C files (`patch_visibility`):
+   - Injects `#pragma GCC visibility push(hidden)` after the last header include 
+     directive, and `#pragma GCC visibility pop` at the end of the file.
+   - Employs a robust, line-ending agnostic fallback search that automatically 
+     detects the end of the last `#include <` or `#include "` line, removing reliance 
+     on fragile string matching for standard files.
+   - Re-decorates `__declspec(dllimport)` declarations with `__attribute__((visibility("default")))`
+     to prevent compiler warnings/errors regarding conflicting visibility attributes.
+
+C. Exclude symbols from Assembly (.S) files (`patch_visibility_mingw_S`):
+   - Analyzes assembly files and extracts all global symbol names.
+   - Searches for both standard global directives (`.globl`, `.global`) and MinGW 
+     macro wrappers (`__MINGW_USYMBOL(...)`).
+   - Appends a `.drectve` section to the assembly code instructing the PE linker to
+     exclude those symbols from export (`-exclude-symbols:<symbol_name>`), covering 
+     both raw and underscore-prefixed symbols for multi-arch compatibility (x86, x64, ARM).
+
+D. Exception Unwinder Hiding (`libunwind`):
+   - Patches `assembly.h` and `config.h` in `libunwind` to define `_LIBUNWIND_HIDE_SYMBOLS`.
+   - On Windows, this overrides the default behavior of exporting `_Unwind_*` via 
+     `__declspec(dllexport)` or `-export:` linker options.
+
+E. OS Compatibility & Idempotency:
+   - All routines check for existing patches to prevent redundant edits (idempotent).
+   - Dynamically catches `OSError` when symlinking `sysctl.h` on Windows (which requires 
+     Developer Mode or elevated permissions), automatically falling back to a robust 
+     file copy to ensure the script does not crash.
+"""
 
 import glob
 import json
