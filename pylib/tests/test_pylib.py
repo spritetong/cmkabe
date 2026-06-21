@@ -181,7 +181,7 @@ class TestCommands(unittest.TestCase):
             with open(os.path.join(tmp_dst, "file1.txt"), "r") as f:
                 self.assertEqual(f.read(), "content1")
 
-    def test_shell_command(self) -> None:
+    def test_find_shell_command(self) -> None:
         import io
         from unittest.mock import patch
 
@@ -189,41 +189,35 @@ class TestCommands(unittest.TestCase):
         with patch('sys.platform', 'win32'):
             # 1. Test pwsh.exe detection
             with patch.object(ShellCmd, '_detect_win_shell', return_value='pwsh.exe'):
-                with patch('subprocess.call', return_value=0) as mock_call:
-                    code = ShellCmd.main(['shell'])
+                with patch('sys.stdout', new=io.StringIO()) as fake_out:
+                    code = ShellCmd.main(['find-shell'])
                     self.assertEqual(code, 0)
-                    mock_call.assert_called_once()
-                    args = mock_call.call_args[0][0]
-                    self.assertEqual(args[0], 'pwsh.exe')
-                    self.assertIn('prompt', args[4])
+                    self.assertEqual(fake_out.getvalue(), 'pwsh.exe')
                 
                 # Check exit-code mode
-                code = ShellCmd.main(['shell', 'exit-code'])
+                code = ShellCmd.main(['find-shell', 'exit-code'])
                 self.assertEqual(code, 2)
 
             # 2. Test powershell.exe detection
             with patch.object(ShellCmd, '_detect_win_shell', return_value='powershell.exe'):
-                with patch('subprocess.call', return_value=0) as mock_call:
-                    code = ShellCmd.main(['shell'])
+                with patch('sys.stdout', new=io.StringIO()) as fake_out:
+                    code = ShellCmd.main(['find-shell'])
                     self.assertEqual(code, 0)
-                    mock_call.assert_called_once()
-                    args = mock_call.call_args[0][0]
-                    self.assertEqual(args[0], 'powershell.exe')
-                    self.assertIn('prompt', args[4])
+                    self.assertEqual(fake_out.getvalue(), 'powershell.exe')
 
                 # Check exit-code mode
-                code = ShellCmd.main(['shell', 'exit-code'])
+                code = ShellCmd.main(['find-shell', 'exit-code'])
                 self.assertEqual(code, 1)
 
             # 3. Test cmd.exe default/fallback
             with patch.object(ShellCmd, '_detect_win_shell', return_value='cmd.exe'):
-                with patch('subprocess.call', return_value=0) as mock_call:
-                    code = ShellCmd.main(['shell'])
+                with patch('sys.stdout', new=io.StringIO()) as fake_out:
+                    code = ShellCmd.main(['find-shell'])
                     self.assertEqual(code, 0)
-                    mock_call.assert_called_once_with('cmd.exe /k set PROMPT=(make) %PROMPT%', shell=True)
+                    self.assertEqual(fake_out.getvalue(), 'cmd.exe')
 
                 # Check exit-code mode
-                code = ShellCmd.main(['shell', 'exit-code'])
+                code = ShellCmd.main(['find-shell', 'exit-code'])
                 self.assertEqual(code, 0)
 
 

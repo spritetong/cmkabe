@@ -757,48 +757,67 @@ class ShellCmd:
 
         class PROCESS_BASIC_INFORMATION(ctypes.Structure):
             _fields_ = [
-                ("ExitStatus", ctypes.c_long),
-                ("PebBaseAddress", ctypes.c_void_p),
-                ("AffinityMask", ctypes.c_void_p),
-                ("BasePriority", ctypes.c_long),
-                ("UniqueProcessId", ctypes.c_void_p),
-                ("InheritedFromUniqueProcessId", ctypes.c_void_p),
+                ('ExitStatus', ctypes.c_long),
+                ('PebBaseAddress', ctypes.c_void_p),
+                ('AffinityMask', ctypes.c_void_p),
+                ('BasePriority', ctypes.c_long),
+                ('UniqueProcessId', ctypes.c_void_p),
+                ('InheritedFromUniqueProcessId', ctypes.c_void_p),
             ]
 
         try:
             ntdll.NtQueryInformationProcess.argtypes = [
-                wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.ULONG, ctypes.POINTER(wintypes.ULONG)
+                wintypes.HANDLE,
+                ctypes.c_int,
+                ctypes.c_void_p,
+                wintypes.ULONG,
+                ctypes.POINTER(wintypes.ULONG),
             ]
             ntdll.NtQueryInformationProcess.restype = ctypes.c_long
 
-            kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+            kernel32.OpenProcess.argtypes = [
+                wintypes.DWORD,
+                wintypes.BOOL,
+                wintypes.DWORD,
+            ]
             kernel32.OpenProcess.restype = wintypes.HANDLE
 
             kernel32.QueryFullProcessImageNameW.argtypes = [
-                wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR, ctypes.POINTER(wintypes.DWORD)
+                wintypes.HANDLE,
+                wintypes.DWORD,
+                wintypes.LPWSTR,
+                ctypes.POINTER(wintypes.DWORD),
             ]
             kernel32.QueryFullProcessImageNameW.restype = wintypes.BOOL
         except (AttributeError, TypeError):
             return 'cmd.exe'
 
         def get_process_parent_and_name(pid):
-            h_process = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+            h_process = kernel32.OpenProcess(
+                PROCESS_QUERY_LIMITED_INFORMATION, False, pid
+            )
             if not h_process:
                 return None, None
             ppid = None
-            exe_name = ""
+            exe_name = ''
             try:
                 pbi = PROCESS_BASIC_INFORMATION()
                 return_length = wintypes.ULONG(0)
                 status = ntdll.NtQueryInformationProcess(
-                    h_process, ProcessBasicInformation, ctypes.byref(pbi), ctypes.sizeof(pbi), ctypes.byref(return_length)
+                    h_process,
+                    ProcessBasicInformation,
+                    ctypes.byref(pbi),
+                    ctypes.sizeof(pbi),
+                    ctypes.byref(return_length),
                 )
                 if status == 0:
                     ppid = pbi.InheritedFromUniqueProcessId
 
                 size = wintypes.DWORD(1024)
                 buffer = ctypes.create_unicode_buffer(size.value)
-                if kernel32.QueryFullProcessImageNameW(h_process, 0, buffer, ctypes.byref(size)):
+                if kernel32.QueryFullProcessImageNameW(
+                    h_process, 0, buffer, ctypes.byref(size)
+                ):
                     exe_name = os.path.basename(buffer.value).lower()
             finally:
                 kernel32.CloseHandle(h_process)
@@ -818,7 +837,7 @@ class ShellCmd:
                 if not name:
                     break
                 chain.append((current_pid, name))
-                if name in ["explorer.exe", "services.exe", "wininit.exe"]:
+                if name in ['explorer.exe', 'services.exe', 'wininit.exe']:
                     break
                 current_pid = next_ppid
         except Exception:
@@ -827,41 +846,37 @@ class ShellCmd:
         # Find topmost make.exe in the chain (ignoring cmd.exe parent directly below it)
         topmost_make_idx = -1
         for i, (pid, name) in enumerate(chain):
-            if name == "make.exe" or name == "gmake.exe" or name.endswith("make.exe"):
+            if name == 'make.exe' or name == 'gmake.exe' or name.endswith('make.exe'):
                 topmost_make_idx = i
 
         if topmost_make_idx != -1:
             # Check processes above topmost make.exe
-            upper_ancestors = chain[topmost_make_idx + 1:]
+            upper_ancestors = chain[topmost_make_idx + 1 :]
             for pid, name in upper_ancestors:
-                if name in ["pwsh.exe", "powershell.exe"]:
+                if name in ['pwsh.exe', 'powershell.exe']:
                     return name
-            return "cmd.exe"
+            return 'cmd.exe'
         else:
             # Fallback: check entire chain for shell
             for pid, name in chain:
-                if name in ["pwsh.exe", "powershell.exe"]:
+                if name in ['pwsh.exe', 'powershell.exe']:
                     return name
-            return "cmd.exe"
+            return 'cmd.exe'
 
-    def run__shell(self) -> int:
-        """Start an interactive shell matching the parent/ancestor terminal environment."""
-        import subprocess
+    def run__find_shell(self) -> int:
+        """Find the shell matching the parent/ancestor terminal environment."""
 
         is_exit_code_mode = len(self.args) > 0 and self.args[0] == 'exit-code'
 
         if sys.platform != 'win32':
             if is_exit_code_mode:
                 return 0
-            # On Unix-like systems, run bash or fallback to sh
-            shell_bin = os.environ.get('SHELL', 'bash')
-            try:
-                return subprocess.call([shell_bin, '--norc'])
-            except Exception:
-                return subprocess.call(['sh'])
+            # On Unix-like systems, bash or fallback to sh
+            print(os.environ.get('SHELL', 'bash'), end='')
+            return 0
 
         shell_exe = self._detect_win_shell()
-        
+
         if is_exit_code_mode:
             if shell_exe == 'pwsh.exe':
                 return 2
@@ -870,17 +885,8 @@ class ShellCmd:
             else:
                 return 0
 
-        try:
-            if shell_exe == 'pwsh.exe':
-                prompt_cmd = "$old_prompt = $function:prompt; function prompt { '(make) ' + & $old_prompt }"
-                return subprocess.call(['pwsh.exe', '-NoLogo', '-NoExit', '-Command', prompt_cmd])
-            elif shell_exe == 'powershell.exe':
-                prompt_cmd = "$old_prompt = $function:prompt; function prompt { '(make) ' + & $old_prompt }"
-                return subprocess.call(['powershell.exe', '-NoLogo', '-NoExit', '-Command', prompt_cmd])
-        except FileNotFoundError:
-            pass
-
-        return subprocess.call('cmd.exe /k set PROMPT=(make) %PROMPT%', shell=True)
+        print(shell_exe, end='')
+        return 0
 
     def run__update_libs(self) -> int:
         """Download or rebuild external libraries and copy files.

@@ -382,7 +382,7 @@ zig-clean-cache:
 .PHONY: shell
 shell:
     ifeq ($(HOST_SYSTEM),Windows)
-		-@$(SHLUTIL) shell exit-code & if errorlevel 2 (pwsh.exe -NoLogo) else if errorlevel 1 (powershell.exe -NoLogo) else (cmd.exe /k set PROMPT=(make) %PROMPT%)
+		-@$(SHLUTIL) find-shell exit-code & if errorlevel 2 (pwsh.exe -NoLogo) else if errorlevel 1 (powershell.exe -NoLogo) else (cmd.exe /k set "PROMPT=(make) %PROMPT%")
     else
 		-@bash --norc
     endif
