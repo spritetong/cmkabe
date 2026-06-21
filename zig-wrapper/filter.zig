@@ -318,7 +318,7 @@ pub const ZigArgFilterMap = struct {
                                 }
                             },
                             .target => |pattern| {
-                                if (!Matcher.call(pattern, ctx.zig_target)) {
+                                if (!Matcher.call(pattern, ctx.zig_target.?)) {
                                     continue :filter;
                                 }
                             },

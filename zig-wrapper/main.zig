@@ -20,9 +20,9 @@ pub const ZigWrapper = struct {
     const Self = @This();
     allocator: std.mem.Allocator,
     log: ZigLog,
-    sys_argv0: []const u8 = "",
+    sys_argv0: ?[]const u8 = null,
     sys_argv: StringArray,
-    zig_exe: []const u8 = "",
+    zig_exe: ?[]const u8 = null,
 
     /// The current Zig command.
     command: ZigCommand = ZigCommand.cc,
@@ -41,9 +41,9 @@ pub const ZigWrapper = struct {
     /// Disable `__declspec(dllexport)` for Windows targets.
     disable_dllexport: bool = false,
     /// <arch>-<os>-<abi>
-    zig_target: []const u8 = "",
+    zig_target: ?[]const u8 = null,
     /// <arch>-<vendor>-<os>-<abi>
-    clang_target: []const u8 = "",
+    clang_target: ?[]const u8 = null,
     /// -march=<cpu> or -mcpu=<cpu>
     zig_cpu_opts: StringArray,
     /// -mtune=<tune>
@@ -132,7 +132,7 @@ pub const ZigWrapper = struct {
 
         // Write the input command line to log.
         if (self.log.enabled()) {
-            self.log.print("{s}", .{self.sys_argv0});
+            self.log.print("{s}", .{self.sys_argv0 orelse ""});
             for (argv.items) |arg| {
                 self.log.print(" {s}", .{arg});
             }
@@ -140,7 +140,7 @@ pub const ZigWrapper = struct {
         }
 
         // Parse the command type from `argv[0]`.
-        const stem = std.fs.path.stem(self.sys_argv0);
+        const stem = std.fs.path.stem(self.sys_argv0 orelse "");
         self.command = ZigCommand.fromStr(
             stem[if (std.mem.lastIndexOfScalar(u8, stem, '-')) |s| s + 1 else 0..],
         ) orelse return error.InvalidZigCommand;
@@ -149,9 +149,9 @@ pub const ZigWrapper = struct {
         }
 
         // Parse environment variables.
-        self.zig_exe = utils.getEnvVar(self.allocator, "ZIG_EXECUTABLE") catch "";
-        self.zig_target = utils.getEnvVar(self.allocator, "ZIG_WRAPPER_TARGET") catch "";
-        self.clang_target = utils.getEnvVar(self.allocator, "ZIG_WRAPPER_CLANG_TARGET") catch "";
+        self.zig_exe = utils.getEnvVar(self.allocator, "ZIG_EXECUTABLE") catch null;
+        self.zig_target = utils.getEnvVar(self.allocator, "ZIG_WRAPPER_TARGET") catch null;
+        self.clang_target = utils.getEnvVar(self.allocator, "ZIG_WRAPPER_CLANG_TARGET") catch null;
 
         // Parse Zig flags in `argv[1..]`.
         try self.sys_argv.ensureUnusedCapacity(argv.items.len);
@@ -179,14 +179,14 @@ pub const ZigWrapper = struct {
         argv = StringArray.init(self.allocator);
 
         // Set default values.
-        if (self.zig_exe.len == 0) {
+        if (self.zig_exe == null) {
             self.zig_exe = try std.fmt.allocPrint(
                 self.allocator,
                 "zig{s}",
                 .{builtin.os.tag.exeFileExt(builtin.cpu.arch)},
             );
         }
-        if (self.zig_target.len == 0) {
+        if (self.zig_target == null) {
             self.zig_target = try std.fmt.allocPrint(
                 self.allocator,
                 "{s}-{s}-{s}",
@@ -197,20 +197,20 @@ pub const ZigWrapper = struct {
                 },
             );
         }
-        if (self.clang_target.len == 0) {
-            self.clang_target = try self.allocator.dupe(u8, self.zig_target);
+        if (self.clang_target == null) {
+            self.clang_target = try self.allocator.dupe(u8, self.zig_target.?);
         }
 
-        self.target_is_windows = std.mem.indexOf(u8, self.clang_target, "-windows") != null;
-        self.target_is_android = std.mem.indexOf(u8, self.clang_target, "-android") != null;
-        self.target_is_linux = std.mem.indexOf(u8, self.clang_target, "-linux") != null;
-        self.target_is_apple = std.mem.indexOf(u8, self.clang_target, "-apple") != null or
-            std.mem.indexOf(u8, self.clang_target, "-macos") != null or
-            std.mem.indexOf(u8, self.clang_target, "-darwin") != null;
-        self.target_is_wasm = utils.strStartsWith(self.clang_target, "wasm") or
-            utils.strEndsWith(self.clang_target, "-emscripten");
-        self.target_is_msvc = utils.strEndsWith(self.clang_target, "-msvc");
-        self.target_is_musl = utils.strEndsWith(self.clang_target, "-musl");
+        self.target_is_windows = std.mem.indexOf(u8, self.clang_target.?, "-windows") != null;
+        self.target_is_android = std.mem.indexOf(u8, self.clang_target.?, "-android") != null;
+        self.target_is_linux = std.mem.indexOf(u8, self.clang_target.?, "-linux") != null;
+        self.target_is_apple = std.mem.indexOf(u8, self.clang_target.?, "-apple") != null or
+            std.mem.indexOf(u8, self.clang_target.?, "-macos") != null or
+            std.mem.indexOf(u8, self.clang_target.?, "-darwin") != null;
+        self.target_is_wasm = utils.strStartsWith(self.clang_target.?, "wasm") or
+            utils.strEndsWith(self.clang_target.?, "-emscripten");
+        self.target_is_msvc = utils.strEndsWith(self.clang_target.?, "-msvc");
+        self.target_is_musl = utils.strEndsWith(self.clang_target.?, "-musl");
 
         ZigArgFilter.initFilterMap(&self, &self.arg_filter);
         return self;
@@ -221,10 +221,10 @@ pub const ZigWrapper = struct {
             flags_file.deinit();
             self.flags_file = null;
         }
-        if (self.sys_argv0.len > 0) self.allocator.free(self.sys_argv0);
-        if (self.zig_exe.len > 0) self.allocator.free(self.zig_exe);
-        if (self.zig_target.len > 0) self.allocator.free(self.zig_target);
-        if (self.clang_target.len > 0) self.allocator.free(self.clang_target);
+        if (self.sys_argv0) |v| self.allocator.free(v);
+        if (self.zig_exe) |v| self.allocator.free(v);
+        if (self.zig_target) |v| self.allocator.free(v);
+        if (self.clang_target) |v| self.allocator.free(v);
         if (self.at_file_opt) |v| self.allocator.free(v);
         if (self.windres_input) |v| self.allocator.free(v);
         if (self.windres_output) |v| self.allocator.free(v);
@@ -248,13 +248,13 @@ pub const ZigWrapper = struct {
 
     pub fn run(self: *Self) !u8 {
         // Zig executable
-        try self.args.append(try self.allocator.dupe(u8, self.zig_exe));
+        try self.args.append(try self.allocator.dupe(u8, self.zig_exe.?));
         // Zig command
         try self.args.append(try self.allocator.dupe(u8, self.command.toName()));
         // `cc`, `c++`: -target <target> [-march=<cpu>] [-mtune=<cpu>]
         if (self.command.isCompiler()) {
             try self.args.append(try self.allocator.dupe(u8, "-target"));
-            try self.args.append(try self.allocator.dupe(u8, self.zig_target));
+            try self.args.append(try self.allocator.dupe(u8, self.zig_target.?));
 
             // Disable 'date-time' error by default.
             try self.args.append(try self.allocator.dupe(u8, "-Wno-error=date-time"));
@@ -394,7 +394,7 @@ pub const ZigWrapper = struct {
         }
 
         const buf = try self.allocator.alloc(u8, 32 +
-            @max(self.zig_target.len, self.clang_target.len));
+            @max(self.zig_target.?.len, self.clang_target.?.len));
         defer self.allocator.free(buf);
 
         var args = StringArray.init(self.allocator);
@@ -408,13 +408,13 @@ pub const ZigWrapper = struct {
             switch (target_idx) {
                 0 => {},
                 1 => {
-                    if (self.zig_target.len == 0) continue;
-                    target = self.zig_target;
+                    if (self.zig_target == null) continue;
+                    target = self.zig_target.?;
                 },
                 2 => {
-                    if (self.clang_target.len == 0 or
-                        utils.strEql(self.clang_target, self.zig_target)) continue;
-                    target = self.clang_target;
+                    if (self.clang_target == null or
+                        utils.strEql(self.clang_target.?, self.zig_target.?)) continue;
+                    target = self.clang_target.?;
                 },
                 else => unreachable,
             }
@@ -526,7 +526,7 @@ pub const ZigWrapper = struct {
                     try dest.append(try self.allocator.dupe(u8, arg));
                 }
             } else if (parser.parseNamed(&.{ "-target", "--target" }, true)) {
-                if (self.zig_target.len == 0) {
+                if (self.zig_target == null) {
                     self.zig_target = try self.allocator.dupe(u8, parser.value);
                 }
             } else if (parser.parseNamed(&.{ "-march", "-mcpu" }, true)) {
@@ -552,11 +552,11 @@ pub const ZigWrapper = struct {
                     }
                 }
             } else if (parser.parseNamed(&.{"--zig"}, true)) {
-                if (self.zig_exe.len == 0) {
+                if (self.zig_exe == null) {
                     self.zig_exe = try self.allocator.dupe(u8, parser.value);
                 }
             } else if (parser.parseNamed(&.{"--clang-target"}, true)) {
-                if (self.clang_target.len == 0) {
+                if (self.clang_target == null) {
                     self.clang_target = try self.allocator.dupe(u8, parser.value);
                 }
             } else if (parser.parseNamed(&.{"--skip-lib"}, true)) {
@@ -1079,7 +1079,7 @@ pub const ZigWrapper = struct {
         if (self.cc_output) |output| {
             if (self.is_linker and !self.target_is_windows) {
                 // Get the real path of `elf_path_fixer.py`
-                const script_dir = std.fs.path.dirname(self.sys_argv0) orelse ".";
+                const script_dir = std.fs.path.dirname(self.sys_argv0 orelse "") orelse ".";
                 const script = try std.fs.path.join(self.allocator, &.{
                     script_dir,
                     "elf_path_fixer.py",
