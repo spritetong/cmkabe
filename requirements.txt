@@ -1,6 +1,6 @@
-crcmod
-ninja
-paramiko
-pycryptodome
-toml
-pefile
+crcmod >= 1.7
+ninja >= 1.10.2
+paramiko >= 2.7.2
+pefile >= 2021.9.3
+pycryptodome >= 3.10.1
+toml >= 0.10.2

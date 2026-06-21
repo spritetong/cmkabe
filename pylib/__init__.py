@@ -10,7 +10,7 @@ from cmk.pylib.target import TargetParser
 from cmk.pylib.rmake import RsyncMake
 
 __all__ = (
-    "ShellCmd",
-    "TargetParser",
-    "RsyncMake",
+    'ShellCmd',
+    'TargetParser',
+    'RsyncMake',
 )

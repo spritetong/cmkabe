@@ -366,12 +366,12 @@ cargo-upgrade:
 # Patch Zig source files
 .PHONY: zig-patch
 zig-patch:
-	@$(SHLUTIL) zig_patch
+	@$(SHLUTIL) zig_patch "$(ZIG_ROOT)"
 
 # Clean Zig cache
 .PHONY: zig-clean-cache
 zig-clean-cache:
-	@$(SHLUTIL) zig_clean_cache || $(OK)
+	@$(SHLUTIL) zig_clean_cache "$(ZIG_ROOT)" || $(OK)
 	@$(RM) -rf "$(TARGET_DIR)/.zig" || $(OK)
 	@$(cmake_build_target_deps)
 
