@@ -54,16 +54,6 @@ class ShellCmd:
                 for arg in self.args:
                     yield arg
 
-        def onerror(func: Any, path: str, _exc_info: Any) -> None:
-            import stat
-
-            # Is the error an access error?
-            if not os.access(path, os.W_OK):
-                os.chmod(path, stat.S_IWUSR)
-                func(path)
-            else:
-                raise
-
         status = 0
         if not self.options.recursive:
             for pattern in read_arg():
@@ -87,8 +77,6 @@ class ShellCmd:
                         print(f'Can not remove file {file}', file=sys.stderr)
                         return status
         else:
-            import shutil
-
             for pattern in read_arg():
                 files = glob.glob(pattern)
                 if not files and not self.options.force:
@@ -99,7 +87,7 @@ class ShellCmd:
                         if os.path.isfile(file) or os.path.islink(file):
                             os.remove(file)
                         elif os.path.isdir(file):
-                            shutil.rmtree(file, ignore_errors=False, onerror=onerror)
+                            self._rmtree_try_chmod(file)
                         else:
                             # On Windows, a link like a bad <JUNCTION> can't be accessed.
                             os.remove(file)
@@ -747,6 +735,156 @@ class ShellCmd:
         zig_clean_cache(zig_root)
         return 0
 
+    def run__update_libs(self) -> int:
+        """Download or rebuild external libraries and copy files.
+
+        Options are parsed from self.options (added in main parser):
+            --url: remote URL or local path
+            --local-repo: local repository path
+            --dest-dir: target destination directory
+            --files: semicolon-separated list of file patterns/mappings
+            --tmp-dir: temporary directory path
+            --rebuild: flag to trigger rebuilding
+        """
+        import shutil
+        import subprocess
+
+        url = self.options.url or ''
+        local_repo = self.options.local_repo or ''
+        dest_dir = self.options.dest_dir or ''
+        files = self.options.files or ''
+        tmp_dir = self.options.tmp_dir or '.libs'
+        rebuild = bool(self.options.rebuild)
+
+        if not dest_dir:
+            print('Error: --dest-dir is required', file=sys.stderr)
+            return self.EINVAL
+
+        if not local_repo and url:
+            base = os.path.basename(url)
+            if base.endswith('.git'):
+                base = base[:-4]
+            local_repo = os.path.join('..', base)
+
+        # Clean up tmp_dir at the beginning
+        if os.path.exists(tmp_dir):
+            try:
+                self._rmtree_try_chmod(tmp_dir)
+            except Exception:
+                pass
+
+        src_dir = None
+        need_cleanup = False
+
+        if rebuild:
+            print(f"Rebuilding in local repository '{local_repo}'...")
+            ret = subprocess.call('make DEBUG=0', shell=True, cwd=local_repo)
+            if ret != 0:
+                print(
+                    f"Error: rebuild in '{local_repo}' failed with exit code {ret}",
+                    file=sys.stderr,
+                )
+                return self.EFAIL
+            src_dir = local_repo
+        elif url and glob.glob(url):
+            matched = glob.glob(url)
+            src_dir = matched[0]
+            print(f"Copying from local path '{src_dir}'...")
+        else:
+            print(f"Cloning from '{url}' to '{tmp_dir}'...")
+            ret = subprocess.call(
+                f'git clone --depth 1 --branch master "{url}" "{tmp_dir}"', shell=True
+            )
+            if ret != 0:
+                print(f'Error: git clone failed with exit code {ret}', file=sys.stderr)
+                return self.EFAIL
+            src_dir = tmp_dir
+            need_cleanup = True
+
+        def copy_item(src: str, dst_dir: str) -> None:
+            name = os.path.basename(src)
+            dst = os.path.join(dst_dir, name)
+            if os.path.islink(src):
+                if os.path.lexists(dst):
+                    try:
+                        os.unlink(dst)
+                    except OSError:
+                        try:
+                            os.remove(dst)
+                        except OSError:
+                            shutil.rmtree(dst, ignore_errors=True)
+                linkto = os.readlink(src)
+                os.symlink(linkto, dst)
+            elif os.path.isdir(src):
+                if os.path.exists(dst):
+                    shutil.copytree(src, dst, symlinks=True, dirs_exist_ok=True)
+                else:
+                    shutil.copytree(src, dst, symlinks=True)
+            else:
+                if os.path.exists(dst) or os.path.islink(dst):
+                    try:
+                        os.remove(dst)
+                    except OSError:
+                        pass
+                shutil.copy2(src, dst)
+
+        # Process file mappings
+        mapping_list = [f.strip() for f in files.split(';') if f.strip()]
+        for m in mapping_list:
+            parts = m.split(':', 1)
+            src_part = parts[0]
+            dst_part = parts[1] if len(parts) > 1 else ''
+
+            target_dest_dir = os.path.join(dest_dir, dst_part)
+            os.makedirs(target_dest_dir, exist_ok=True)
+
+            pattern = os.path.join(src_dir, src_part)
+            matched_files = glob.glob(pattern)
+            if not matched_files:
+                print(
+                    f"Warning: pattern '{src_part}' matched no files in source directory '{src_dir}'",
+                    file=sys.stderr,
+                )
+                continue
+
+            for f in matched_files:
+                copy_item(f, target_dest_dir)
+
+            # Fix symlinks on the destination folder
+            saved_args = self.args
+            self.args = [target_dest_dir]
+            try:
+                self.run__fix_symlink()
+            finally:
+                self.args = saved_args
+
+        if need_cleanup:
+            try:
+                self._rmtree_try_chmod(tmp_dir)
+            except Exception as e:
+                print(
+                    f"Warning: failed to remove temporary directory '{tmp_dir}': {e}",
+                    file=sys.stderr,
+                )
+
+        return 0
+
+    @classmethod
+    def _rmtree_try_chmod(cls, path: str, *, ignore_errors=False):
+        import shutil
+
+        def onerror(func: Any, path: str, _exc_info: Any) -> None:
+            import stat
+
+            # Is the error an access error?
+            if not os.access(path, os.W_OK):
+                os.chmod(path, stat.S_IWUSR)
+                func(path)
+            else:
+                raise
+
+        shutil.rmtree(path, ignore_errors=ignore_errors, onerror=onerror)  # pyright: ignore[reportDeprecated]
+
     @classmethod
     def main(cls, args: Optional[List[str]] = None) -> int:
         """Main CLI entrypoint for ShellCmd."""
@@ -818,6 +956,37 @@ class ShellCmd:
                 default=False,
                 dest='args_from_stdin',
                 help='read arguments from stdin',
+            )
+            parser.add_argument(
+                '--url',
+                default='',
+                help='remote git repository URL or local path for update-libs',
+            )
+            parser.add_argument(
+                '--local-repo',
+                default='',
+                help='local source repository path for update-libs',
+            )
+            parser.add_argument(
+                '--dest-dir',
+                default='',
+                help='local destination directory for update-libs',
+            )
+            parser.add_argument(
+                '--files',
+                default='',
+                help='semicolon-separated list of file mappings for update-libs',
+            )
+            parser.add_argument(
+                '--tmp-dir',
+                default='',
+                help='temporary directory for update-libs',
+            )
+            parser.add_argument(
+                '--rebuild',
+                action='store_true',
+                default=False,
+                help='rebuild libraries in local repo for update-libs',
             )
             parser.add_argument('command', nargs='?', default='')
             parser.add_argument('args', nargs='*', default=[])

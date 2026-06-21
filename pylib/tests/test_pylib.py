@@ -111,6 +111,76 @@ class TestCommands(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertEqual(fake_out.getvalue().strip(), '0')
 
+    def test_update_libs(self) -> None:
+        import io
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as tmp_src, tempfile.TemporaryDirectory() as tmp_dst:
+            # Create src structure
+            ext_dir = os.path.join(tmp_src, "ext")
+            lib_dir = os.path.join(tmp_src, "lib")
+            os.makedirs(ext_dir, exist_ok=True)
+            os.makedirs(lib_dir, exist_ok=True)
+
+            with open(os.path.join(ext_dir, "file1.txt"), "w") as f:
+                f.write("content1")
+            with open(os.path.join(ext_dir, "file2.txt"), "w") as f:
+                f.write("content2")
+            with open(os.path.join(lib_dir, "file3.txt"), "w") as f:
+                f.write("content3")
+
+            # Run update-libs
+            # We map ext/* to dest root, and lib/file3.txt to target_lib
+            files_arg = "ext/*;lib/file3.txt:target_lib"
+            code = ShellCmd.main([
+                'update-libs',
+                '--url', tmp_src,
+                '--dest-dir', tmp_dst,
+                '--files', files_arg
+            ])
+            self.assertEqual(code, 0)
+
+            # Check files in destination
+            self.assertTrue(os.path.exists(os.path.join(tmp_dst, "file1.txt")))
+            self.assertTrue(os.path.exists(os.path.join(tmp_dst, "file2.txt")))
+            self.assertTrue(os.path.exists(os.path.join(tmp_dst, "target_lib", "file3.txt")))
+
+            with open(os.path.join(tmp_dst, "file1.txt"), "r") as f:
+                self.assertEqual(f.read(), "content1")
+            with open(os.path.join(tmp_dst, "file2.txt"), "r") as f:
+                self.assertEqual(f.read(), "content2")
+            with open(os.path.join(tmp_dst, "target_lib", "file3.txt"), "r") as f:
+                self.assertEqual(f.read(), "content3")
+
+    def test_update_libs_rebuild(self) -> None:
+        import io
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as tmp_src, tempfile.TemporaryDirectory() as tmp_dst:
+            # Create src structure
+            ext_dir = os.path.join(tmp_src, "ext")
+            os.makedirs(ext_dir, exist_ok=True)
+            with open(os.path.join(ext_dir, "file1.txt"), "w") as f:
+                f.write("content1")
+
+            # Mock subprocess.call
+            with patch('subprocess.call', return_value=0) as mock_call:
+                code = ShellCmd.main([
+                    'update-libs',
+                    '--url', tmp_src,
+                    '--dest-dir', tmp_dst,
+                    '--files', 'ext/*',
+                    '--local-repo', tmp_src,
+                    '--rebuild'
+                ])
+                self.assertEqual(code, 0)
+                mock_call.assert_called_once_with('make DEBUG=0', shell=True, cwd=tmp_src)
+
+            # Also check copied files
+            self.assertTrue(os.path.exists(os.path.join(tmp_dst, "file1.txt")))
+            with open(os.path.join(tmp_dst, "file1.txt"), "r") as f:
+                self.assertEqual(f.read(), "content1")
+
 
 class TestTargetParser(unittest.TestCase):
     def test_parser_init(self) -> None:

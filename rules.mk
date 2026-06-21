@@ -506,38 +506,18 @@ endef
 #    The Make variable name to determine whether to rebuild the libraries in 
 #    the local source repository `<LOCAL_REPO>`, leave it empty if you don't want to rebuild.
 # )
-cmkabe_update_libs = $(eval $(call _x_cmkabe_update_libs_tpl,$(call sel,NAME,$(word 1,$(1)),update-libs),$(1)))
-_x_cmkabe_update_lib_cp = $(OK) $(foreach I,$(3),&& $(MKDIR) $(2)/$(word 2,$(subst :, ,$I)) && \
-	$(CP) -rfP $(addprefix $(1)/,$(word 1,$(subst :, ,$I))) $(2)/$(word 2,$(subst :, ,$I)) && \
-	$(FIXLINK) $(2)/$(word 2,$(subst :, ,$I)))
+cmkabe_update_libs = $(eval $(call _x_cmkabe_update_libs_tpl,$(if $(3),$(3),update-libs),$(1),$(2)))
 define _x_cmkabe_update_libs_tpl
     _x_saved_default_goal := $(.DEFAULT_GOAL)
 
-    $$(foreach I,$(2),$$(eval $(1)_x_$$(I)))
-    $(1)_x_FILES := $$(subst ;, ,$$($(1)_x_FILES))
-
     $(1)_x_target := $(1)
-    $(1)_x_local_repo := $$(call either,$$($(1)_x_LOCAL_REPO),../$$(notdir $$(basename $$($(1)_x_URL))))
-    $(1)_x_local_file := $$(call either,$$($(1)_x_TARGET_FILE),$$($(1)_x_DEST_DIR))
-    $(1)_x_tmp_dir := $$(call either,$$($(1)_x_TMP_DIR),.libs)
-    $(1)_x_rebuild := $$(call bool,$$(if $$($(1)_x_REBUILD),$$($$($(1)_x_REBUILD)),))
+    $(1)_x_local_file := $(2)
 
     cmake-before-build: $$($(1)_x_local_file)
     .PHONY: $$($(1)_x_target)
     $$($(1)_x_target): $$(CMAKE_CLEAN_DEPS)
     $$($(1)_x_target) $$($(1)_x_local_file):
-		@$$(RM) -rf $$($(1)_x_tmp_dir)
-    ifeq ($$($(1)_x_rebuild),ON)
-		@$$(CD) $$($(1)_x_local_repo) && make DEBUG=0
-		@$$(call _x_cmkabe_update_lib_cp,$$($(1)_x_local_repo),$$($(1)_x_DEST_DIR),$$($(1)_x_FILES))
-    else ifneq ($$(wildcard $$($(1)_x_URL)),)
-		@echo Copy from "$$($(1)_x_URL)" ...
-		@$$(call _x_cmkabe_update_lib_cp,$$($(1)_x_URL),$$($(1)_x_DEST_DIR),$$($(1)_x_FILES))
-    else
-		@git clone --depth 1 --branch master $$($(1)_x_URL) $$($(1)_x_tmp_dir)
-		@$$(call _x_cmkabe_update_lib_cp,$$($(1)_x_tmp_dir),$$($(1)_x_DEST_DIR),$$($(1)_x_FILES))
-		@$$(RM) -rf $$($(1)_x_tmp_dir)
-    endif
+		@$$(SHLUTIL) update-libs --dest-dir "$$($(1)_x_local_file)" $(3)
 
     .DEFAULT_GOAL := $(_x_saved_default_goal)
     undefine _x_saved_default_goal
