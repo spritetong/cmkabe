@@ -181,6 +181,39 @@ class TestCommands(unittest.TestCase):
             with open(os.path.join(tmp_dst, "file1.txt"), "r") as f:
                 self.assertEqual(f.read(), "content1")
 
+    def test_shell_command(self) -> None:
+        import io
+        from unittest.mock import patch
+
+        # Mock sys.platform to 'win32'
+        with patch('sys.platform', 'win32'):
+            # 1. Test pwsh.exe detection
+            with patch.object(ShellCmd, '_detect_win_shell', return_value='pwsh.exe'):
+                with patch('subprocess.call', return_value=0) as mock_call:
+                    code = ShellCmd.main(['shell'])
+                    self.assertEqual(code, 0)
+                    mock_call.assert_called_once()
+                    args = mock_call.call_args[0][0]
+                    self.assertEqual(args[0], 'pwsh.exe')
+                    self.assertIn('prompt', args[3])
+
+            # 2. Test powershell.exe detection
+            with patch.object(ShellCmd, '_detect_win_shell', return_value='powershell.exe'):
+                with patch('subprocess.call', return_value=0) as mock_call:
+                    code = ShellCmd.main(['shell'])
+                    self.assertEqual(code, 0)
+                    mock_call.assert_called_once()
+                    args = mock_call.call_args[0][0]
+                    self.assertEqual(args[0], 'powershell.exe')
+                    self.assertIn('prompt', args[3])
+
+            # 3. Test cmd.exe default/fallback
+            with patch.object(ShellCmd, '_detect_win_shell', return_value='cmd.exe'):
+                with patch('subprocess.call', return_value=0) as mock_call:
+                    code = ShellCmd.main(['shell'])
+                    self.assertEqual(code, 0)
+                    mock_call.assert_called_once_with('cmd.exe /k set PROMPT=(make) %PROMPT%', shell=True)
+
 
 class TestTargetParser(unittest.TestCase):
     def test_parser_init(self) -> None:

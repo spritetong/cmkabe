@@ -382,7 +382,7 @@ zig-clean-cache:
 .PHONY: shell
 shell:
     ifeq ($(HOST_SYSTEM),Windows)
-		-@cmd.exe /k set PROMPT=(make) %PROMPT%
+		-@$(SHLUTIL) shell
     else
 		-@bash --norc
     endif
