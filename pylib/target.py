@@ -5,28 +5,24 @@ import glob
 import os
 import shutil
 import subprocess
-import sys
-from typing import Any, Dict, Generator, List, Optional, Tuple
+from typing import Any, Generator, List, Optional
 
 from cmk.pylib.sys_utils import (
+    ANDROID_ABI_MAP,
+    ANDROID_ARCH_MAP,
     EXE_EXT,
     GCC_ENV_KEYS,
-    HOST_ARCH_MAP,
-    HOST_SYSTEM_MAP,
-    RUST_ARCH_MAP,
     MSVC_ARCH_MAP,
+    RUST_ARCH_MAP,
     VSTOOLS_ARCH_MAP,
-    ANDROID_ARCH_MAP,
-    ANDROID_ABI_MAP,
-    APPLE_ARCH_MAP,
     ZIG_ARCH_MAP,
     ZIG_OS_MAP,
     copy_env_for_cc,
     host_target_info,
     join_triple,
     lock_file,
-    need_update,
     ndk_root,
+    need_update,
     normpath,
     parse_triple,
 )
@@ -197,18 +193,18 @@ class TargetParser:
         if self.cargo_target == self.host_cargo_target:
             directory = self.cargo_target_dir
         else:
-            directory = '{}/{}'.format(self.cargo_target_dir, self.cargo_target)
+            directory = f'{self.cargo_target_dir}/{self.cargo_target}'
 
         build_type = 'debug'
         if make:
             build_type = '$(CARGO_BUILD_TYPE)'
         elif cmake:
             build_type = '${CARGO_BUILD_TYPE}'
-        return '{}/{}'.format(directory, build_type)
+        return f'{directory}/{build_type}'
 
     def cmake_build_dir(self) -> str:
         """Get the cmake build directory path."""
-        return '{}/$(CMAKE_BUILD_TYPE)'.format(self.cmake_target_dir)
+        return f'{self.cmake_target_dir}/$(CMAKE_BUILD_TYPE)'
 
     def enum_prefix_subdirs_of(
         self, subdir: str, quotes: bool = False, make: bool = False, cmake: bool = False
@@ -221,16 +217,16 @@ class TargetParser:
                     self.cargo_out_dir(make=True),
                     self.cmake_build_dir(),
                 ]:
-                    res.append('"{}"'.format(directory) if quotes else directory)
+                    res.append(f'"{directory}"' if quotes else directory)
             elif cmake:
                 for directory in [
                     self.cargo_out_dir(cmake=True),
                     '${CMAKE_BINARY_DIR}',
                 ]:
-                    res.append('"{}"'.format(directory) if quotes else directory)
+                    res.append(f'"{directory}"' if quotes else directory)
         for directory in self.cmake_prefix_subdirs:
-            item = '{}{}{}'.format(directory, '/' if subdir else '', subdir)
-            res.append('"{}"'.format(item) if quotes else item)
+            item = f'{directory}{"/" if subdir else ""}{subdir}'
+            res.append(f'"{item}"' if quotes else item)
         return res
 
     def parse(self) -> 'TargetParser':
@@ -344,9 +340,9 @@ class TargetParser:
         ) and self.target == self.cargo_target:
             self.cargo_target_dir = self.target_dir
         else:
-            self.cargo_target_dir = '{}/{}'.format(self.target_dir, self.target)
+            self.cargo_target_dir = f'{self.target_dir}/{self.target}'
 
-        self.cmake_prefix_dir = '{}/{}'.format(self.cmake_target_prefix, self.target)
+        self.cmake_prefix_dir = f'{self.cmake_target_prefix}/{self.target}'
 
         def _any_prefix_subdirs() -> Generator[str, None, None]:
             yield self.target
@@ -359,7 +355,7 @@ class TargetParser:
             yield 'any'
 
         self.cmake_prefix_subdirs = [
-            '{}/{}'.format(self.cmake_target_prefix, x) for x in _any_prefix_subdirs()
+            f'{self.cmake_target_prefix}/{x}' for x in _any_prefix_subdirs()
         ]
         return self
 
@@ -370,9 +366,7 @@ class TargetParser:
             'ProgramFiles(x86)',
             'ProgramFiles',
         ]:
-            path = r'{}\Microsoft Visual Studio\Installer\vswhere.exe'.format(
-                os.environ.get(program_files, '')
-            )
+            path = rf'{os.environ.get(program_files, "")}\Microsoft Visual Studio\Installer\vswhere.exe'
             if os.path.isfile(path):
                 vswhere = path
         try:
@@ -383,10 +377,7 @@ class TargetParser:
                     '-requires',
                     'Microsoft.VisualStudio.Component.VC.Tools.*',
                     '-find',
-                    r'VC\Tools\MSVC\**\bin\*{}\{}\ml*.exe'.format(
-                        VSTOOLS_ARCH_MAP.get(self.host_arch, self.host_arch),
-                        VSTOOLS_ARCH_MAP.get(self.arch, self.arch),
-                    ),
+                    rf'VC\Tools\MSVC\**\bin\*{VSTOOLS_ARCH_MAP.get(self.host_arch, self.host_arch)}\{VSTOOLS_ARCH_MAP.get(self.arch, self.arch)}\ml*.exe',
                 ],
                 stdin=subprocess.DEVNULL,
                 capture_output=True,
@@ -399,11 +390,7 @@ class TargetParser:
             pass
 
     def _cmake_init(self) -> None:
-        self.cmake_target_dir = '{}/{}/{}'.format(
-            self.target_cmake_dir,
-            self.host_system,
-            'native' if self.target_is_native else self.target,
-        )
+        self.cmake_target_dir = f'{self.target_cmake_dir}/{self.host_system}/{"native" if self.target_is_native else self.target}'
         os.makedirs(self.cmake_target_dir, exist_ok=True)
 
     def _zig_init(self) -> None:
@@ -433,7 +420,7 @@ class TargetParser:
                     '-O',
                     'ReleaseSmall',
                     '-fstrip',
-                    '-femit-bin={}'.format(exe),
+                    f'-femit-bin={exe}',
                     src,
                 ],
                 env=copy_env_for_cc(),
@@ -491,9 +478,7 @@ class TargetParser:
         if not os.path.isfile(self.target_cc):
             target_cc = shutil.which(self.target_cc)
             if not target_cc:
-                raise FileNotFoundError(
-                    'Target CC is not found: {}'.format(self.target_cc)
-                )
+                raise FileNotFoundError(f'Target CC is not found: {self.target_cc}')
             self.target_cc = normpath(target_cc)
 
         # Get include paths.
@@ -503,27 +488,23 @@ class TargetParser:
     def _android_init(self) -> None:
         self.android_ndk_root = normpath(ndk_root(check_env=True))
         self.android_ndk_bin = self.android_ndk_root + (
-            '/toolchains/llvm/prebuilt/{}-{}/bin'.format(
-                self.host_system.lower(), self.host_arch.lower()
-            )
+            f'/toolchains/llvm/prebuilt/{self.host_system.lower()}-{self.host_arch.lower()}/bin'
         )
         if not self.android_ndk_root or not os.path.isdir(self.android_ndk_root):
             raise FileNotFoundError(
-                'Android NDK is not found: {}'.format(self.android_ndk_root)
+                f'Android NDK is not found: {self.android_ndk_root}'
             )
         if not self.android_ndk_bin or not os.path.isdir(self.android_ndk_bin):
             raise FileNotFoundError(
-                'Android NDK Clang compiler is not found: {}'.format(
-                    self.android_ndk_bin
-                )
+                f'Android NDK Clang compiler is not found: {self.android_ndk_bin}'
             )
 
         # Override the target CC for NDK.
-        self.target_cc = '{}/clang{}'.format(self.android_ndk_bin, EXE_EXT)
+        self.target_cc = f'{self.android_ndk_bin}/clang{EXE_EXT}'
 
         # Get include paths.
         def cc_cmd_args(cc_tool: str) -> List[str]:
-            return [cc_tool, '--target={}'.format(self.android_target)]
+            return [cc_tool, f'--target={self.android_target}']
 
         self.c_includes = self._get_cc_includes(cc_cmd_args(self.target_cc), 'c')
         self.cxx_includes = self._get_cc_includes(cc_cmd_args(self.target_cxx), 'c++')
@@ -594,17 +575,15 @@ class TargetParser:
             )
             export_only = False
             if name == 'PATH':
-                value = '$(subst /,$(SEP),{})'.format(value)
+                value = f'$(subst /,$(SEP),{value})'
                 export_only = True
             return ''.join(
                 [
-                    '# Environment variable `{}`\n'.format(name),
-                    '_s := {}\n'.format(value),
-                    'ifeq ($(findstring $(_s),$({})),)\n'.format(name),
-                    '    {} {} := $(_s)$({})\n'.format(
-                        'export' if export_only else 'override', name, name
-                    ),
-                    '    export {}\n'.format(name) if not export_only else '',
+                    f'# Environment variable `{name}`\n',
+                    f'_s := {value}\n',
+                    f'ifeq ($(findstring $(_s),$({name})),)\n',
+                    f'    {"export" if export_only else "override"} {name} := $(_s)$({name})\n',
+                    f'    export {name}\n' if not export_only else '',
                     'endif\n',
                 ]
             )
@@ -612,17 +591,17 @@ class TargetParser:
         def cmake_export_paths(
             name: str, paths: List[str], subdirs: Optional[List[str]] = None
         ) -> str:
-            env_name = 'ENV{{{}}}'.format(name)
+            env_name = f'ENV{{{name}}}'
             value = (
                 os.pathsep + os.pathsep.join(join_paths(paths, subdirs)) + os.pathsep
             )
             return ''.join(
                 [
-                    '# Environment variable `{}`\n'.format(name),
-                    'set(_s "{}")\n'.format(value),
-                    'string(FIND "${}" "${{_s}}" _n)\n'.format(env_name),
+                    f'# Environment variable `{name}`\n',
+                    f'set(_s "{value}")\n',
+                    f'string(FIND "${env_name}" "${{_s}}" _n)\n',
                     'if(_n EQUAL -1)\n',
-                    '    set({} "${{_s}}${}")\n'.format(env_name, env_name),
+                    f'    set({env_name} "${{_s}}${env_name}")\n',
                     'endif()\n',
                 ]
             )
@@ -631,68 +610,70 @@ class TargetParser:
             os.path.join(self.target_cmake_dir, self.host_system, '.host.mk'),
             'wb',
         ) as f:
-            fwrite(f, 'override HOST_SYSTEM = {}\n'.format(self.host_system))
-            fwrite(f, 'override HOST_TARGET = {}\n'.format(self.host_target))
+            fwrite(f, f'override HOST_SYSTEM = {self.host_system}\n')
+            fwrite(f, f'override HOST_TARGET = {self.host_target}\n')
             fwrite(
                 f,
-                'override HOST_CARGO_TARGET = {}\n'.format(self.host_cargo_target),
+                f'override HOST_CARGO_TARGET = {self.host_cargo_target}\n',
             )
-            fwrite(f, 'override HOST_ARCH = {}\n'.format(self.host_arch))
-            fwrite(f, 'override HOST_VENDOR = {}\n'.format(self.host_vendor))
-            fwrite(f, 'override HOST_OS = {}\n'.format(self.host_os))
-            fwrite(f, 'override HOST_ENV = {}\n'.format(self.host_env))
+            fwrite(f, f'override HOST_ARCH = {self.host_arch}\n')
+            fwrite(f, f'override HOST_VENDOR = {self.host_vendor}\n')
+            fwrite(f, f'override HOST_OS = {self.host_os}\n')
+            fwrite(f, f'override HOST_ENV = {self.host_env}\n')
             fwrite(f, '\n')
             fwrite(f, '# Constants for the host platform\n')
-            fwrite(f, 'override HOST_SEP := $(strip {})\n'.format(os.sep))
-            fwrite(f, 'override HOST_PATHSEP = {}\n'.format(os.pathsep))
-            fwrite(f, 'override HOST_EXE_EXT = {}\n'.format(EXE_EXT))
+            fwrite(f, f'override HOST_SEP := $(strip {os.sep})\n')
+            fwrite(f, f'override HOST_PATHSEP = {os.pathsep}\n')
+            fwrite(f, f'override HOST_EXE_EXT = {EXE_EXT}\n')
             fwrite(f, '\n')
             fwrite(
                 f,
                 '# Unexport environment variables that may affect the CC compiler.\n',
             )
             for key in GCC_ENV_KEYS:
-                fwrite(f, 'unexport {}\n'.format(key))
+                fwrite(f, f'unexport {key}\n')
 
         with open(
             os.path.join(self.target_cmake_dir, self.host_system, '.host.cmake'),
             'wb',
         ) as f:
-            fwrite(f, 'set(HOST_SYSTEM "{}")\n'.format(self.host_system))
-            fwrite(f, 'set(HOST_TARGET "{}")\n'.format(self.host_target))
+            fwrite(f, f'set(HOST_SYSTEM "{self.host_system}")\n')
+            fwrite(f, f'set(HOST_TARGET "{self.host_target}")\n')
             fwrite(
                 f,
-                'set(HOST_CARGO_TARGET "{}")\n'.format(self.host_cargo_target),
+                f'set(HOST_CARGO_TARGET "{self.host_cargo_target}")\n',
             )
-            fwrite(f, 'set(HOST_ARCH "{}")\n'.format(self.host_arch))
-            fwrite(f, 'set(HOST_VENDOR "{}")\n'.format(self.host_vendor))
-            fwrite(f, 'set(HOST_OS "{}")\n'.format(self.host_os))
-            fwrite(f, 'set(HOST_ENV "{}")\n'.format(self.host_env))
+            fwrite(f, f'set(HOST_ARCH "{self.host_arch}")\n')
+            fwrite(f, f'set(HOST_VENDOR "{self.host_vendor}")\n')
+            fwrite(f, f'set(HOST_OS "{self.host_os}")\n')
+            fwrite(f, f'set(HOST_ENV "{self.host_env}")\n')
             fwrite(f, '\n')
             fwrite(f, '# Constants for the host platform\n')
-            fwrite(f, 'set(HOST_SEP "{}")\n'.format(os.sep.replace('\\', '\\\\')))
-            fwrite(f, 'set(HOST_PATHSEP "{}")\n'.format(os.pathsep))
-            fwrite(f, 'set(HOST_EXE_EXT "{}")\n'.format(EXE_EXT))
+            host_sep_escaped = os.sep.replace('\\', '\\\\')
+            fwrite(f, f'set(HOST_SEP "{host_sep_escaped}")\n')
+            fwrite(f, f'set(HOST_PATHSEP "{os.pathsep}")\n')
+            fwrite(f, f'set(HOST_EXE_EXT "{EXE_EXT}")\n')
 
         with open(os.path.join(self.cmake_target_dir, '.settings.mk'), 'wb') as f:
             fwrite(f, '# Home directory\n')
-            fwrite(f, 'override CMKABE_HOME = {}\n'.format(self.script_dir))
+            fwrite(f, f'override CMKABE_HOME = {self.script_dir}\n')
             fwrite(f, '\n')
 
             fwrite(f, '# Constants for the target platform\n')
+            target_sep = '\\' if self.win32 else '/'
             fwrite(
                 f,
-                'override TARGET_SEP := $(strip {})\n'.format(
-                    '\\' if self.win32 else '/'
-                ),
+                f'override TARGET_SEP := $(strip {target_sep})\n',
             )
+            target_pathsep = ';' if self.win32 else ':'
             fwrite(
                 f,
-                'override TARGET_PATHSEP = {}\n'.format(';' if self.win32 else ':'),
+                f'override TARGET_PATHSEP = {target_pathsep}\n',
             )
+            target_exe_ext = '.exe' if self.win32 else ''
             fwrite(
                 f,
-                'override TARGET_EXE_EXT = {}\n'.format('.exe' if self.win32 else ''),
+                f'override TARGET_EXE_EXT = {target_exe_ext}\n',
             )
             fwrite(f, '\n')
 
@@ -710,119 +691,104 @@ class TargetParser:
             fwrite(f, '\n')
 
             fwrite(f, '# Constant directories\n')
-            fwrite(f, 'override WORKSPACE_DIR = {}\n'.format(self.workspace_dir))
-            fwrite(f, 'override TARGET_DIR = {}\n'.format(self.target_dir))
+            fwrite(f, f'override WORKSPACE_DIR = {self.workspace_dir}\n')
+            fwrite(f, f'override TARGET_DIR = {self.target_dir}\n')
             fwrite(
                 f,
-                'override TARGET_CMAKE_DIR = {}\n'.format(self.target_cmake_dir),
+                f'override TARGET_CMAKE_DIR = {self.target_cmake_dir}\n',
             )
             fwrite(
                 f,
-                'override CMAKE_LOCK_FILE = {}\n'.format(self.cmake_lock_file),
+                f'override CMAKE_LOCK_FILE = {self.cmake_lock_file}\n',
             )
             fwrite(
                 f,
-                'override CMAKE_TARGET_PREFIX = {}\n'.format(self.cmake_target_prefix),
+                f'override CMAKE_TARGET_PREFIX = {self.cmake_target_prefix}\n',
             )
             fwrite(
                 f,
-                'override CMAKE_PREFIX_DIR = {}\n'.format(self.cmake_prefix_dir),
+                f'override CMAKE_PREFIX_DIR = {self.cmake_prefix_dir}\n',
             )
             fwrite(
                 f,
-                'override CMAKE_PREFIX_SUBDIRS = {}\n'.format(
-                    ' '.join(self.enum_prefix_subdirs_of('', make=True))
-                ),
+                f'override CMAKE_PREFIX_SUBDIRS = {" ".join(self.enum_prefix_subdirs_of("", make=True))}\n',
             )
             fwrite(
                 f,
-                'override CMAKE_PREFIX_BINS := {}\n'.format(
-                    ' '.join(self.enum_prefix_subdirs_of('bin', make=True))
-                ),
+                f'override CMAKE_PREFIX_BINS := {" ".join(self.enum_prefix_subdirs_of("bin", make=True))}\n',
             )
             fwrite(
                 f,
-                'override CMAKE_PREFIX_LIBS := {}\n'.format(
-                    ' '.join(self.enum_prefix_subdirs_of('lib', make=True))
-                ),
+                f'override CMAKE_PREFIX_LIBS := {" ".join(self.enum_prefix_subdirs_of("lib", make=True))}\n',
             )
             fwrite(
                 f,
-                'override CMAKE_PREFIX_INCLUDES = {}\n'.format(
-                    ' '.join(self.enum_prefix_subdirs_of('include', make=True))
-                ),
+                f'override CMAKE_PREFIX_INCLUDES = {" ".join(self.enum_prefix_subdirs_of("include", make=True))}\n',
             )
             fwrite(f, '\n')
 
             fwrite(f, '# Cargo\n')
-            fwrite(f, 'override TARGET = {}\n'.format(self.target))
-            fwrite(f, 'override TARGET_ARCH = {}\n'.format(self.arch))
-            fwrite(f, 'override TARGET_VENDOR = {}\n'.format(self.vendor))
-            fwrite(f, 'override TARGET_OS = {}\n'.format(self.os))
-            fwrite(f, 'override TARGET_ENV = {}\n'.format(self.env))
-            fwrite(f, 'override TARGET_CC = {}\n'.format(self.target_cc))
-            fwrite(f, 'override CARGO_TARGET = {}\n'.format(self.cargo_target))
+            fwrite(f, f'override TARGET = {self.target}\n')
+            fwrite(f, f'override TARGET_ARCH = {self.arch}\n')
+            fwrite(f, f'override TARGET_VENDOR = {self.vendor}\n')
+            fwrite(f, f'override TARGET_OS = {self.os}\n')
+            fwrite(f, f'override TARGET_ENV = {self.env}\n')
+            fwrite(f, f'override TARGET_CC = {self.target_cc}\n')
+            fwrite(f, f'override CARGO_TARGET = {self.cargo_target}\n')
             fwrite(
                 f,
-                'override CARGO_TARGET_UNDERSCORE = {}\n'.format(
-                    self.cargo_target.replace('-', '_')
-                ),
+                f'override CARGO_TARGET_UNDERSCORE = {self.cargo_target.replace("-", "_")}\n',
             )
             fwrite(
                 f,
-                'override CARGO_TARGET_UNDERSCORE_UPPER = {}\n'.format(
-                    self.cargo_target.replace('-', '_').upper()
-                ),
+                f'override CARGO_TARGET_UNDERSCORE_UPPER = {self.cargo_target.replace("-", "_").upper()}\n',
             )
             fwrite(
                 f,
-                'override CARGO_TARGET_DIR = {}\n'.format(self.cargo_target_dir),
+                f'override CARGO_TARGET_DIR = {self.cargo_target_dir}\n',
             )
             fwrite(
                 f,
-                'override CARGO_OUT_DIR := {}\n'.format(self.cargo_out_dir(make=True)),
+                f'override CARGO_OUT_DIR := {self.cargo_out_dir(make=True)}\n',
             )
             fwrite(f, '\n')
 
             fwrite(f, '# CMake\n')
             fwrite(
                 f,
-                'override CMAKE_GENERATOR = {}\n'.format(self.cmake_generator),
+                f'override CMAKE_GENERATOR = {self.cmake_generator}\n',
             )
             fwrite(
                 f,
-                'override CMAKE_TARGET_DIR = {}\n'.format(self.cmake_target_dir),
+                f'override CMAKE_TARGET_DIR = {self.cmake_target_dir}\n',
             )
             fwrite(
                 f,
-                'override CMAKE_BUILD_DIR = {}\n'.format(self.cmake_build_dir()),
+                f'override CMAKE_BUILD_DIR = {self.cmake_build_dir()}\n',
             )
             fwrite(f, '\n')
 
             fwrite(f, '# MSVC\n')
-            fwrite(f, 'override MSVC_ARCH = {}\n'.format(self.msvc_arch))
-            fwrite(f, 'override MSVC_MASM = {}\n'.format(self.msvc_masm))
+            fwrite(f, f'override MSVC_ARCH = {self.msvc_arch}\n')
+            fwrite(f, f'override MSVC_MASM = {self.msvc_masm}\n')
             fwrite(f, '\n')
 
             fwrite(f, '# Android\n')
             fwrite(
                 f,
-                'override ANDROID_TARGET = {}{}\n'.format(
-                    self.android_target,
-                    '$(ANDROID_SDK_VERSION)' if self.android_target else '',
-                ),
+                f'override ANDROID_TARGET = {self.android_target}{"$(ANDROID_SDK_VERSION)" if self.android_target else ""}\n',
             )
-            fwrite(f, 'override ANDROID_ARCH = {}\n'.format(self.android_arch))
-            fwrite(f, 'override ANDROID_ABI = {}\n'.format(self.android_abi))
+            fwrite(f, f'override ANDROID_ARCH = {self.android_arch}\n')
+            fwrite(f, f'override ANDROID_ABI = {self.android_abi}\n')
             if self.android_ndk_root:
                 fwrite(
                     f,
-                    'override ANDROID_NDK_ROOT = {}\n'.format(self.android_ndk_root),
+                    f'override ANDROID_NDK_ROOT = {self.android_ndk_root}\n',
                 )
             if self.android_ndk_bin:
                 fwrite(
                     f,
-                    'override ANDROID_NDK_BIN = {}\n'.format(self.android_ndk_bin),
+                    f'override ANDROID_NDK_BIN = {self.android_ndk_bin}\n',
                 )
             if self.android:
                 fwrite(
@@ -832,50 +798,51 @@ class TargetParser:
             fwrite(f, '\n')
 
             fwrite(f, '# Zig\n')
-            fwrite(f, 'override ZIG = {}\n'.format(onoff(self.zig)))
-            fwrite(f, 'override ZIG_TARGET = {}\n'.format(self.zig_target))
-            fwrite(f, 'override ZIG_CC_DIR = {}\n'.format(self.zig_cc_dir))
-            fwrite(f, 'override ZIG_ROOT = {}\n'.format(self.zig_root))
+            fwrite(f, f'override ZIG = {onoff(self.zig)}\n')
+            fwrite(f, f'override ZIG_TARGET = {self.zig_target}\n')
+            fwrite(f, f'override ZIG_CC_DIR = {self.zig_cc_dir}\n')
+            fwrite(f, f'override ZIG_ROOT = {self.zig_root}\n')
             fwrite(f, '\n')
 
             fwrite(f, '# Target related conditions\n')
             fwrite(
                 f,
-                'override TARGET_IS_NATIVE = {}\n'.format(onoff(self.target_is_native)),
+                f'override TARGET_IS_NATIVE = {onoff(self.target_is_native)}\n',
             )
             fwrite(
                 f,
-                'override TARGET_IS_RUNNABLE = {}\n'.format(
-                    onoff(self.target_is_runnable)
-                ),
+                f'override TARGET_IS_RUNNABLE = {onoff(self.target_is_runnable)}\n',
             )
-            fwrite(f, 'override TARGET_IS_WIN32 = {}\n'.format(onoff(self.win32)))
-            fwrite(f, 'override TARGET_IS_MSVC = {}\n'.format(onoff(self.msvc)))
+            fwrite(f, f'override TARGET_IS_WIN32 = {onoff(self.win32)}\n')
+            fwrite(f, f'override TARGET_IS_MSVC = {onoff(self.msvc)}\n')
             fwrite(
                 f,
-                'override TARGET_IS_ANDROID = {}\n'.format(onoff(self.android)),
+                f'override TARGET_IS_ANDROID = {onoff(self.android)}\n',
             )
-            fwrite(f, 'override TARGET_IS_UNIX = {}\n'.format(onoff(self.unix)))
-            fwrite(f, 'override TARGET_IS_APPLE = {}\n'.format(onoff(self.apple)))
-            fwrite(f, 'override TARGET_IS_IOS = {}\n'.format(onoff(self.ios)))
+            fwrite(f, f'override TARGET_IS_UNIX = {onoff(self.unix)}\n')
+            fwrite(f, f'override TARGET_IS_APPLE = {onoff(self.apple)}\n')
+            fwrite(f, f'override TARGET_IS_IOS = {onoff(self.ios)}\n')
 
         with open(os.path.join(self.cmake_target_dir, '.settings.cmake'), 'wb') as f:
             fwrite(f, '# Home directory\n')
-            fwrite(f, 'set(CMKABE_HOME "{}")\n'.format(self.script_dir))
+            fwrite(f, f'set(CMKABE_HOME "{self.script_dir}")\n')
             fwrite(f, '\n')
 
             fwrite(f, '# Constants for the target platform\n')
+            cmake_target_sep = '\\\\' if self.win32 else '/'
             fwrite(
                 f,
-                'set(TARGET_SEP "{}")\n'.format('\\\\' if self.win32 else '/'),
+                f'set(TARGET_SEP "{cmake_target_sep}")\n',
             )
+            cmake_target_pathsep = ';' if self.win32 else ':'
             fwrite(
                 f,
-                'set(TARGET_PATHSEP "{}")\n'.format(';' if self.win32 else ':'),
+                f'set(TARGET_PATHSEP "{cmake_target_pathsep}")\n',
             )
+            cmake_target_exe_ext = '.exe' if self.win32 else ''
             fwrite(
                 f,
-                'set(TARGET_EXE_EXT "{}")\n'.format('.exe' if self.win32 else ''),
+                f'set(TARGET_EXE_EXT "{cmake_target_exe_ext}")\n',
             )
             fwrite(f, '\n')
 
@@ -895,95 +862,79 @@ class TargetParser:
             fwrite(f, '\n')
 
             fwrite(f, '# Constant directories\n')
-            fwrite(f, 'set(WORKSPACE_DIR "{}")\n'.format(self.workspace_dir))
-            fwrite(f, 'set(TARGET_DIR "{}")\n'.format(self.target_dir))
-            fwrite(f, 'set(TARGET_CMAKE_DIR "{}")\n'.format(self.target_cmake_dir))
-            fwrite(f, 'set(TARGET_LOCK_FILE "{}")\n'.format(self.cmake_lock_file))
-            fwrite(f, 'set(TARGET_PREFIX "{}")\n'.format(self.cmake_target_prefix))
-            fwrite(f, 'set(TARGET_PREFIX_DIR "{}")\n'.format(self.cmake_prefix_dir))
+            fwrite(f, f'set(WORKSPACE_DIR "{self.workspace_dir}")\n')
+            fwrite(f, f'set(TARGET_DIR "{self.target_dir}")\n')
+            fwrite(f, f'set(TARGET_CMAKE_DIR "{self.target_cmake_dir}")\n')
+            fwrite(f, f'set(TARGET_LOCK_FILE "{self.cmake_lock_file}")\n')
+            fwrite(f, f'set(TARGET_PREFIX "{self.cmake_target_prefix}")\n')
+            fwrite(f, f'set(TARGET_PREFIX_DIR "{self.cmake_prefix_dir}")\n')
             fwrite(
                 f,
-                'set(TARGET_PREFIX_SUBDIRS {})\n'.format(
-                    ' '.join(self.enum_prefix_subdirs_of('', quotes=True, cmake=True))
-                ),
+                f'set(TARGET_PREFIX_SUBDIRS {" ".join(self.enum_prefix_subdirs_of("", quotes=True, cmake=True))})\n',
             )
             fwrite(
                 f,
-                'set(TARGET_PREFIX_BINS {})\n'.format(
-                    ' '.join(
-                        self.enum_prefix_subdirs_of('bin', quotes=True, cmake=True)
-                    )
-                ),
+                f'set(TARGET_PREFIX_BINS {" ".join(self.enum_prefix_subdirs_of("bin", quotes=True, cmake=True))})\n',
             )
             fwrite(
                 f,
-                'set(TARGET_PREFIX_LIBS {})\n'.format(
-                    ' '.join(
-                        self.enum_prefix_subdirs_of('lib', quotes=True, cmake=True)
-                    )
-                ),
+                f'set(TARGET_PREFIX_LIBS {" ".join(self.enum_prefix_subdirs_of("lib", quotes=True, cmake=True))})\n',
             )
             fwrite(
                 f,
-                'set(TARGET_PREFIX_INCLUDES {})\n'.format(
-                    ' '.join(
-                        self.enum_prefix_subdirs_of('include', quotes=True, cmake=True)
-                    )
-                ),
+                f'set(TARGET_PREFIX_INCLUDES {" ".join(self.enum_prefix_subdirs_of("include", quotes=True, cmake=True))})\n',
             )
             fwrite(f, '\n')
 
             fwrite(f, '# Cargo\n')
-            fwrite(f, 'set(TARGET "{}")\n'.format(self.target))
-            fwrite(f, 'set(TARGET_ARCH "{}")\n'.format(self.arch))
-            fwrite(f, 'set(TARGET_VENDOR "{}")\n'.format(self.vendor))
-            fwrite(f, 'set(TARGET_OS "{}")\n'.format(self.os))
-            fwrite(f, 'set(TARGET_ENV "{}")\n'.format(self.env))
-            fwrite(f, 'set(TARGET_CC "{}")\n'.format(self.target_cc))
-            fwrite(f, 'set(CARGO_TARGET "{}")\n'.format(self.cargo_target))
+            fwrite(f, f'set(TARGET "{self.target}")\n')
+            fwrite(f, f'set(TARGET_ARCH "{self.arch}")\n')
+            fwrite(f, f'set(TARGET_VENDOR "{self.vendor}")\n')
+            fwrite(f, f'set(TARGET_OS "{self.os}")\n')
+            fwrite(f, f'set(TARGET_ENV "{self.env}")\n')
+            fwrite(f, f'set(TARGET_CC "{self.target_cc}")\n')
+            fwrite(f, f'set(CARGO_TARGET "{self.cargo_target}")\n')
             fwrite(
                 f,
-                'set(CARGO_TARGET_UNDERSCORE "{}")\n'.format(
-                    self.cargo_target.replace('-', '_')
-                ),
+                f'set(CARGO_TARGET_UNDERSCORE "{self.cargo_target.replace("-", "_")}")\n',
             )
             fwrite(
                 f,
-                'set(CARGO_TARGET_UNDERSCORE_UPPER "{}")\n'.format(
-                    self.cargo_target.replace('-', '_').upper()
-                ),
+                f'set(CARGO_TARGET_UNDERSCORE_UPPER "{self.cargo_target.replace("-", "_").upper()}")\n',
             )
-            fwrite(f, 'set(CARGO_TARGET_DIR "{}")\n'.format(self.cargo_target_dir))
+            fwrite(f, f'set(CARGO_TARGET_DIR "{self.cargo_target_dir}")\n')
             fwrite(
                 f,
-                'set(CARGO_OUT_DIR "{}")\n'.format(self.cargo_out_dir(cmake=True)),
+                f'set(CARGO_OUT_DIR "{self.cargo_out_dir(cmake=True)}")\n',
             )
             fwrite(f, '\n')
 
             fwrite(f, '# MSVC\n')
-            fwrite(f, 'set(MSVC_ARCH "{}")\n'.format(self.msvc_arch))
-            fwrite(f, 'set(MSVC_MASM "{}")\n'.format(self.msvc_masm))
+            fwrite(f, f'set(MSVC_ARCH "{self.msvc_arch}")\n')
+            fwrite(f, f'set(MSVC_MASM "{self.msvc_masm}")\n')
             fwrite(f, '\n')
 
             fwrite(f, '# Android\n')
+            android_target_val = (
+                f'{self.android_target}${{ANDROID_SDK_VERSION}}'
+                if self.android_target
+                else ''
+            )
             fwrite(
                 f,
-                'set(ANDROID_TARGET "{}{}")\n'.format(
-                    self.android_target,
-                    '${ANDROID_SDK_VERSION}' if self.android_target else '',
-                ),
+                f'set(ANDROID_TARGET "{android_target_val}")\n',
             )
-            fwrite(f, 'set(ANDROID_ARCH "{}")\n'.format(self.android_arch))
-            fwrite(f, 'set(ANDROID_ABI "{}")\n'.format(self.android_abi))
+            fwrite(f, f'set(ANDROID_ARCH "{self.android_arch}")\n')
+            fwrite(f, f'set(ANDROID_ABI "{self.android_abi}")\n')
             if self.android_ndk_root:
                 fwrite(
                     f,
-                    'set(ANDROID_NDK_ROOT "{}")\n'.format(self.android_ndk_root),
+                    f'set(ANDROID_NDK_ROOT "{self.android_ndk_root}")\n',
                 )
             if self.android_ndk_bin:
                 fwrite(
                     f,
-                    'set(ANDROID_NDK_BIN "{}")\n'.format(self.android_ndk_bin),
+                    f'set(ANDROID_NDK_BIN "{self.android_ndk_bin}")\n',
                 )
             if self.android:
                 fwrite(
@@ -993,27 +944,27 @@ class TargetParser:
             fwrite(f, '\n')
 
             fwrite(f, '# Zig\n')
-            fwrite(f, 'set(ZIG {})\n'.format(onoff(self.zig)))
-            fwrite(f, 'set(ZIG_TARGET "{}")\n'.format(self.zig_target))
-            fwrite(f, 'set(ZIG_CC_DIR "{}")\n'.format(self.zig_cc_dir))
-            fwrite(f, 'set(ZIG_ROOT "{}")\n'.format(self.zig_root))
+            fwrite(f, f'set(ZIG {onoff(self.zig)})\n')
+            fwrite(f, f'set(ZIG_TARGET "{self.zig_target}")\n')
+            fwrite(f, f'set(ZIG_CC_DIR "{self.zig_cc_dir}")\n')
+            fwrite(f, f'set(ZIG_ROOT "{self.zig_root}")\n')
             fwrite(f, '\n')
 
             fwrite(f, '# Target related conditions\n')
             fwrite(
                 f,
-                'set(TARGET_IS_NATIVE {})\n'.format(onoff(self.target_is_native)),
+                f'set(TARGET_IS_NATIVE {onoff(self.target_is_native)})\n',
             )
             fwrite(
                 f,
-                'set(TARGET_IS_RUNNABLE {})\n'.format(onoff(self.target_is_runnable)),
+                f'set(TARGET_IS_RUNNABLE {onoff(self.target_is_runnable)})\n',
             )
-            fwrite(f, 'set(TARGET_IS_WIN32 {})\n'.format(onoff(self.win32)))
-            fwrite(f, 'set(TARGET_IS_MSVC {})\n'.format(onoff(self.msvc)))
-            fwrite(f, 'set(TARGET_IS_ANDROID {})\n'.format(onoff(self.android)))
-            fwrite(f, 'set(TARGET_IS_UNIX {})\n'.format(onoff(self.unix)))
-            fwrite(f, 'set(TARGET_IS_APPLE {})\n'.format(onoff(self.apple)))
-            fwrite(f, 'set(TARGET_IS_IOS {})\n'.format(onoff(self.ios)))
+            fwrite(f, f'set(TARGET_IS_WIN32 {onoff(self.win32)})\n')
+            fwrite(f, f'set(TARGET_IS_MSVC {onoff(self.msvc)})\n')
+            fwrite(f, f'set(TARGET_IS_ANDROID {onoff(self.android)})\n')
+            fwrite(f, f'set(TARGET_IS_UNIX {onoff(self.unix)})\n')
+            fwrite(f, f'set(TARGET_IS_APPLE {onoff(self.apple)})\n')
+            fwrite(f, f'set(TARGET_IS_IOS {onoff(self.ios)})\n')
             fwrite(f, '\n')
             fwrite(f, '# Suppress warnings\n')
             fwrite(f, 'set(ignoreMe "${CMAKE_VERBOSE_MAKEFILE}")\n')
@@ -1023,20 +974,18 @@ class TargetParser:
         linker_options: List[str] = []
         linker, ar, cc, cxx, ranlib, strip, rc = '', '', '', '', '', '', ''
         if self.android:
-            cc_exports.append('ANDROID_NDK_ROOT = {}'.format(self.android_ndk_root))
-            cc_options.append(
-                '--target={}$(ANDROID_SDK_VERSION)'.format(self.android_target)
-            )
+            cc_exports.append(f'ANDROID_NDK_ROOT = {self.android_ndk_root}')
+            cc_options.append(f'--target={self.android_target}$(ANDROID_SDK_VERSION)')
             linker_options.extend(map(lambda x: '-C link-arg=' + x, cc_options))
-            linker = '{}/clang++{}'.format(self.android_ndk_bin, EXE_EXT)
-            ar = '{}/llvm-ar{}'.format(self.android_ndk_bin, EXE_EXT)
-            cc = '{}/clang{}'.format(self.android_ndk_bin, EXE_EXT)
-            cxx = '{}/clang++{}'.format(self.android_ndk_bin, EXE_EXT)
-            ranlib = '{}/llvm-ranlib{}'.format(self.android_ndk_bin, EXE_EXT)
-            strip = '{}/llvm-strip{}'.format(self.android_ndk_bin, EXE_EXT)
+            linker = f'{self.android_ndk_bin}/clang++{EXE_EXT}'
+            ar = f'{self.android_ndk_bin}/llvm-ar{EXE_EXT}'
+            cc = f'{self.android_ndk_bin}/clang{EXE_EXT}'
+            cxx = f'{self.android_ndk_bin}/clang++{EXE_EXT}'
+            ranlib = f'{self.android_ndk_bin}/llvm-ranlib{EXE_EXT}'
+            strip = f'{self.android_ndk_bin}/llvm-strip{EXE_EXT}'
         elif self.zig:
-            cc_exports.append('ZIG_WRAPPER_TARGET = {}'.format(self.zig_target))
-            cc_exports.append('ZIG_WRAPPER_CLANG_TARGET = {}'.format(self.cargo_target))
+            cc_exports.append(f'ZIG_WRAPPER_TARGET = {self.zig_target}')
+            cc_exports.append(f'ZIG_WRAPPER_CLANG_TARGET = {self.cargo_target}')
             cc_options.append('--disable-dllexport')
             if (
                 (self.os == 'windows' and self.env == 'gnu')
@@ -1045,13 +994,13 @@ class TargetParser:
             ):
                 linker_options.append('-C linker-flavor=gcc')
                 linker_options.append('-C link-self-contained=no')
-            linker = '{}/zig-c++{}'.format(self.zig_cc_dir, EXE_EXT)
-            ar = '{}/zig-ar{}'.format(self.zig_cc_dir, EXE_EXT)
-            cc = '{}/zig-cc{}'.format(self.zig_cc_dir, EXE_EXT)
-            cxx = '{}/zig-c++{}'.format(self.zig_cc_dir, EXE_EXT)
-            ranlib = '{}/zig-ranlib{}'.format(self.zig_cc_dir, EXE_EXT)
-            strip = '{}/zig-strip{}'.format(self.zig_cc_dir, EXE_EXT)
-            rc = '{}/zig-rc{}'.format(self.zig_cc_dir, EXE_EXT)
+            linker = f'{self.zig_cc_dir}/zig-c++{EXE_EXT}'
+            ar = f'{self.zig_cc_dir}/zig-ar{EXE_EXT}'
+            cc = f'{self.zig_cc_dir}/zig-cc{EXE_EXT}'
+            cxx = f'{self.zig_cc_dir}/zig-c++{EXE_EXT}'
+            ranlib = f'{self.zig_cc_dir}/zig-ranlib{EXE_EXT}'
+            strip = f'{self.zig_cc_dir}/zig-strip{EXE_EXT}'
+            rc = f'{self.zig_cc_dir}/zig-rc{EXE_EXT}'
         elif self.target_cc:
             target_cc_noext, cc_ext = os.path.splitext(self.target_cc)
             target_cc_abs = normpath(os.path.abspath(target_cc_noext))
@@ -1064,7 +1013,7 @@ class TargetParser:
                 cc_prefix = target_cc_abs[:-3]
                 cxx = cc_prefix + '-c++' + cc_ext
             else:
-                raise ValueError('Unrecognized target CC: {}'.format(self.target_cc))
+                raise ValueError(f'Unrecognized target CC: {self.target_cc}')
             linker = target_cc_abs + cc_ext
             cc = target_cc_abs + cc_ext
             ar = cc_prefix + '-ar' + cc_ext
@@ -1079,79 +1028,69 @@ class TargetParser:
                         k = k[:-1].strip()
                         fwrite(f, make_export_paths(k, [v]))
                     else:
-                        fwrite(f, 'export {} = {}\n'.format(k, v))
+                        fwrite(f, f'export {k} = {v}\n')
                 fwrite(f, '\n')
 
             cargo_target = 'CARGO_TARGET_' + self.cargo_target.upper().replace('-', '_')
             if cc:
                 fwrite(f, '# LINKER\n')
-                fwrite(f, 'export {}_LINKER = {}\n'.format(cargo_target, linker))
+                fwrite(f, f'export {cargo_target}_LINKER = {linker}\n')
             fwrite(f, '# RUSTFLAGS\n')
             fwrite(
                 f,
-                'override {}_RUSTFLAGS := {} $(TARGET_RUSTFLAGS)\n'.format(
-                    cargo_target, ' '.join(linker_options)
-                ),
+                f'override {cargo_target}_RUSTFLAGS := {" ".join(linker_options)} $(TARGET_RUSTFLAGS)\n',
             )
-            fwrite(f, 'export {}_RUSTFLAGS\n'.format(cargo_target))
+            fwrite(f, f'export {cargo_target}_RUSTFLAGS\n')
             fwrite(f, '\n')
 
             cargo_target_under = self.cargo_target.replace('-', '_')
             if cc:
                 fwrite(f, '# AR, CC, CXX, RANLIB, STRIP\n')
-                fwrite(f, 'export AR_{} = {}\n'.format(cargo_target_under, ar))
-                fwrite(f, 'export CC_{} = {}\n'.format(cargo_target_under, cc))
-                fwrite(f, 'export CXX_{} = {}\n'.format(cargo_target_under, cxx))
+                fwrite(f, f'export AR_{cargo_target_under} = {ar}\n')
+                fwrite(f, f'export CC_{cargo_target_under} = {cc}\n')
+                fwrite(f, f'export CXX_{cargo_target_under} = {cxx}\n')
                 fwrite(
                     f,
-                    'export RANLIB_{} = {}\n'.format(cargo_target_under, ranlib),
+                    f'export RANLIB_{cargo_target_under} = {ranlib}\n',
                 )
-                fwrite(f, 'export STRIP_{} = {}\n'.format(cargo_target_under, strip))
+                fwrite(f, f'export STRIP_{cargo_target_under} = {strip}\n')
                 fwrite(f, '\n')
             fwrite(f, '# ARFLAGS, CFLAGS, CXXFLAGS, RANLIBFLAGS\n')
             fwrite(
                 f,
-                'override ARFLAGS_{} := $(TARGET_ARFLAGS)\n'.format(cargo_target_under),
+                f'override ARFLAGS_{cargo_target_under} := $(TARGET_ARFLAGS)\n',
             )
-            fwrite(f, 'export ARFLAGS_{}\n'.format(cargo_target_under))
+            fwrite(f, f'export ARFLAGS_{cargo_target_under}\n')
             fwrite(
                 f,
-                'override CFLAGS_{} := {} $(TARGET_CFLAGS)\n'.format(
-                    cargo_target_under, ' '.join(cc_options)
-                ),
+                f'override CFLAGS_{cargo_target_under} := {" ".join(cc_options)} $(TARGET_CFLAGS)\n',
             )
-            fwrite(f, 'export CFLAGS_{}\n'.format(cargo_target_under))
+            fwrite(f, f'export CFLAGS_{cargo_target_under}\n')
             fwrite(
                 f,
-                'override CXXFLAGS_{} := {} $(TARGET_CXXFLAGS)\n'.format(
-                    cargo_target_under, ' '.join(cc_options)
-                ),
+                f'override CXXFLAGS_{cargo_target_under} := {" ".join(cc_options)} $(TARGET_CXXFLAGS)\n',
             )
-            fwrite(f, 'export CXXFLAGS_{}\n'.format(cargo_target_under))
+            fwrite(f, f'export CXXFLAGS_{cargo_target_under}\n')
             fwrite(
                 f,
-                'override RANLIBFLAGS_{} := $(TARGET_RANLIBFLAGS)\n'.format(
-                    cargo_target_under
-                ),
+                f'override RANLIBFLAGS_{cargo_target_under} := $(TARGET_RANLIBFLAGS)\n',
             )
-            fwrite(f, 'export RANLIBFLAGS_{}\n'.format(cargo_target_under))
+            fwrite(f, f'export RANLIBFLAGS_{cargo_target_under}\n')
             fwrite(f, '\n')
 
             fwrite(f, '# For Rust bingen + libclang\n')
             bindgen_includes = (
                 self.enum_prefix_subdirs_of('include', make=True) + self.cxx_includes
             )
+            hardening_mode = '-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_FAST' + (
+                ''
+                if self.apple
+                else ' -D_LIBCPP_HAS_NO_VENDOR_AVAILABILITY_ANNOTATIONS=1'
+            )
+            includes_str = ' '.join(f'-I"{x}"' for x in bindgen_includes)
             fwrite(
                 f,
-                'override BINDGEN_EXTRA_CLANG_ARGS := $(TARGET_BINDGEN_CLANG_ARGS) {} {}\n'.format(
-                    '-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_FAST'
-                    + (
-                        ''
-                        if self.apple
-                        else ' -D_LIBCPP_HAS_NO_VENDOR_AVAILABILITY_ANNOTATIONS=1'
-                    ),
-                    ' '.join(map(lambda x: '-I"{}"'.format(x), bindgen_includes)),
-                ),
+                f'override BINDGEN_EXTRA_CLANG_ARGS := $(TARGET_BINDGEN_CLANG_ARGS) {hardening_mode} {includes_str}\n',
             )
             fwrite(f, 'export BINDGEN_EXTRA_CLANG_ARGS\n')
             fwrite(f, '\n')
@@ -1159,30 +1098,24 @@ class TargetParser:
             fwrite(f, '# For Rust cmake\n')
             fwrite(
                 f,
-                'export CMAKE_TOOLCHAIN_FILE_{} = {}/.toolchain.cmake\n'.format(
-                    cargo_target_under, self.cmake_target_dir
-                ),
+                f'export CMAKE_TOOLCHAIN_FILE_{cargo_target_under} = {self.cmake_target_dir}/.toolchain.cmake\n',
             )
             if self.cmake_generator:
                 fwrite(
                     f,
-                    'export CMAKE_GENERATOR_{} = {}\n'.format(
-                        cargo_target_under, self.cmake_generator
-                    ),
+                    f'export CMAKE_GENERATOR_{cargo_target_under} = {self.cmake_generator}\n',
                 )
             else:
                 fwrite(
                     f,
-                    'unexport CMAKE_GENERATOR_{}\n'.format(cargo_target_under),
+                    f'unexport CMAKE_GENERATOR_{cargo_target_under}\n',
                 )
             fwrite(f, '\n')
 
             fwrite(f, '# Configure the cross compile pkg-config.\n')
             fwrite(
                 f,
-                'export PKG_CONFIG_ALLOW_CROSS = {}\n'.format(
-                    1 if self.is_cross_compiling else 0
-                ),
+                f'export PKG_CONFIG_ALLOW_CROSS = {1 if self.is_cross_compiling else 0}\n',
             )
             fwrite(
                 f,
@@ -1231,25 +1164,25 @@ class TargetParser:
             fwrite(f, '# Export variables for Cargo build.rs and CMake\n')
             fwrite(
                 f,
-                'export CARGO_WORKSPACE_DIR = {}\n'.format(self.workspace_dir),
+                f'export CARGO_WORKSPACE_DIR = {self.workspace_dir}\n',
             )
-            fwrite(f, 'export CMKABE_HOST_TARGET = {}\n'.format(self.host_target))
-            fwrite(f, 'export CMKABE_TARGET = {}\n'.format(self.cmkabe_target))
-            fwrite(f, 'export CMKABE_TARGET_DIR = {}\n'.format(self.target_dir))
+            fwrite(f, f'export CMKABE_HOST_TARGET = {self.host_target}\n')
+            fwrite(f, f'export CMKABE_TARGET = {self.cmkabe_target}\n')
+            fwrite(f, f'export CMKABE_TARGET_DIR = {self.target_dir}\n')
             fwrite(
                 f,
-                'export CMKABE_TARGET_CMAKE_DIR = {}\n'.format(self.target_cmake_dir),
+                f'export CMKABE_TARGET_CMAKE_DIR = {self.target_cmake_dir}\n',
             )
             fwrite(
                 f,
-                'export CMKABE_TARGET_PREFIX = {}\n'.format(self.cmake_target_prefix),
+                f'export CMKABE_TARGET_PREFIX = {self.cmake_target_prefix}\n',
             )
-            fwrite(f, 'export CMKABE_TARGET_CC = {}\n'.format(self.target_cc))
+            fwrite(f, f'export CMKABE_TARGET_CC = {self.target_cc}\n')
             fwrite(
                 f,
-                'export CMKABE_CARGO_TARGET = {}\n'.format(self.cargo_target),
+                f'export CMKABE_CARGO_TARGET = {self.cargo_target}\n',
             )
-            fwrite(f, 'export CMKABE_ZIG_TARGET = {}\n'.format(self.zig_target))
+            fwrite(f, f'export CMKABE_ZIG_TARGET = {self.zig_target}\n')
             fwrite(f, 'export CMKABE_DEBUG := $(DEBUG)\n')
             fwrite(f, 'export CMKABE_MINSIZE := $(MINSIZE)\n')
             fwrite(f, 'export CMKABE_DBGINFO := $(DBGINFO)\n')
@@ -1257,29 +1190,19 @@ class TargetParser:
             fwrite(f, 'export CMKABE_CMAKE_BUILD_DIR := $(CMAKE_BUILD_DIR)\n')
             fwrite(
                 f,
-                'export CMKABE_CARGO_OUT_DIR := {}\n'.format(
-                    self.cargo_out_dir(make=True)
-                ),
+                f'export CMKABE_CARGO_OUT_DIR := {self.cargo_out_dir(make=True)}\n',
             )
             fwrite(
                 f,
-                'export CMKABE_MAKE_BUILD_VARS = {}\n'.format(
-                    ';'.join(_make_build_vars)
-                ),
+                f'export CMKABE_MAKE_BUILD_VARS = {";".join(_make_build_vars)}\n',
             )
             fwrite(
                 f,
-                'export CMKABE_LINK_DIRS := {}\n'.format(
-                    os.path.pathsep.join(self.enum_prefix_subdirs_of('lib', make=True))
-                ),
+                f'export CMKABE_LINK_DIRS := {os.path.pathsep.join(self.enum_prefix_subdirs_of("lib", make=True))}\n',
             )
             fwrite(
                 f,
-                'export CMKABE_INCLUDE_DIRS = {}\n'.format(
-                    os.path.pathsep.join(
-                        self.enum_prefix_subdirs_of('include', make=True)
-                    )
-                ),
+                f'export CMKABE_INCLUDE_DIRS = {os.path.pathsep.join(self.enum_prefix_subdirs_of("include", make=True))}\n',
             )
 
         with open(os.path.join(self.cmake_target_dir, '.environ.cmake'), 'wb') as f:
@@ -1290,24 +1213,22 @@ class TargetParser:
                         k = k[:-1].strip()
                         fwrite(f, cmake_export_paths(k, [v]))
                     else:
-                        fwrite(f, 'set(ENV{{{}}} "{}")\n'.format(k, v))
+                        fwrite(f, f'set(ENV{{{k}}} "{v}")\n')
                 fwrite(f, '\n')
 
             fwrite(f, '# AR, CC, CXX, RANLIB, STRIP, RC\n')
-            fwrite(f, 'set(TARGET_AR "{}")\n'.format(ar))
-            fwrite(f, 'set(TARGET_CC "{}")\n'.format(cc))
-            fwrite(f, 'set(TARGET_CXX "{}")\n'.format(cxx))
-            fwrite(f, 'set(TARGET_RANLIB "{}")\n'.format(ranlib))
-            fwrite(f, 'set(TARGET_STRIP "{}")\n'.format(strip))
-            fwrite(f, 'set(TARGET_RC "{}")\n'.format(rc))
+            fwrite(f, f'set(TARGET_AR "{ar}")\n')
+            fwrite(f, f'set(TARGET_CC "{cc}")\n')
+            fwrite(f, f'set(TARGET_CXX "{cxx}")\n')
+            fwrite(f, f'set(TARGET_RANLIB "{ranlib}")\n')
+            fwrite(f, f'set(TARGET_STRIP "{strip}")\n')
+            fwrite(f, f'set(TARGET_RC "{rc}")\n')
             fwrite(f, '\n')
 
             fwrite(f, '# Configure the cross compile pkg-config.\n')
             fwrite(
                 f,
-                'set(ENV{{PKG_CONFIG_ALLOW_CROSS}} "{}")\n'.format(
-                    1 if self.is_cross_compiling else 0
-                ),
+                f'set(ENV{{PKG_CONFIG_ALLOW_CROSS}} "{1 if self.is_cross_compiling else 0}")\n',
             )
             fwrite(
                 f,
@@ -1322,32 +1243,28 @@ class TargetParser:
             fwrite(f, '# Export variables for Cargo build.rs and CMake\n')
             fwrite(
                 f,
-                'set(ENV{{CARGO_WORKSPACE_DIR}} "{}")\n'.format(self.workspace_dir),
+                f'set(ENV{{CARGO_WORKSPACE_DIR}} "{self.workspace_dir}")\n',
             )
             fwrite(
                 f,
-                'set(ENV{{CMKABE_HOST_TARGET}} "{}")\n'.format(self.host_target),
+                f'set(ENV{{CMKABE_HOST_TARGET}} "{self.host_target}")\n',
             )
-            fwrite(f, 'set(ENV{{CMKABE_TARGET}} "{}")\n'.format(self.cmkabe_target))
-            fwrite(f, 'set(ENV{{CMKABE_TARGET_DIR}} "{}")\n'.format(self.target_dir))
+            fwrite(f, f'set(ENV{{CMKABE_TARGET}} "{self.cmkabe_target}")\n')
+            fwrite(f, f'set(ENV{{CMKABE_TARGET_DIR}} "{self.target_dir}")\n')
             fwrite(
                 f,
-                'set(ENV{{CMKABE_TARGET_CMAKE_DIR}} "{}")\n'.format(
-                    self.target_cmake_dir
-                ),
+                f'set(ENV{{CMKABE_TARGET_CMAKE_DIR}} "{self.target_cmake_dir}")\n',
             )
             fwrite(
                 f,
-                'set(ENV{{CMKABE_TARGET_PREFIX}} "{}")\n'.format(
-                    self.cmake_target_prefix
-                ),
+                f'set(ENV{{CMKABE_TARGET_PREFIX}} "{self.cmake_target_prefix}")\n',
             )
-            fwrite(f, 'set(ENV{{CMKABE_TARGET_CC}} "{}")\n'.format(self.target_cc))
+            fwrite(f, f'set(ENV{{CMKABE_TARGET_CC}} "{self.target_cc}")\n')
             fwrite(
                 f,
-                'set(ENV{{CMKABE_CARGO_TARGET}} "{}")\n'.format(self.cargo_target),
+                f'set(ENV{{CMKABE_CARGO_TARGET}} "{self.cargo_target}")\n',
             )
-            fwrite(f, 'set(ENV{{CMKABE_ZIG_TARGET}} "{}")\n'.format(self.zig_target))
+            fwrite(f, f'set(ENV{{CMKABE_ZIG_TARGET}} "{self.zig_target}")\n')
             fwrite(f, 'if(CMAKE_BUILD_TYPE_LOWER STREQUAL "debug")\n')
             fwrite(f, '    set(ENV{CMKABE_DEBUG} ON)\n')
             fwrite(f, '    set(ENV{CMKABE_MINSIZE} OFF)\n')
@@ -1375,29 +1292,19 @@ class TargetParser:
             )
             fwrite(
                 f,
-                'set(ENV{{CMKABE_CARGO_OUT_DIR}} "{}")\n'.format(
-                    self.cargo_out_dir(cmake=True)
-                ),
+                f'set(ENV{{CMKABE_CARGO_OUT_DIR}} "{self.cargo_out_dir(cmake=True)}")\n',
             )
             fwrite(
                 f,
-                'set(ENV{{CMKABE_MAKE_BUILD_VARS}} "{}")\n'.format(
-                    ';'.join(_make_build_vars)
-                ),
+                f'set(ENV{{CMKABE_MAKE_BUILD_VARS}} "{";".join(_make_build_vars)}")\n',
             )
             fwrite(
                 f,
-                'set(ENV{{CMKABE_LINK_DIRS}} "{}")\n'.format(
-                    os.path.pathsep.join(self.enum_prefix_subdirs_of('lib', cmake=True))
-                ),
+                f'set(ENV{{CMKABE_LINK_DIRS}} "{os.path.pathsep.join(self.enum_prefix_subdirs_of("lib", cmake=True))}")\n',
             )
             fwrite(
                 f,
-                'set(ENV{{CMKABE_INCLUDE_DIRS}} "{}")\n'.format(
-                    os.path.pathsep.join(
-                        self.enum_prefix_subdirs_of('include', cmake=True)
-                    )
-                ),
+                f'set(ENV{{CMKABE_INCLUDE_DIRS}} "{os.path.pathsep.join(self.enum_prefix_subdirs_of("include", cmake=True))}")\n',
             )
 
         with open(os.path.join(self.cmake_target_dir, '.toolchain.cmake'), 'wb') as f:
@@ -1405,9 +1312,9 @@ class TargetParser:
             fwrite(f, '\n')
             fwrite(
                 f,
-                'include("{}/.settings.cmake")\n'.format(self.cmake_target_dir),
+                f'include("{self.cmake_target_dir}/.settings.cmake")\n',
             )
-            fwrite(f, 'set(TARGET "{}")\n'.format(self.cmkabe_target))
+            fwrite(f, f'set(TARGET "{self.cmkabe_target}")\n')
             fwrite(f, 'set(ZIG_CC_DISABLE_DLLEXPORT ON)\n')
             fwrite(f, '\n')
             fwrite(f, 'set(TARGET "${TARGET}" CACHE STRING "" FORCE)\n')
@@ -1419,5 +1326,3 @@ class TargetParser:
             fwrite(f, '\n')
             fwrite(f, 'include("${CMKABE_HOME}/cmake/toolchain.cmake")\n')
             fwrite(f, '_cmkabe_apply_extra_flags()\n')
-
-        return self

@@ -5,7 +5,7 @@ import os
 import platform
 import re
 import sys
-from typing import Dict, List, Tuple, Union, Optional, Any, Set
+from typing import Dict, List, Tuple, Optional, Any
 
 EXE_EXT: str = '.exe' if os.name == 'nt' else ''
 
@@ -144,15 +144,10 @@ def need_update(source_file: str, dest_file: str) -> bool:
 
 def join_triple(arch: str, vendor: str, os_name: str, env: str) -> str:
     """Join target triple components into a standard string representation."""
-    return '{}{}{}{}{}{}{}'.format(
-        arch,
-        '-' if vendor else '',
-        vendor or '',
-        '-' if os_name else '',
-        os_name or '',
-        '-' if env else '',
-        env or '',
-    )
+    vendor_part = f'-{vendor}' if vendor else ''
+    os_part = f'-{os_name}' if os_name else ''
+    env_part = f'-{env}' if env else ''
+    return f'{arch}{vendor_part}{os_part}{env_part}'
 
 
 def parse_triple(target_triple: str) -> Tuple[str, str, str, str]:
@@ -212,21 +207,21 @@ def parse_triple(target_triple: str) -> Tuple[str, str, str, str]:
     if 'windows' in target_triple and (
         os_str != 'windows' or rust_arch not in MSVC_ARCH_MAP
     ):
-        raise ValueError('Invalid ARCH for Windows: {}'.format(target_triple))
+        raise ValueError(f'Invalid ARCH for Windows: {target_triple}')
     if 'android' in target_triple and (
         not env_str.startswith('android')
         or os_str != 'linux'
         or rust_arch not in ANDROID_ARCH_MAP
     ):
-        raise ValueError('Invalid ARCH for Android: {}'.format(target_triple))
+        raise ValueError(f'Invalid ARCH for Android: {target_triple}')
     if 'apple' in target_triple and (
         vendor != 'apple' and rust_arch not in APPLE_ARCH_MAP
     ):
-        raise ValueError('Invalid ARCH for Apple: {}'.format(target_triple))
+        raise ValueError(f'Invalid ARCH for Apple: {target_triple}')
 
     parsed_triple = join_triple(arch, vendor, os_str, env_str)
     if not arch or not os_str or parsed_triple != target_triple:
-        raise ValueError('Invalid target triple: {}'.format(target_triple))
+        raise ValueError(f'Invalid target triple: {target_triple}')
 
     return (arch, vendor, os_str, env_str)
 
@@ -276,7 +271,7 @@ def host_target_info() -> Dict[str, Any]:
         target_pointer_width = 32
     target_arch = HOST_ARCH_MAP.get(machine.lower(), '')
     if not target_arch:
-        raise RuntimeError('Not supported machine architecture: {}'.format(machine))
+        raise RuntimeError(f'Not supported machine architecture: {machine}')
 
     # target_vendor
     if target_os == 'windows':
@@ -327,7 +322,7 @@ def win2wsl_path(path: str) -> str:
     path = path.replace('\\', '/')
     drive_path = path.split(':', 1)
     if len(drive_path) > 1 and len(drive_path[0]) == 1 and drive_path[0].isalpha():
-        path = '/mnt/{}{}'.format(drive_path[0].lower(), drive_path[1]).rstrip('/')
+        path = f'/mnt/{drive_path[0].lower()}{drive_path[1]}'.rstrip('/')
     return path
 
 
@@ -340,7 +335,7 @@ def wsl2win_path(path: str) -> str:
         if len(path) == 6:
             path = path[5].upper() + ':/'
         elif path[6] == '/':
-            path = '{}:{}'.format(path[5].upper(), path[6:])
+            path = f'{path[5].upper()}:{path[6:]}'
     return path
 
 
@@ -360,10 +355,10 @@ def lock_file(path: Optional[str] = None, unlock: Optional[Any] = None) -> Any:
         import fcntl
 
         if unlock is None:
-            fcntl.lockf(f, fcntl.LOCK_EX)
+            fcntl.lockf(f, fcntl.LOCK_EX)  # pyright: ignore[reportAttributeAccessIssue]
             return f
         else:
-            fcntl.lockf(f, fcntl.LOCK_UN)
+            fcntl.lockf(f, fcntl.LOCK_UN)  # pyright: ignore[reportAttributeAccessIssue]
             f.close()
             return None
     except ModuleNotFoundError:

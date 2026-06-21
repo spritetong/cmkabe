@@ -67,9 +67,9 @@ import re
 import shutil
 import subprocess
 import sys
-from typing import Callable, List, Optional, Set, Tuple
+from typing import Callable, List, Optional, Set
 
-from cmk.pylib.sys_utils import EXE_EXT, copy_env_for_cc
+from cmk.pylib.sys_utils import EXE_EXT
 
 EFAIL: int = 1
 
@@ -92,7 +92,7 @@ def zig_clean_cache(zig_root: Optional[str] = None) -> None:
         )
         stdout = res.stdout
     except Exception as e:
-        print('[WARNING] Failed to run `zig env`: {}'.format(e), file=sys.stderr)
+        print(f'[WARNING] Failed to run `zig env`: {e}', file=sys.stderr)
         return
 
     global_cache = None
@@ -159,7 +159,7 @@ def patch_file(
     slices.append(temp_content)
 
     if changed:
-        print('Patching {}'.format(filename))
+        print(f'Patching {filename}')
         patched_lf = b''.join(slices)
         content_to_write = (
             patched_lf.replace(b'\n', b'\r\n') if has_crlf else patched_lf
@@ -222,7 +222,7 @@ def patch_visibility(filename: str) -> bool:
     if insert_position == 0:
         insert_position = 0
 
-    print('Patching {}'.format(filename))
+    print(f'Patching {filename}')
     patched_lf = (
         content_lf[:insert_position] + insert + content_lf[insert_position:] + append
     )
@@ -261,15 +261,14 @@ def patch_visibility_mingw_S(filename: str) -> bool:
 
     code = b'\n/* XPATCH: do not export symbols. */\n.section .drectve,"yni"\n'
     code += b'\n'.join(
-        '.ascii " -exclude-symbols:{} "'.format(x.decode()).encode()
-        for x in sorted_symbols
+        f'.ascii " -exclude-symbols:{x.decode()} "'.encode() for x in sorted_symbols
     )
     code += b'\n'
 
     if content_lf.endswith(code):
         return False
 
-    print('Patching {}'.format(filename))
+    print(f'Patching {filename}')
     patched_lf = content_lf + code
     content_to_write = patched_lf.replace(b'\n', b'\r\n') if has_crlf else patched_lf
     with open(filename, 'wb') as file:
@@ -352,9 +351,7 @@ def zig_patch(zig_root: Optional[str] = None) -> None:
             ('S', patch_visibility_mingw_S),
         ]:
             # Specify type for glob files to satisfy type checks
-            glob_files: List[str] = glob.glob(
-                '{}/**/*.{}'.format(zig_libc, ext), recursive=True
-            )
+            glob_files: List[str] = glob.glob(f'{zig_libc}/**/*.{ext}', recursive=True)
             for file_path in glob_files:
                 if mingw_libsrc not in file_path.replace('\\', '/'):
                     # Use a cast-like helper or exact annotation matching
@@ -385,7 +382,7 @@ def zig_dll2lib(
 ) -> int:
     """Generate a MSVC-compatible import library (.lib) from a DLL using pefile and zig dlltool."""
     try:
-        import pefile
+        import pefile  # pyright: ignore[reportMissingImports]
     except ImportError:
         print(
             '`pefile` is not installed. Try: pip install pefile',
@@ -406,9 +403,7 @@ def zig_dll2lib(
     machine = machine_types.get(pe.FILE_HEADER.Machine, None)
     if machine is None:
         print(
-            'Unsupported machine type {} in {}'.format(
-                pe.FILE_HEADER.Machine, dll_file
-            ),
+            f'Unsupported machine type {pe.FILE_HEADER.Machine} in {dll_file}',
             file=sys.stderr,
         )
         return EFAIL
@@ -416,7 +411,7 @@ def zig_dll2lib(
     # Check if the DLL has an export directory
     if not hasattr(pe, 'DIRECTORY_ENTRY_EXPORT'):
         print(
-            'No export symbols found in {}'.format(dll_file),
+            f'No export symbols found in {dll_file}',
             file=sys.stderr,
         )
         return EFAIL
@@ -432,22 +427,22 @@ def zig_dll2lib(
     def_file = os.path.splitext(out_file)[0] + '.def'
     if os.path.exists(os.path.join(out_dir, out_file)) and not force:
         print(
-            '"{}" already exists in "{}"'.format(out_file, out_dir),
+            f'"{out_file}" already exists in "{out_dir}"',
             file=sys.stderr,
         )
         return EFAIL
 
     with open(os.path.join(out_dir, def_file), 'wb') as f:
-        f.write('LIBRARY {}\r\n'.format(dll_name).encode())
+        f.write(f'LIBRARY {dll_name}\r\n'.encode())
         f.write(b'EXPORTS\r\n')
         for symbol in pe.DIRECTORY_ENTRY_EXPORT.symbols:
             name = symbol.name.decode() if symbol.name else None
             ordinal = symbol.ordinal if symbol.ordinal else None
             if name is not None:
                 if ordinal is not None:
-                    f.write('    {} @{}\r\n'.format(name, ordinal).encode())
+                    f.write(f'    {name} @{ordinal}\r\n'.encode())
                 else:
-                    f.write('    {}\r\n'.format(name).encode())
+                    f.write(f'    {name}\r\n'.encode())
 
     subprocess.run(
         [

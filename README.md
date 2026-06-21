@@ -94,7 +94,7 @@ To ensure that Unix-centric `Makefiles` can run seamlessly on native Windows hos
 ### Supported Simulated Commands
 
 | Command | Options | Description |
-|:---|:---|:---|
+| :--- | :--- | :--- |
 | `rm` | `-f`, `-r` | Recursively removes files/folders, resolving Windows read-only locks natively. |
 | `mkdir` | `-p`, `-f` | Creates paths, with safety retries in case of concurrent directory creation. |
 | `rmdir` | `-e` | Removes empty subdirectories and automatically prunes empty parent folders. |

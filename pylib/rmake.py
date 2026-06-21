@@ -5,9 +5,7 @@ import os
 import re
 import subprocess
 import sys
-from typing import Any, List, Optional, Tuple, Callable
-
-from cmk.pylib.sys_utils import host_target_info
+from typing import Any, Callable, List, Optional
 
 
 class RmakeUserBase:
@@ -46,7 +44,7 @@ class RmakeUserBase:
 
 def _rsync_times_ok() -> bool:
     try:
-        return os.geteuid() == 0
+        return os.geteuid() == 0  # pyright: ignore[reportAttributeAccessIssue]
     except AttributeError:
         return False
 
@@ -62,7 +60,7 @@ class RsyncMake:
     RSYNC_ARGS: List[str] = ['-v', '-rlpt', '--mkpath', '--delete', '--exclude=.git']
     RSYNC_BACKWARD_ARGS: List[str] = [
         '-v',
-        '-rl{}'.format('t' if _rsync_times_ok() else 'c'),
+        f'-rl{"t" if _rsync_times_ok() else "c"}',
         '--mkpath',
     ]
     MAKE_TARGETS: List[str] = [
@@ -108,9 +106,7 @@ class RsyncMake:
             else:
                 from urllib.parse import quote, urlparse
 
-                origin_url = self.git_config_get(
-                    'remote.{}.url'.format(self.args.git_origin)
-                )
+                origin_url = self.git_config_get(f'remote.{self.args.git_origin}.url')
                 git_url = urlparse(origin_url)
                 git_hostname = git_url.hostname or git_url.netloc
                 git_path = git_url.path.strip('/\\')
@@ -120,12 +116,8 @@ class RsyncMake:
                     self.error(
                         '\n'.join(
                             [
-                                '"{}" does not have an ancestor directory named "{}"'.format(
-                                    self.src_dir, git_home_base
-                                ),
-                                'Please move the source repository into a directory named "{}"'.format(
-                                    git_home_base
-                                ),
+                                f'"{self.src_dir}" does not have an ancestor directory named "{git_home_base}"',
+                                f'Please move the source repository into a directory named "{git_home_base}"',
                                 'or specify the destination directory with the option: --dst-dir <dst_dir>',
                             ]
                         )
@@ -157,7 +149,7 @@ class RsyncMake:
         self.make_vars.extend(x for x in self.args.commands if '=' in x)
 
         if not os.path.isdir(self.src_dir):
-            self.error('"{}" is not a directory.'.format(self.src_dir))
+            self.error(f'"{self.src_dir}" is not a directory.')
 
         if self.src_dir.startswith(self.dst_dir) or self.dst_dir.startswith(
             self.src_dir
@@ -168,7 +160,7 @@ class RsyncMake:
             )
 
         print(
-            'rsync: [ {} ] -- [ {} ]'.format(self.src_dir, self.dst_dir),
+            f'rsync: [ {self.src_dir} ] -- [ {self.dst_dir} ]',
             flush=True,
         )
 
@@ -195,7 +187,7 @@ class RsyncMake:
                     import shutil
 
                     os.chdir(os.path.expanduser('~'))
-                    print('Removing {} ...'.format(self.dst_dir))
+                    print(f'Removing {self.dst_dir} ...')
                     shutil.rmtree(self.dst_dir)
                     print('Done.')
             elif command == 'rsync':
@@ -210,14 +202,14 @@ class RsyncMake:
             elif self.user.exec_command(command) != -1:
                 pass
             elif re.match(
-                '^(?:build|{})$'.format('|'.join(self.make_targets).replace('*', '.*')),
+                f'^(?:build|{"|".join(self.make_targets).replace("*", ".*")})$',
                 command,
             ):
                 self.sync_forward()
                 self.run_make(command)
                 self.sync_backward()
             else:
-                self.error('Unknown command "{}"'.format(command))
+                self.error(f'Unknown command "{command}"')
 
         if not self.args.skip_rsync_back and not self.args.skip_rsync_all:
             self.finish_sync_backward()
@@ -225,7 +217,7 @@ class RsyncMake:
 
     def error(self, message: str, code: int = 1) -> None:
         """Show error message and exit with code."""
-        print('*** [Error {}]'.format(code), message, file=sys.stderr)
+        print(f'*** [Error {code}]', message, file=sys.stderr)
         sys.exit(code)
 
     def load_user_script(self, script_path: str) -> None:
@@ -236,11 +228,9 @@ class RsyncMake:
         user_cls = globals().get(self.RMAKE_USER_CLASS)
         if not isinstance(user_cls, type) or not issubclass(user_cls, RmakeUserBase):
             self.error(
-                'Class {} is not defined in "{}".'.format(
-                    self.RMAKE_USER_CLASS, script_path
-                )
+                f'Class {self.RMAKE_USER_CLASS} is not defined in "{script_path}".'
             )
-        self.user = user_cls(self)
+        self.user = user_cls(self)  # pyright: ignore[reportOptionalCall]
 
     def git_config_get(self, key: str) -> str:
         """Query git config value."""
@@ -273,7 +263,7 @@ class RsyncMake:
             return
 
         os.chdir(self.src_dir)
-        url = self.git_config_get('remote.{}.url'.format(self.args.git_origin))
+        url = self.git_config_get(f'remote.{self.args.git_origin}.url')
         branch = subprocess.check_output(
             ['git', 'rev-parse', '--abbrev-ref', 'HEAD'],
             text=True,
@@ -361,7 +351,7 @@ class RsyncMake:
                     [
                         '-b',
                         branch,
-                        '{}/{}'.format(self.args.git_origin, branch),
+                        f'{self.args.git_origin}/{branch}',
                     ]
                 )
                 subprocess.check_call(git_checkout)
@@ -729,7 +719,7 @@ class RsyncMake:
                     )
                     if len(cmd_args) <= 1:
                         print(
-                            'Error: {} requires an argument.'.format(arg),
+                            f'Error: {arg} requires an argument.',
                             file=sys.stderr,
                         )
                         return 1

@@ -3,18 +3,16 @@
 
 import glob
 import os
-import re
 import sys
 import time
-from typing import Any, List, Optional, Tuple, Dict, Generator, Set
+from typing import Any, Generator, List, Optional
 
 from cmk.pylib.sys_utils import (
-    EXE_EXT,
+    ndk_root,
     win2wsl_path,
     wsl2win_path,
-    ndk_root,
 )
-from cmk.pylib.zig import zig_dll2lib, zig_patch, zig_clean_cache
+from cmk.pylib.zig import zig_clean_cache, zig_dll2lib, zig_patch
 
 
 class ShellCmd:
@@ -71,7 +69,7 @@ class ShellCmd:
             for pattern in read_arg():
                 files = glob.glob(pattern)
                 if not files and not self.options.force:
-                    print('Can not find file {}'.format(pattern), file=sys.stderr)
+                    print(f'Can not find file {pattern}', file=sys.stderr)
                     return self.EFAIL
                 for file in files:
                     try:
@@ -86,7 +84,7 @@ class ShellCmd:
                         status = self.EFAIL
                         if self.options.force:
                             continue
-                        print('Can not remove file {}'.format(file), file=sys.stderr)
+                        print(f'Can not remove file {file}', file=sys.stderr)
                         return status
         else:
             import shutil
@@ -94,7 +92,7 @@ class ShellCmd:
             for pattern in read_arg():
                 files = glob.glob(pattern)
                 if not files and not self.options.force:
-                    print('Can not find file {}'.format(pattern), file=sys.stderr)
+                    print(f'Can not find file {pattern}', file=sys.stderr)
                     return self.EFAIL
                 for file in files:
                     try:
@@ -109,7 +107,7 @@ class ShellCmd:
                         status = self.EFAIL
                         if self.options.force:
                             continue
-                        print('Can not remove tree {}'.format(file), file=sys.stderr)
+                        print(f'Can not remove tree {file}', file=sys.stderr)
                         return status
         return status
 
@@ -143,7 +141,7 @@ class ShellCmd:
                 status = self.EFAIL
                 if self.options.force:
                     continue
-                print('Can not make directory {}'.format(path), file=sys.stderr)
+                print(f'Can not make directory {path}', file=sys.stderr)
                 return status
         return status
 
@@ -164,7 +162,7 @@ class ShellCmd:
                     status = self.EFAIL
                     if self.options.force:
                         continue
-                    print('Can not remove directory {}'.format(path), file=sys.stderr)
+                    print(f'Can not remove directory {path}', file=sys.stderr)
                     return status
             else:
 
@@ -203,17 +201,17 @@ class ShellCmd:
 
         status = 0
         if len(self.args) < 2:
-            print('Invalid parameter {} for mv'.format(self.args), file=sys.stderr)
+            print(f'Invalid parameter {self.args} for mv', file=sys.stderr)
             return self.EFAIL
         dst = self.args[-1]
         files: List[str] = []
         for pattern in self.args[:-1]:
             files += glob.glob(pattern)
         if len(files) > 1 and not os.path.isdir(dst):
-            print('{} is not a directory'.format(dst), file=sys.stderr)
+            print(f'{dst} is not a directory', file=sys.stderr)
             return self.EFAIL
         if not files and not self.options.force:
-            print('Can not find file {}'.format(self.args[:-1]), file=sys.stderr)
+            print(f'Can not find file {self.args[:-1]}', file=sys.stderr)
             return self.EFAIL
         for file in files:
             try:
@@ -221,7 +219,7 @@ class ShellCmd:
             except OSError:
                 status = self.EFAIL
                 if not self.options.force:
-                    print('Can not move {} to {}'.format(file, dst), file=sys.stderr)
+                    print(f'Can not move {file} to {dst}', file=sys.stderr)
                 return status
         return status
 
@@ -252,7 +250,7 @@ class ShellCmd:
 
         status = 0
         if len(self.args) < 1:
-            print('Invalid parameter {} for cp'.format(self.args), file=sys.stderr)
+            print(f'Invalid parameter {self.args} for cp', file=sys.stderr)
             return self.EFAIL
         if len(self.args) == 1:
             self.args.append('.')
@@ -261,10 +259,10 @@ class ShellCmd:
         for pattern in self.args[:-1]:
             files += glob.glob(pattern)
         if len(files) > 1 and not os.path.isdir(dst):
-            print('{} is not a directory'.format(dst), file=sys.stderr)
+            print(f'{dst} is not a directory', file=sys.stderr)
             return self.EFAIL
         if not files and not self.options.force:
-            print('Can not find file {}'.format(self.args[:-1]), file=sys.stderr)
+            print(f'Can not find file {self.args[:-1]}', file=sys.stderr)
             return self.EFAIL
         for file in files:
             try:
@@ -280,7 +278,7 @@ class ShellCmd:
             except OSError:
                 status = self.EFAIL
                 if not self.options.force:
-                    print('Can not copy {} to {}'.format(file, dst), file=sys.stderr)
+                    print(f'Can not copy {file} to {dst}', file=sys.stderr)
                 return status
         return status
 
@@ -312,7 +310,7 @@ class ShellCmd:
             status = self.EFAIL
             if not self.options.force:
                 print(
-                    'Can not create symbolic link: {} -> {}'.format(link, target),
+                    f'Can not create symbolic link: {link} -> {target}',
                     file=sys.stderr,
                 )
         return status
@@ -348,7 +346,7 @@ class ShellCmd:
                                 break
                 except OSError:
                     print(
-                        'Can not fix the bad symbolic link {}'.format(file),
+                        f'Can not fix the bad symbolic link {file}',
                         file=sys.stderr,
                     )
                     raise
@@ -446,7 +444,7 @@ class ShellCmd:
                     status = self.EFAIL
                     if self.options.force:
                         continue
-                    print('Can not create file {}'.format(pattern), file=sys.stderr)
+                    print(f'Can not create file {pattern}', file=sys.stderr)
                     return status
             for file in files:
                 try:
@@ -455,7 +453,7 @@ class ShellCmd:
                     status = self.EFAIL
                     if self.options.force:
                         continue
-                    print('Can not touch file {}'.format(file), file=sys.stderr)
+                    print(f'Can not touch file {file}', file=sys.stderr)
                     return status
         return status
 
@@ -548,9 +546,7 @@ class ShellCmd:
         import subprocess
 
         if len(self.args) < 1:
-            print(
-                'Invalid parameter {} for cargo-exec'.format(self.args), file=sys.stderr
-            )
+            print(f'Invalid parameter {self.args} for cargo-exec', file=sys.stderr)
             return self.EFAIL
         ws_dir = os.environ.get('CARGO_WORKSPACE_DIR', '.')
         cfg_file = (
@@ -582,7 +578,7 @@ class ShellCmd:
         os.environ['CARGO_CRATE_NAME'] = package['name']
         os.environ['CARGO_PKG_NAME'] = package['name']
         os.environ['CARGO_PKG_VERSION'] = package['version']
-        os.environ['CARGO_MAKE_TIMESTAMP'] = '{}'.format(time.time())
+        os.environ['CARGO_MAKE_TIMESTAMP'] = f'{time.time()}'
         return subprocess.call(' '.join(self.args[1:]), shell=True)
 
     def run__upload(self) -> int:
@@ -595,7 +591,7 @@ class ShellCmd:
         import urllib.parse
 
         if len(self.args) < 2:
-            print('Invalid parameter {} for upload'.format(self.args), file=sys.stderr)
+            print(f'Invalid parameter {self.args} for upload', file=sys.stderr)
             return self.EFAIL
 
         ftp_path = self.args[0]
@@ -603,12 +599,12 @@ class ShellCmd:
 
         parsed = urllib.parse.urlparse(ftp_path)
         if not parsed.hostname:
-            print('No hostname in {}'.format(self.args), file=sys.stderr)
+            print(f'No hostname in {self.args}', file=sys.stderr)
             return self.EINVAL
         scheme = parsed.scheme
         hostname = parsed.hostname
         port = int(parsed.port) if parsed.port else 0
-        url = scheme + '://' + ('{}:{}'.format(hostname, port) if port else hostname)
+        url = scheme + '://' + (f'{hostname}:{port}' if port else hostname)
         username = parsed.username or ''
         password = parsed.password or ''
         remote_dir = parsed.path or '/'
@@ -623,7 +619,7 @@ class ShellCmd:
             ftp.connect(hostname, port or 21)
             ftp.login(username, password)
             if scheme == 'ftps':
-                ftp.prot_p()
+                ftp.prot_p()  # pyright: ignore[reportAttributeAccessIssue]
             ftp.set_pasv(True)
         elif scheme == 'sftp':
             try:
@@ -639,7 +635,7 @@ class ShellCmd:
             ssh.connect(hostname, port or 22, username, password)
             sftp = ssh.open_sftp()
         else:
-            print('Unsupported protocol: {}'.format(scheme), file=sys.stderr)
+            print(f'Unsupported protocol: {scheme}', file=sys.stderr)
             return self.EINVAL
 
         for item in files:
@@ -658,16 +654,16 @@ class ShellCmd:
                     while '//' in remote_path:
                         remote_path = remote_path.replace('//', '/')
 
-                    print('Upload "{}"'.format(local_path))
+                    print(f'Upload "{local_path}"')
                     print(
-                        '    to "{}{}" ...'.format(url, remote_path),
+                        f'    to "{url}{remote_path}" ...',
                         end='',
                         flush=True,
                     )
                     if ftp is not None:
                         with open(local_path, 'rb') as fp:
                             ftp.storbinary(
-                                'STOR {}'.format(remote_path),
+                                f'STOR {remote_path}',
                                 fp,
                                 32 * 1024,
                                 callback=lambda _sent: print('.', end='', flush=True),
@@ -707,7 +703,7 @@ class ShellCmd:
                 traceback.print_exc(file=sys.stderr)
             else:
                 print(
-                    '[ERROR] Failed to build target dependencies: {}'.format(e),
+                    f'[ERROR] Failed to build target dependencies: {e}',
                     file=sys.stderr,
                 )
             return 1
@@ -844,7 +840,7 @@ class ShellCmd:
                 return int(func())
             except AttributeError:
                 print(
-                    'Unrecognized command "{}"'.format(namespace.command),
+                    f'Unrecognized command "{namespace.command}"',
                     file=sys.stderr,
                 )
                 return cls.EINVAL
