@@ -5,7 +5,7 @@ import os
 import platform
 import re
 import sys
-from typing import Dict, List, Tuple, Union, Optional, Any, Set, Tuple
+from typing import Dict, List, Tuple, Union, Optional, Any, Set
 
 EXE_EXT: str = '.exe' if os.name == 'nt' else ''
 
@@ -100,7 +100,7 @@ ANDROID_ARCH_MAP: Dict[str, str] = {
 }
 
 # Rust ARCH -> Android ABI (JNI Directory Name)
-ANRDOID_ABI_MAP: Dict[str, str] = {
+ANDROID_ABI_MAP: Dict[str, str] = {
     'i686': 'x86',
     'x86_64': 'x86_64',
     'armv7': 'armeabi-v7a',

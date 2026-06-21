@@ -17,7 +17,7 @@ from cmk.pylib.sys_utils import (
     MSVC_ARCH_MAP,
     VSTOOLS_ARCH_MAP,
     ANDROID_ARCH_MAP,
-    ANRDOID_ABI_MAP,
+    ANDROID_ABI_MAP,
     APPLE_ARCH_MAP,
     ZIG_ARCH_MAP,
     ZIG_OS_MAP,
@@ -261,7 +261,7 @@ class TargetParser:
                 ANDROID_ARCH_MAP[self.arch], '', 'linux', self.env
             )
             self.android_arch = ANDROID_ARCH_MAP[self.arch]
-            self.android_abi = ANRDOID_ABI_MAP[self.arch]
+            self.android_abi = ANDROID_ABI_MAP[self.arch]
             self.cargo_target = self.cargo_target or join_triple(
                 self.arch, '', 'linux', self.env
             )
