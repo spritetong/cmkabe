@@ -254,7 +254,7 @@ cargo_build_lib = cargo $(CARGO_TOOLCHAIN) build --lib $(_X_CARGO_OPTS) $(1)
 cargo_run = cargo $(CARGO_TOOLCHAIN) run --bin $(1) $(_X_CARGO_OPTS) $(2) $(_X_CARGO_RUN_ARGS)
 
 # cargo_upgrade(<excludes:str>,<options:str>)
-cargo_upgrade = cargo upgrade --incompatible $(1)
+cargo_upgrade = cargo $(CARGO_TOOLCHAIN) upgrade --incompatible $(1)
 
 # Set crosss compile tools for Rust
 $(call cmkabe_update_toolchain)
@@ -342,7 +342,7 @@ cargo-check: cmake-before-build
 # Clean all Cargo targets
 .PHONY: cargo-clean
 cargo-clean:
-	-@cargo clean
+	-@cargo $(CARGO_TOOLCHAIN) clean
 	@$(RM) -rf "$(TARGET_DIR)" || $(OK)
 
 # Cargo clippy
@@ -363,7 +363,7 @@ cargo-test: cmake-before-build
 # Upgrade dependencies
 .PHONY: cargo-upgrade
 cargo-upgrade:
-	@cargo update
+	@cargo $(CARGO_TOOLCHAIN) update
 	@$(call cargo_upgrade)
 
 # Patch Zig source files
