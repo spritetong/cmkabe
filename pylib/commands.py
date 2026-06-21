@@ -873,10 +873,10 @@ class ShellCmd:
         try:
             if shell_exe == 'pwsh.exe':
                 prompt_cmd = "$old_prompt = $function:prompt; function prompt { '(make) ' + & $old_prompt }"
-                return subprocess.call(['pwsh.exe', '-NoExit', '-Command', prompt_cmd])
+                return subprocess.call(['pwsh.exe', '-NoLogo', '-NoExit', '-Command', prompt_cmd])
             elif shell_exe == 'powershell.exe':
                 prompt_cmd = "$old_prompt = $function:prompt; function prompt { '(make) ' + & $old_prompt }"
-                return subprocess.call(['powershell.exe', '-NoExit', '-Command', prompt_cmd])
+                return subprocess.call(['powershell.exe', '-NoLogo', '-NoExit', '-Command', prompt_cmd])
         except FileNotFoundError:
             pass
 

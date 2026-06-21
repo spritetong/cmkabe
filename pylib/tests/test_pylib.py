@@ -195,7 +195,7 @@ class TestCommands(unittest.TestCase):
                     mock_call.assert_called_once()
                     args = mock_call.call_args[0][0]
                     self.assertEqual(args[0], 'pwsh.exe')
-                    self.assertIn('prompt', args[3])
+                    self.assertIn('prompt', args[4])
                 
                 # Check exit-code mode
                 code = ShellCmd.main(['shell', 'exit-code'])
@@ -209,7 +209,7 @@ class TestCommands(unittest.TestCase):
                     mock_call.assert_called_once()
                     args = mock_call.call_args[0][0]
                     self.assertEqual(args[0], 'powershell.exe')
-                    self.assertIn('prompt', args[3])
+                    self.assertIn('prompt', args[4])
 
                 # Check exit-code mode
                 code = ShellCmd.main(['shell', 'exit-code'])
