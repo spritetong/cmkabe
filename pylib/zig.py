@@ -32,13 +32,15 @@ A. Line-Ending Agnostic binary patching (`patch_file`):
      with custom Git checkout configurations.
 
 B. Symbol Visibility Hiding for C files (`patch_visibility`):
-   - Injects `#pragma GCC visibility push(hidden)` after the last header include
-     directive, and `#pragma GCC visibility pop` at the end of the file.
-   - Employs a robust, line-ending agnostic fallback search that automatically
-     detects the end of the last `#include <` or `#include "` line, removing reliance
-     on fragile string matching for standard files.
+   - Injects `#pragma GCC visibility push(hidden)` and `#pragma GCC visibility pop` into C files.
    - Re-decorates `__declspec(dllimport)` declarations with `__attribute__((visibility("default")))`
      to prevent compiler warnings/errors regarding conflicting visibility attributes.
+   - Fallback auto-detection employs a robust preprocessor-aware logic that:
+     1. Strips comments and string/character literals (`_clean_c_code`) to prevent them from interfering.
+     2. Identifies the first code block boundary (`limit_line_idx` based on `{`) to ignore `#include`s inside functions.
+     3. Checks if open conditional preprocessor blocks at the last include exit before the code block begins.
+     4. If they exit, pushes visibility outside the conditional block and pops at the end of the file.
+     5. If they wrap function definitions, balances the push/pop pairs locally inside each branch (e.g. `#if`, `#elif`, `#else`), ensuring correct scoping and matching regardless of which compile-time path is taken.
 
 C. Exclude symbols from Assembly (.S) files (`patch_visibility_mingw_S`):
    - Analyzes assembly files and extracts all global symbol names.
@@ -169,8 +171,88 @@ def patch_file(
     return changed
 
 
+def _clean_c_code(content: bytes) -> bytes:
+    """Strip C-style comments, string literals, and char literals from content, preserving line layout."""
+    out = bytearray(content)
+    n = len(content)
+    i = 0
+    in_line_comment = False
+    in_block_comment = False
+    in_string = False
+    in_char = False
+
+    while i < n:
+        if (in_string or in_char) and content[i] == ord('\\'):
+            i += 2
+            continue
+
+        if in_line_comment:
+            if content[i] == ord('\n'):
+                in_line_comment = False
+            else:
+                out[i] = ord(' ')
+        elif in_block_comment:
+            if content[i : i + 2] == b'*/':
+                out[i] = ord(' ')
+                out[i + 1] = ord(' ')
+                in_block_comment = False
+                i += 1
+            elif content[i] != ord('\n'):
+                out[i] = ord(' ')
+        elif in_string:
+            if content[i] == ord('"'):
+                in_string = False
+            elif content[i] != ord('\n'):
+                out[i] = ord(' ')
+        elif in_char:
+            if content[i] == ord("'"):
+                in_char = False
+            elif content[i] != ord('\n'):
+                out[i] = ord(' ')
+        else:
+            if content[i : i + 2] == b'//':
+                out[i] = ord(' ')
+                out[i + 1] = ord(' ')
+                in_line_comment = True
+                i += 1
+            elif content[i : i + 2] == b'/*':
+                out[i] = ord(' ')
+                out[i + 1] = ord(' ')
+                in_block_comment = True
+                i += 1
+            elif content[i] == ord('"'):
+                in_string = True
+            elif content[i] == ord("'"):
+                in_char = True
+        i += 1
+    return bytes(out)
+
+
 def patch_visibility(filename: str) -> bool:
-    """Patch symbol visibility in C source files for mingw."""
+    """Patch symbol visibility in C source files for mingw.
+
+    This function automatically injects `#pragma GCC visibility push(hidden)` and
+    `#pragma GCC visibility pop` to enforce internal visibility on mingw runtime libraries.
+
+    Implementation Details:
+      1. Strips comments, string and character literals (retaining line count/layout)
+         using `_clean_c_code` to make preprocessor token tracking robust.
+      2. Finds the line of the first code block start (`limit_line_idx` containing `{`)
+         and restricts parsing to lines before it, ignoring any `#include` directives
+         inside function scopes.
+      3. Parses the preprocessor stack state at the last valid `#include` line.
+      4. Branching decisions:
+         a. Exitable conditional (header-only block): If the outermost conditional block
+            closes before `limit_line_idx`, it places the `push(hidden)` directly after its
+            `#endif` (exiting the conditional scope) and appends `pop` to the end of the file.
+         b. Wrapped / branching conditional: If the block wraps function/global definitions,
+            we place the visibility boundary inside it, balancing it across all sibling branches:
+              - `push` after the last include.
+              - `pop` before any `#elif` or `#else` sibling lines at that depth.
+              - `push` after each sibling branch directive.
+              - `pop` before the closing `#endif` of that conditional block.
+      5. Reconstructs the C source file line-by-line using the computed insertion points.
+    """
     dll_import = b'__declspec(dllimport)'
     vis_default = b'__attribute__((visibility("default")))'
 
@@ -207,25 +289,140 @@ def patch_visibility(filename: str) -> bool:
         if index >= 0:
             insert_position = index + len(search)
 
-    # Fallback auto-detection if not specified in mapping or pattern not found
-    if insert_position == 0:
-        # Locate the last #include directive in the file (covers <...> and "...")
-        last_include_idx = max(
-            content_lf.rfind(b'#include <'), content_lf.rfind(b'#include "')
+    if insert_position > 0:
+        print(f'Patching {filename}')
+        patched_lf = (
+            content_lf[:insert_position]
+            + insert
+            + content_lf[insert_position:]
+            + append
         )
-        if last_include_idx >= 0:
-            eol_idx = content_lf.find(b'\n', last_include_idx)
-            if eol_idx >= 0:
-                insert_position = eol_idx + 1
+    else:
+        # Fallback auto-detection if not specified in mapping or pattern not found
+        lines = content_lf.split(b'\n')
+        clean_content = _clean_c_code(content_lf)
+        clean_lines = clean_content.split(b'\n')
 
-    # Fallback to the top of the file if no includes are found
-    if insert_position == 0:
-        insert_position = 0
+        # Find limit line (first code block start: line start or end is '{')
+        limit_line_idx = len(lines)
+        for idx, line in enumerate(clean_lines):
+            clean_line = line.strip()
+            if clean_line.startswith(b'{') or clean_line.endswith(b'{'):
+                limit_line_idx = idx
+                break
 
-    print(f'Patching {filename}')
-    patched_lf = (
-        content_lf[:insert_position] + insert + content_lf[insert_position:] + append
-    )
+        directive_pat = re.compile(rb'^\s*#\s*(if|ifdef|ifndef|elif|else|endif)\b')
+        include_pat = re.compile(rb'^\s*#\s*include\s*[<"]')
+
+        stack = []
+        last_include_line_idx = -1
+        stack_at_include = []
+
+        # Only scan up to limit_line_idx for preprocessor blocks and last include
+        for idx in range(min(limit_line_idx, len(lines))):
+            line = clean_lines[idx]
+            if include_pat.match(line):
+                last_include_line_idx = idx
+                stack_at_include = list(stack)
+
+            m = directive_pat.match(line)
+            if m:
+                op = m.group(1)
+                if op in (b'if', b'ifdef', b'ifndef'):
+                    stack.append(idx)
+                elif op == b'endif':
+                    if stack:
+                        stack.pop()
+
+        push_lines = set()
+        pop_lines = set()
+        append_pop_to_end = False
+
+        if last_include_line_idx >= 0:
+            # Determine if we can exit the conditional blocks before code starts
+            exited = False
+            exit_line_idx = -1
+            if stack_at_include:
+                scan_stack = list(stack_at_include)
+                target_block = stack_at_include[0]
+                for idx in range(last_include_line_idx + 1, limit_line_idx):
+                    line = clean_lines[idx]
+                    m = directive_pat.match(line)
+                    if m:
+                        op = m.group(1)
+                        if op in (b'if', b'ifdef', b'ifndef'):
+                            scan_stack.append(idx)
+                        elif op == b'endif':
+                            if scan_stack:
+                                popped = scan_stack.pop()
+                                if popped == target_block:
+                                    exit_line_idx = idx
+                                    break
+                if exit_line_idx >= 0:
+                    exited = True
+
+            if exited or not stack_at_include:
+                push_lines.add(exit_line_idx if exited else last_include_line_idx)
+                append_pop_to_end = True
+            else:
+                # We insert push inside the conditional block(s) and track sibling branches
+                push_lines.add(last_include_line_idx)
+
+                scan_stack = list(stack_at_include)
+                target_block = stack_at_include[-1]
+                sibling_lines = []
+                pop_line_idx = -1
+
+                for idx in range(last_include_line_idx + 1, len(lines)):
+                    line = clean_lines[idx]
+                    m = directive_pat.match(line)
+                    if m:
+                        op = m.group(1)
+                        if op in (b'if', b'ifdef', b'ifndef'):
+                            scan_stack.append(idx)
+                        elif op == b'endif':
+                            if scan_stack:
+                                popped = scan_stack.pop()
+                                if popped == target_block:
+                                    pop_line_idx = idx
+                                    break
+                        elif op in (b'elif', b'else'):
+                            if len(scan_stack) == len(stack_at_include):
+                                sibling_lines.append(idx)
+
+                for sib in sibling_lines:
+                    pop_lines.add(sib)
+                    push_lines.add(sib)
+                if pop_line_idx >= 0:
+                    pop_lines.add(pop_line_idx)
+
+        if last_include_line_idx < 0:
+            push_lines.add(-1)
+            append_pop_to_end = True
+
+        print(f'Patching {filename}')
+        new_lines = []
+        if -1 in push_lines:
+            new_lines.append(insert.strip())
+            new_lines.append(b'')
+
+        for idx, line in enumerate(lines):
+            if idx in pop_lines:
+                new_lines.append(b'')
+                new_lines.append(append.strip())
+                new_lines.append(b'')
+            new_lines.append(line)
+            if idx in push_lines:
+                new_lines.append(b'')
+                new_lines.append(insert.strip())
+                new_lines.append(b'')
+
+        if append_pop_to_end:
+            new_lines.append(b'')
+            new_lines.append(append.strip())
+            new_lines.append(b'')
+
+        patched_lf = b'\n'.join(new_lines)
 
     content_to_write = patched_lf.replace(b'\n', b'\r\n') if has_crlf else patched_lf
     with open(filename, 'wb') as file:
