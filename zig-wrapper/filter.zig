@@ -5,12 +5,12 @@ const SimpleOptionParser = parser_mod.SimpleOptionParser;
 const main_mod = @import("main.zig");
 const ZigWrapper = main_mod.ZigWrapper;
 
-const StringArray = std.ArrayList([]const u8);
+const StringArray = std.array_list.Managed([]const u8);
 
 pub const ZigArgFilter = struct {
     const Self = @This();
-    matchers: std.ArrayList(Matcher),
-    replacers: std.ArrayList(Replacer),
+    matchers: std.array_list.Managed(Matcher),
+    replacers: std.array_list.Managed(Replacer),
 
     pub const Matcher = union(enum) {
         allow_partial_opt: void,
@@ -116,8 +116,8 @@ pub const ZigArgFilter = struct {
 
     pub fn init(allocator: std.mem.Allocator) Self {
         return .{
-            .matchers = std.ArrayList(Matcher).init(allocator),
-            .replacers = std.ArrayList(Replacer).init(allocator),
+            .matchers = std.array_list.Managed(Matcher).init(allocator),
+            .replacers = std.array_list.Managed(Replacer).init(allocator),
         };
     }
 
@@ -203,13 +203,13 @@ pub const ZigArgFilter = struct {
 
 pub const ZigArgFilterMap = struct {
     const Self = @This();
-    map: std.StringArrayHashMap(std.ArrayList(ZigArgFilter)),
+    allocator: std.mem.Allocator,
+    map: std.array_hash_map.String(std.array_list.Managed(ZigArgFilter)),
 
     pub fn init(allocator: std.mem.Allocator) Self {
         return .{
-            .map = std.StringArrayHashMap(
-                std.ArrayList(ZigArgFilter),
-            ).init(allocator),
+            .allocator = allocator,
+            .map = .{},
         };
     }
 
@@ -220,7 +220,7 @@ pub const ZigArgFilterMap = struct {
             }
             filters.deinit();
         }
-        self.map.deinit();
+        self.map.deinit(self.allocator);
     }
 
     pub inline fn initFilter(self: *Self, option: []const u8) *ZigArgFilter {
@@ -230,8 +230,9 @@ pub const ZigArgFilterMap = struct {
     pub fn initFilters(self: *Self, option: []const u8, count: usize) *ZigArgFilter {
         const entry = self.map.getPtr(option) orelse blk: {
             self.map.put(
+                self.allocator,
                 option,
-                std.ArrayList(ZigArgFilter).init(self.map.allocator),
+                std.array_list.Managed(ZigArgFilter).init(self.allocator),
             ) catch unreachable;
             break :blk self.map.getPtr(option).?;
         };
@@ -239,7 +240,7 @@ pub const ZigArgFilterMap = struct {
         const start = entry.items.len;
         entry.ensureUnusedCapacity(count) catch unreachable;
         for (0..count) |_| {
-            entry.appendAssumeCapacity(ZigArgFilter.init(self.map.allocator));
+            entry.appendAssumeCapacity(ZigArgFilter.init(self.allocator));
         }
         return &entry.items.ptr[start];
     }

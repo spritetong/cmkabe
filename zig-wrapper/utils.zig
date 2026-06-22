@@ -8,7 +8,7 @@ pub inline fn strEql(a: []const u8, b: []const u8) bool {
 
 /// Remove trailing whitespace from `s`.
 pub inline fn strTrimRight(s: []const u8) []const u8 {
-    return std.mem.trimRight(u8, s, " \t\r\n");
+    return std.mem.trimEnd(u8, s, " \t\r\n");
 }
 
 /// Check if `haystack` starts with `needle`.
@@ -75,7 +75,7 @@ pub fn strUnescape(string: []u8, require_quotes: bool) []u8 {
     return buffer[0..len];
 }
 
-pub fn strEscapeAppend(buffer: *std.ArrayList(u8), string: []const u8) !void {
+pub fn strEscapeAppend(buffer: *std.array_list.Managed(u8), string: []const u8) !void {
     var quoted = false;
     var left = string;
 
@@ -228,9 +228,8 @@ pub fn sysArgMax() usize {
     }
 }
 
-pub fn getEnvVar(allocator: std.mem.Allocator, key: []const u8) ![]u8 {
-    const val = try std.process.getEnvVarOwned(allocator, key);
-    defer allocator.free(val);
+pub fn getEnvVar(env_map: *const std.process.Environ.Map, allocator: std.mem.Allocator, key: []const u8) ![]u8 {
+    const val = env_map.get(key) orelse return error.EnvironmentVariableNotFound;
     const s = strTrimRight(val);
     if (s.len > 0) {
         return try allocator.dupe(u8, s);
@@ -238,17 +237,17 @@ pub fn getEnvVar(allocator: std.mem.Allocator, key: []const u8) ![]u8 {
     return error.EnvironmentVariableNotFound;
 }
 
-pub fn freeStringArray(allocator: std.mem.Allocator, array: *std.ArrayList([]const u8)) void {
+pub fn freeStringArray(allocator: std.mem.Allocator, array: *std.array_list.Managed([]const u8)) void {
     for (array.items) |item| {
         allocator.free(item);
     }
     array.deinit();
 }
 
-pub fn freeStringSet(allocator: std.mem.Allocator, set: *std.StringArrayHashMap(void)) void {
+pub fn freeStringSet(allocator: std.mem.Allocator, set: *std.array_hash_map.String(void)) void {
     for (set.keys()) |key| {
         allocator.free(key);
     }
-    set.deinit();
+    set.deinit(allocator);
 }
 

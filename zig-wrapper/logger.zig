@@ -3,33 +3,35 @@ const builtin = @import("builtin");
 
 pub const ZigLog = struct {
     const Self = @This();
-    file: ?std.fs.File,
+    io: std.Io,
+    file: ?std.Io.File,
+    pos: u64,
 
-    pub fn init(path_: ?[]const u8) !Self {
+    pub fn init(io: std.Io, path_: ?[]const u8) !Self {
         if (path_) |path| {
-            if (std.fs.cwd().createFile(path, .{
+            const cwd = std.Io.Dir.cwd();
+            if (cwd.createFile(io, path, .{
                 .read = true,
                 .truncate = false,
             })) |file| {
-                errdefer file.close();
+                errdefer file.close(io);
 
                 // Lock file.
-                try file.lock(.exclusive);
+                try file.lock(io, .exclusive);
 
-                // Seek to the end.
-                try file.seekFromEnd(0);
+                const pos = file.length(io) catch 0;
 
-                return .{ .file = file };
+                return .{ .io = io, .file = file, .pos = pos };
             } else |_| {}
         }
-        return .{ .file = null };
+        return .{ .io = io, .file = null, .pos = 0 };
     }
 
     pub fn deinit(self: *Self) void {
         if (self.file) |file| {
-            file.sync() catch {};
-            file.unlock();
-            file.close();
+            file.sync(self.io) catch {};
+            file.unlock(self.io);
+            file.close(self.io);
             self.file = null;
         }
     }
@@ -40,68 +42,76 @@ pub const ZigLog = struct {
 
     pub fn write(self: *Self, bytes: []const u8) void {
         if (self.file) |file| {
-            _ = file.writeAll(bytes) catch {};
+            file.writePositionalAll(self.io, bytes, self.pos) catch {};
+            self.pos += bytes.len;
         }
     }
 
     pub fn print(self: *Self, comptime fmt: []const u8, args: anytype) void {
         if (self.file) |file| {
-            file.writer().print(fmt, args) catch {};
+            var large_buf: [4096]u8 = undefined;
+            const s = std.fmt.bufPrint(&large_buf, fmt, args) catch return;
+            file.writePositionalAll(self.io, s, self.pos) catch {};
+            self.pos += s.len;
         }
     }
 };
 
 pub const TempFile = struct {
     const Self = @This();
-    file: ?std.fs.File,
-    _path: std.ArrayList(u8),
+    io: std.Io,
+    file: ?std.Io.File,
+    _path: std.array_list.Managed(u8),
+    pos: u64,
 
-    pub fn init(a: std.mem.Allocator) !Self {
+    pub fn init(io: std.Io, a: std.mem.Allocator, env_map: *const std.process.Environ.Map) !Self {
         const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
-        const tmp_dir = try Self.getSysTmpDir(a);
+        const tmp_dir = try Self.getSysTmpDir(a, env_map);
         defer a.free(tmp_dir);
 
-        var path = try std.ArrayList(u8).initCapacity(a, tmp_dir.len + 32);
+        var path = try std.array_list.Managed(u8).initCapacity(a, tmp_dir.len + 32);
         errdefer path.deinit();
         path.appendSlice(tmp_dir) catch unreachable;
         path.append(std.fs.path.sep) catch unreachable;
         path.appendSlice("zig-wrapper") catch unreachable;
 
         // Create the `zig-wrapper` directory in the `tmp` dir.
-        try std.fs.cwd().makePath(path.items);
+        const cwd = std.Io.Dir.cwd();
+        try cwd.createDirPath(io, path.items);
         path.append(std.fs.path.sep) catch unreachable;
         const dir_len = path.items.len;
 
+        var rand_bytes: [10]u8 = undefined;
         while (true) {
             path.resize(dir_len) catch unreachable;
-            for (0..10) |_| {
-                const index = std.crypto.random.uintLessThan(usize, chars.len);
+            io.random(&rand_bytes);
+            for (rand_bytes) |b| {
+                const index = b % chars.len;
                 path.append(chars[index]) catch unreachable;
             }
             path.appendSlice(".tmp") catch unreachable;
 
             // Check file existence.
-            const file = std.fs.cwd().createFile(
-                path.items,
-                .{ .exclusive = true },
-            ) catch |err| switch (err) {
+            const file = cwd.createFile(io, path.items, .{
+                .exclusive = true,
+            }) catch |err| switch (err) {
                 error.PathAlreadyExists => continue,
                 else => |e| return e,
             };
-            return .{ .file = file, ._path = path };
+            return .{ .io = io, .file = file, ._path = path, .pos = 0 };
         }
     }
 
     pub fn deinit(self: *Self) void {
         self.close();
-        std.fs.cwd().deleteFile(self.getPath()) catch {};
+        std.Io.Dir.cwd().deleteFile(self.io, self.getPath()) catch {};
         self._path.deinit();
     }
 
     pub fn close(self: *Self) void {
         if (self.file) |file| {
-            file.close();
+            file.close(self.io);
             self.file = null;
         }
     }
@@ -112,19 +122,16 @@ pub const TempFile = struct {
 
     pub fn write(self: *Self, bytes: []const u8) !void {
         if (self.file) |file| {
-            _ = try file.writeAll(bytes);
+            try file.writePositionalAll(self.io, bytes, self.pos);
+            self.pos += bytes.len;
         }
     }
 
-    fn getSysTmpDir(a: std.mem.Allocator) ![]const u8 {
-        return std.process.getEnvVarOwned(a, "TMPDIR") catch {
-            return std.process.getEnvVarOwned(a, "TMP") catch {
-                return std.process.getEnvVarOwned(a, "TEMP") catch {
-                    return std.process.getEnvVarOwned(a, "TEMPDIR") catch {
-                        return a.dupe(u8, if (builtin.os.tag == .windows) "." else "/tmp");
-                    };
-                };
-            };
-        };
+    fn getSysTmpDir(a: std.mem.Allocator, env_map: *const std.process.Environ.Map) ![]const u8 {
+        if (env_map.get("TMPDIR")) |val| return a.dupe(u8, val);
+        if (env_map.get("TMP")) |val| return a.dupe(u8, val);
+        if (env_map.get("TEMP")) |val| return a.dupe(u8, val);
+        if (env_map.get("TEMPDIR")) |val| return a.dupe(u8, val);
+        return a.dupe(u8, if (builtin.os.tag == .windows) "." else "/tmp");
     }
 };

@@ -12,13 +12,15 @@ const filter_mod = @import("filter.zig");
 const ZigArgFilter = filter_mod.ZigArgFilter;
 const ZigArgFilterMap = filter_mod.ZigArgFilterMap;
 
-const StringArray = std.ArrayList([]const u8);
-const StringSet = std.StringArrayHashMap(void);
-const ArgIteratorGeneral = std.process.ArgIteratorGeneral(.{});
+const StringArray = std.array_list.Managed([]const u8);
+const StringSet = std.array_hash_map.String(void);
+const ArgIteratorGeneral = std.process.Args.IteratorGeneral(.{});
 
 pub const ZigWrapper = struct {
     const Self = @This();
+    io: std.Io,
     allocator: std.mem.Allocator,
+    environ_map: *std.process.Environ.Map,
     log: ZigLog,
     sys_argv0: ?[]const u8 = null,
     sys_argv: StringArray,
@@ -78,27 +80,32 @@ pub const ZigWrapper = struct {
     cc_dll_a: ?[]const u8 = null,
     cc_output: ?[]const u8 = null,
 
-    pub fn init(allocator_: std.mem.Allocator) !Self {
+    pub fn init(proc_init: std.process.Init) !Self {
+        const io_ = proc_init.io;
+        const allocator_ = proc_init.gpa;
+        const environ_map_ = proc_init.environ_map;
         var self = outer: {
             // logger
             const log = blk: {
-                const log_path = utils.getEnvVar(allocator_, "ZIG_WRAPPER_LOG") catch null;
+                const log_path = utils.getEnvVar(environ_map_, allocator_, "ZIG_WRAPPER_LOG") catch null;
                 errdefer if (log_path) |v| {
                     allocator_.free(v);
                 };
-                const v = try ZigLog.init(log_path);
+                const v = try ZigLog.init(io_, log_path);
                 break :blk v;
             };
 
             break :outer Self{
+                .io = io_,
                 .allocator = allocator_,
+                .environ_map = environ_map_,
                 .log = log,
                 .sys_argv = StringArray.init(allocator_),
                 .zig_cpu_opts = StringArray.init(allocator_),
                 .zig_cpu_tune_opts = StringArray.init(allocator_),
-                .skipped_libs = StringSet.init(allocator_),
+                .skipped_libs = .{},
                 .skipped_lib_patterns = StringArray.init(allocator_),
-                .skipped_lib_paths = StringSet.init(allocator_),
+                .skipped_lib_paths = .{},
                 .arg_filter = ZigArgFilterMap.init(allocator_),
                 .args = StringArray.init(allocator_),
             };
@@ -109,7 +116,7 @@ pub const ZigWrapper = struct {
         var argv = StringArray.init(self.allocator);
         defer utils.freeStringArray(self.allocator, &argv);
 
-        var arg_iter = try std.process.argsWithAllocator(self.allocator);
+        var arg_iter = try proc_init.minimal.args.iterateAllocator(self.allocator);
         defer arg_iter.deinit();
         if (arg_iter.next()) |argv0| {
             self.sys_argv0 = try self.allocator.dupe(u8, argv0);
@@ -149,9 +156,9 @@ pub const ZigWrapper = struct {
         }
 
         // Parse environment variables.
-        self.zig_exe = utils.getEnvVar(self.allocator, "ZIG_EXECUTABLE") catch null;
-        self.zig_target = utils.getEnvVar(self.allocator, "ZIG_WRAPPER_TARGET") catch null;
-        self.clang_target = utils.getEnvVar(self.allocator, "ZIG_WRAPPER_CLANG_TARGET") catch null;
+        self.zig_exe = utils.getEnvVar(self.environ_map, self.allocator, "ZIG_EXECUTABLE") catch null;
+        self.zig_target = utils.getEnvVar(self.environ_map, self.allocator, "ZIG_WRAPPER_TARGET") catch null;
+        self.clang_target = utils.getEnvVar(self.environ_map, self.allocator, "ZIG_WRAPPER_CLANG_TARGET") catch null;
 
         // Parse Zig flags in `argv[1..]`.
         try self.sys_argv.ensureUnusedCapacity(argv.items.len);
@@ -330,29 +337,43 @@ pub const ZigWrapper = struct {
         try self.writeFlagsFile();
 
         // Execute the command.
-        var child = std.process.Child.init(self.args.items, self.allocator);
         var exit_code: u8 = 0;
         if (self.log.enabled()) {
-            child.stderr_behavior = .Pipe;
-            child.stdout_behavior = .Pipe;
-            var stdout: std.ArrayListUnmanaged(u8) = .empty;
-            defer stdout.deinit(self.allocator);
-            var stderr: std.ArrayListUnmanaged(u8) = .empty;
-            defer stderr.deinit(self.allocator);
-            try child.spawn();
-            try child.collectOutput(self.allocator, &stdout, &stderr, 10 * 1024 * 1024);
-            exit_code = (try child.wait()).Exited;
-            try std.io.getStdErr().writeAll(stderr.items);
-            try std.io.getStdOut().writeAll(stdout.items);
+            const run_res = try std.process.run(self.allocator, self.io, .{
+                .argv = self.args.items,
+                .stderr_limit = std.Io.Limit.limited(10 * 1024 * 1024),
+                .stdout_limit = std.Io.Limit.limited(10 * 1024 * 1024),
+            });
+            defer self.allocator.free(run_res.stdout);
+            defer self.allocator.free(run_res.stderr);
+
+            exit_code = switch (run_res.term) {
+                .exited => |code| code,
+                else => 1,
+            };
+            const stdout_file = std.Io.File.stdout();
+            const stderr_file = std.Io.File.stderr();
+            try stderr_file.writeStreamingAll(self.io, run_res.stderr);
+            try stdout_file.writeStreamingAll(self.io, run_res.stdout);
             self.log.print("    --> exit code: {d}\n", .{exit_code});
             self.log.write("    --> stdout: ");
-            self.log.write(stdout.items);
+            self.log.write(run_res.stdout);
             self.log.write("\n");
             self.log.write("    --> stderr: ");
-            self.log.write(stderr.items);
+            self.log.write(run_res.stderr);
             self.log.write("\n");
         } else {
-            exit_code = (try child.spawnAndWait()).Exited;
+            var child = try std.process.spawn(self.io, .{
+                .argv = self.args.items,
+                .stdin = .inherit,
+                .stdout = .inherit,
+                .stderr = .inherit,
+            });
+            const term = try child.wait(self.io);
+            exit_code = switch (term) {
+                .exited => |code| code,
+                else => 1,
+            };
         }
         try self.postProcess(exit_code == 0);
         if (exit_code != 0) {
@@ -363,18 +384,19 @@ pub const ZigWrapper = struct {
 
     pub fn parseFileFlags(self: *Self, path: []const u8, dest: *StringArray) !void {
         // Open the file for reading
-        var file = try std.fs.cwd().openFile(path, .{});
-        defer file.close();
+        const cwd = std.Io.Dir.cwd();
+        var file = try cwd.openFile(self.io, path, .{});
+        defer file.close(self.io);
 
         // Get the file size
-        const file_size = try file.getEndPos();
+        const file_size = try file.length(self.io);
 
         // Allocate a buffer to hold the file content
         const flags_str = try self.allocator.alloc(u8, file_size);
         defer self.allocator.free(flags_str);
 
         // Read the file content into the buffer
-        _ = try file.readAll(flags_str);
+        _ = try file.readPositionalAll(self.io, flags_str, 0);
 
         // Parse the flags
         var arg_iter = try ArgIteratorGeneral.init(
@@ -447,7 +469,7 @@ pub const ZigWrapper = struct {
                     }
 
                     // Parse flags.
-                    const flags_str = utils.getEnvVar(self.allocator, key) catch continue;
+                    const flags_str = utils.getEnvVar(self.environ_map, self.allocator, key) catch continue;
                     defer self.allocator.free(flags_str);
                     var arg_iter = try ArgIteratorGeneral.init(
                         self.allocator,
@@ -491,7 +513,7 @@ pub const ZigWrapper = struct {
                 // Check if `opt` is C source file or not.
                 if (self.command.isCompiler() and !self.is_linker) {
                     if (utils.strEndsWith(opt, ".c")) {
-                        if (std.fs.cwd().access(opt, .{})) |_| {
+                        if (std.Io.Dir.cwd().access(self.io, opt, .{})) |_| {
                             self.input_is_c_file = true;
                         } else |_| {}
                     }
@@ -566,7 +588,7 @@ pub const ZigWrapper = struct {
                 while (parts.next()) |part| {
                     const v = utils.strTrimRight(part);
                     if (v.len > 0) {
-                        const res = try self.skipped_libs.getOrPut(v);
+                        const res = try self.skipped_libs.getOrPut(self.allocator, v);
                         if (!res.found_existing) {
                             res.key_ptr.* = try self.allocator.dupe(u8, v);
                             if (std.mem.indexOfAny(u8, v, "?*") != null) {
@@ -580,7 +602,7 @@ pub const ZigWrapper = struct {
                 while (parts.next()) |part| {
                     const v = utils.strTrimRight(part);
                     if (v.len > 0) {
-                        const res = try self.skipped_lib_paths.getOrPut(v);
+                        const res = try self.skipped_lib_paths.getOrPut(self.allocator, v);
                         if (!res.found_existing) {
                             res.key_ptr.* = try self.allocator.dupe(u8, v);
                         }
@@ -746,19 +768,17 @@ pub const ZigWrapper = struct {
             args.deinit();
         }
 
-        var lib_map = std.StringArrayHashMap(std.ArrayList(LinkerLib)).init(
-            self.allocator,
-        );
-        var path_set = std.StringArrayHashMap(void).init(self.allocator);
+        var lib_map = std.array_hash_map.String(std.array_list.Managed(LinkerLib)){};
+        var path_set = std.array_hash_map.String(void){};
         defer {
             for (lib_map.values()) |array| {
                 array.deinit();
             }
-            lib_map.deinit();
+            lib_map.deinit(self.allocator);
             for (path_set.keys()) |path| {
                 self.allocator.free(path);
             }
-            path_set.deinit();
+            path_set.deinit(self.allocator);
         }
 
         var parser = SimpleOptionParser{ .args = self.args.items };
@@ -803,15 +823,17 @@ pub const ZigWrapper = struct {
                     }
                     try libs.append(lib);
                 } else {
-                    var libs = try std.ArrayList(LinkerLib).initCapacity(self.allocator, 4);
+                    var libs = try std.array_list.Managed(LinkerLib).initCapacity(self.allocator, 4);
                     errdefer libs.deinit();
                     try libs.append(lib);
-                    try lib_map.put(lib_ver[0], libs);
+                    try lib_map.put(self.allocator, lib_ver[0], libs);
                 }
             } else if (parser.parseNamed(&.{"-L"}, true)) {
                 // normalize path
                 if (std.fs.path.relative(
                     self.allocator,
+                    ".",
+                    self.environ_map,
                     ".",
                     parser.value,
                 )) |path| {
@@ -828,7 +850,7 @@ pub const ZigWrapper = struct {
                         }
                     }
 
-                    try path_set.put(path, {});
+                    try path_set.put(self.allocator, path, {});
                     ok = true;
                 } else |err| {
                     if (err == error.OutOfMemory) return err;
@@ -845,11 +867,11 @@ pub const ZigWrapper = struct {
         if (!path_set.contains(".")) {
             const cwd = try self.allocator.dupe(u8, ".");
             errdefer self.allocator.free(cwd);
-            try path_set.put(cwd, {});
+            try path_set.put(self.allocator, cwd, {});
         }
 
         // Find the library paths and fix link options.
-        var buf = std.ArrayList(u8).init(self.allocator);
+        var buf = std.array_list.Managed(u8).init(self.allocator);
         defer buf.deinit();
         const lib_exts = self.getlibExts(.none);
         for (lib_map.values()) |libs| {
@@ -863,7 +885,7 @@ pub const ZigWrapper = struct {
                             try buf.appendSlice(prefix);
                             try buf.appendSlice(lib.name);
                             try buf.appendSlice(file_ext);
-                            if (std.fs.cwd().access(buf.items, .{})) |_| {
+                            if (std.Io.Dir.cwd().access(self.io, buf.items, .{})) |_| {
                                 const file_lib = self.libFromFileName(buf.items);
                                 if (lib.kind == .none or lib.kind == file_lib.kind) {
                                     const lib_opt = if (file_lib.kind == .dynamic)
@@ -1010,7 +1032,7 @@ pub const ZigWrapper = struct {
         if (argv_size <= utils.sysArgMax()) return;
 
         // Write flags to buffer.
-        var buffer = try std.ArrayList(u8).initCapacity(
+        var buffer = try std.array_list.Managed(u8).initCapacity(
             self.allocator,
             argv_size,
         );
@@ -1024,16 +1046,13 @@ pub const ZigWrapper = struct {
         if (self.at_file_opt) |v| {
             at_file_opt = try self.allocator.dupe(u8, v);
             // Write to file.
-            var file = try std.fs.cwd().createFile(
-                at_file_opt[1..],
-                .{ .truncate = true },
-            );
-            defer file.close();
-            try file.seekTo(0);
-            try file.writeAll(buffer.items);
-            try file.setEndPos(try file.getPos());
+            try std.Io.Dir.cwd().writeFile(self.io, .{
+                .sub_path = at_file_opt[1..],
+                .data = buffer.items,
+                .flags = .{ .truncate = true },
+            });
         } else {
-            var flags_file = try TempFile.init(self.allocator);
+            var flags_file = try TempFile.init(self.io, self.allocator, self.environ_map);
             errdefer flags_file.deinit();
             try flags_file.write(buffer.items);
             flags_file.close();
@@ -1058,8 +1077,8 @@ pub const ZigWrapper = struct {
                     // Copy `.lib` file to `.dll.a` file.
                     if (self.cc_dll_lib) |dll_lib| {
                         if (self.cc_dll_a) |dll_a| {
-                            const cwd = std.fs.cwd();
-                            try cwd.copyFile(dll_lib, cwd, dll_a, .{});
+                            const cwd = std.Io.Dir.cwd();
+                            try cwd.copyFile(dll_lib, cwd, dll_a, self.io, .{});
                         }
                     }
                 }
@@ -1075,11 +1094,11 @@ pub const ZigWrapper = struct {
                     }
                     if (success) {
                         // Create a pseudo dependency file.
-                        (try std.fs.cwd().createFile(path, .{
+                        (try std.Io.Dir.cwd().createFile(self.io, path, .{
                             .truncate = true,
-                        })).close();
+                        })).close(self.io);
                     } else {
-                        std.fs.cwd().deleteFile(path) catch {};
+                        std.Io.Dir.cwd().deleteFile(self.io, path) catch {};
                     }
                 }
             },
@@ -1098,7 +1117,7 @@ pub const ZigWrapper = struct {
                     "elf_path_fixer.py",
                 });
                 defer self.allocator.free(script);
-                if ((std.fs.accessAbsolute(script, .{}) catch null) == null) {
+                if ((std.Io.Dir.accessAbsolute(self.io, script, .{}) catch null) == null) {
                     return;
                 }
 
@@ -1125,7 +1144,7 @@ pub const ZigWrapper = struct {
                 try args.append(try self.allocator.dupe(u8, "-t"));
                 try args.append(try self.allocator.dupe(u8, "/.rmake/"));
 
-                if (utils.getEnvVar(self.allocator, "CARGO_WORKSPACE_DIR")) |ws| {
+                if (utils.getEnvVar(self.environ_map, self.allocator, "CARGO_WORKSPACE_DIR")) |ws| {
                     defer self.allocator.free(ws);
                     const ws_esc = try std.mem.replaceOwned(u8, self.allocator, ws, "\\", "\\\\");
                     try args.append(try self.allocator.dupe(u8, "-t"));
@@ -1133,15 +1152,24 @@ pub const ZigWrapper = struct {
                 } else |_| {}
 
                 for (&[_][]const u8{ "CMKABE_TARGET", "CMKABE_CARGO_TARGET" }) |env| {
-                    if (utils.getEnvVar(self.allocator, env)) |target| {
+                    if (utils.getEnvVar(self.environ_map, self.allocator, env)) |target| {
                         defer self.allocator.free(target);
                         try args.append(try self.allocator.dupe(u8, "-t"));
                         try args.append(try std.fmt.allocPrint(self.allocator, "{s}/", .{target}));
                     } else |_| {}
                 }
 
-                var child = std.process.Child.init(args.items, self.allocator);
-                const exit_code = (try child.spawnAndWait()).Exited;
+                var child = try std.process.spawn(self.io, .{
+                    .argv = args.items,
+                    .stdin = .inherit,
+                    .stdout = .inherit,
+                    .stderr = .inherit,
+                });
+                const term = try child.wait(self.io);
+                const exit_code = switch (term) {
+                    .exited => |code| code,
+                    else => 1,
+                };
                 if (exit_code != 0) {
                     self.log.print("***** elf_path_fixer.py error code: {d}\n", .{exit_code});
                 }
@@ -1158,20 +1186,18 @@ pub const LinkerLib = struct {
     index: usize = 0,
 };
 
-pub fn main() noreturn {
-    var status: u8 = 0;
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer {
-        _ = gpa.detectLeaks();
-        _ = gpa.deinit();
-        std.process.exit(status);
-    }
-    errdefer |err| {
-        _ = gpa.detectLeaks();
-        _ = std.io.getStdErr().writer().print("error: {}\n", .{err}) catch {};
-        std.process.exit(1);
-    }
-    var zig = try ZigWrapper.init(gpa.allocator());
+pub fn main(proc_init: std.process.Init) u8 {
+    return run(proc_init) catch |err| {
+        const stderr_file = std.Io.File.stderr();
+        var buf: [256]u8 = undefined;
+        const msg = std.fmt.bufPrint(&buf, "error: {}\n", .{err}) catch "error: print error\n";
+        stderr_file.writeStreamingAll(proc_init.io, msg) catch {};
+        return 1;
+    };
+}
+
+fn run(init: std.process.Init) !u8 {
+    var zig = try ZigWrapper.init(init);
     defer zig.deinit();
-    status = try zig.run();
+    return try zig.run();
 }
