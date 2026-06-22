@@ -296,14 +296,14 @@ pub const ZigWrapper = struct {
             }
         }
 
-        var argv = try StringArray.initCapacity(self.allocator, self.sys_argv.items.len);
-        defer argv.deinit();
-        std.mem.swap(StringArray, &self.sys_argv, &argv);
-        for (argv.items) |arg| {
-            try self.fixCommandFlag(@constCast(arg), &self.sys_argv);
-            self.allocator.free(arg);
+        {
+            var argv = try StringArray.initCapacity(self.allocator, self.sys_argv.items.len);
+            defer utils.freeStringArray(self.allocator, &argv);
+            std.mem.swap(StringArray, &self.sys_argv, &argv);
+            for (argv.items) |arg| {
+                try self.fixCommandFlag(@constCast(arg), &self.sys_argv);
+            }
         }
-        argv.clearRetainingCapacity();
 
         // Parse arguments in `argv[1..]`.
         var argv_parer = SimpleOptionParser{ .args = self.sys_argv.items };
@@ -377,7 +377,7 @@ pub const ZigWrapper = struct {
         _ = try file.readAll(flags_str);
 
         // Parse the flags
-        var arg_iter = try ArgIteratorGeneral.initTakeOwnership(
+        var arg_iter = try ArgIteratorGeneral.init(
             self.allocator,
             flags_str,
         );
@@ -393,8 +393,10 @@ pub const ZigWrapper = struct {
             return;
         }
 
-        const buf = try self.allocator.alloc(u8, 32 +
-            @max(self.zig_target.?.len, self.clang_target.?.len));
+        const buf = try self.allocator.alloc(u8, 32 + @max(
+            if (self.zig_target) |t| t.len else 0,
+            if (self.clang_target) |t| t.len else 0,
+        ));
         defer self.allocator.free(buf);
 
         var args = StringArray.init(self.allocator);
@@ -412,7 +414,7 @@ pub const ZigWrapper = struct {
                     target = self.zig_target.?;
                 },
                 2 => {
-                    if (self.clang_target == null or
+                    if (self.clang_target == null or self.zig_target == null or
                         utils.strEql(self.clang_target.?, self.zig_target.?)) continue;
                     target = self.clang_target.?;
                 },
@@ -447,7 +449,7 @@ pub const ZigWrapper = struct {
                     // Parse flags.
                     const flags_str = utils.getEnvVar(self.allocator, key) catch continue;
                     defer self.allocator.free(flags_str);
-                    var arg_iter = try ArgIteratorGeneral.initTakeOwnership(
+                    var arg_iter = try ArgIteratorGeneral.init(
                         self.allocator,
                         flags_str,
                     );
@@ -731,17 +733,24 @@ pub const ZigWrapper = struct {
     }
 
     fn fixLinkLibs(self: *Self) !void {
-        const INVALID_PTR: [*]const u8 = @ptrFromInt(std.math.maxInt(usize));
+        const INVALID_PTR: [*]const u8 = "~~INVALIDPTR~~";
+
         var args = try StringArray.initCapacity(
             self.allocator,
             self.args.items.len,
         );
+        errdefer {
+            for (args.items) |arg| {
+                if (arg.ptr != INVALID_PTR) self.allocator.free(arg);
+            }
+            args.deinit();
+        }
+
         var lib_map = std.StringArrayHashMap(std.ArrayList(LinkerLib)).init(
             self.allocator,
         );
         var path_set = std.StringArrayHashMap(void).init(self.allocator);
         defer {
-            args.deinit();
             for (lib_map.values()) |array| {
                 array.deinit();
             }
@@ -753,20 +762,19 @@ pub const ZigWrapper = struct {
         }
 
         var parser = SimpleOptionParser{ .args = self.args.items };
+
         outer: while (parser.hasArgument()) {
             if (parser.parseNamed(&.{"-l"}, false)) {
-                self.allocator.free(parser.consumed[0]);
+                continue;
             } else if (parser.parseNamed(&.{"-l"}, true)) {
                 var lib = self.libFromFileName(parser.value);
                 lib.index = args.items.len;
 
                 if (self.skipped_libs.contains(lib.name)) {
-                    for (parser.consumed) |arg| self.allocator.free(arg);
                     continue;
                 }
                 for (self.skipped_lib_patterns.items) |pattern| {
                     if (utils.strMatch(pattern, lib.name)) {
-                        for (parser.consumed) |arg| self.allocator.free(arg);
                         continue :outer;
                     }
                 }
@@ -780,7 +788,6 @@ pub const ZigWrapper = struct {
                             if (entry.kind == .none and lib.kind != .none) {
                                 entry.kind = lib.kind;
                             }
-                            for (parser.consumed) |arg| self.allocator.free(arg);
                             continue :outer;
                         }
                         if (utils.versionCompare(entry_ver[1], lib_ver[1]) < 0) {
@@ -813,23 +820,25 @@ pub const ZigWrapper = struct {
 
                     _ = std.mem.replace(u8, path, "\\", "/", path);
                     if (path_set.contains(path)) {
-                        for (parser.consumed) |arg| self.allocator.free(arg);
                         continue;
                     }
                     for (self.skipped_lib_paths.keys()) |pattern| {
                         if (utils.strMatch(pattern, path)) {
-                            for (parser.consumed) |arg| self.allocator.free(arg);
                             continue :outer;
                         }
                     }
 
                     try path_set.put(path, {});
                     ok = true;
-                } else |_| {}
+                } else |err| {
+                    if (err == error.OutOfMemory) return err;
+                }
             } else {
                 parser.advance(1);
             }
-            try args.appendSlice(parser.consumed);
+            for (parser.consumed) |arg| {
+                try args.append(try self.allocator.dupe(u8, arg));
+            }
         }
 
         // Add "." to the library paths.
@@ -892,11 +901,15 @@ pub const ZigWrapper = struct {
         var arg_num: usize = 0;
         for (args.items) |arg| {
             if (arg.ptr != INVALID_PTR) {
-                self.args.items.ptr[arg_num] = arg;
+                args.items[arg_num] = arg;
                 arg_num += 1;
             }
         }
-        self.args.items.len = arg_num;
+        args.items.len = arg_num;
+
+        // Clean up self.args and take ownership
+        utils.freeStringArray(self.allocator, &self.args);
+        self.args = args;
     }
 
     fn parseArgument(self: *Self, parser: *SimpleOptionParser) !void {
