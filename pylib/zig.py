@@ -69,7 +69,7 @@ import re
 import shutil
 import subprocess
 import sys
-from typing import Callable, List, Optional, Set
+from typing import Callable, Dict, List, Optional, Set
 
 from cmk.pylib.sys_utils import EXE_EXT
 
@@ -261,12 +261,8 @@ def patch_visibility(filename: str) -> bool:
 
     # Precise matching targets for headers with conditional compilation blocks.
     # We use LF-only formatting for mapping checks.
-    file_map = {
-        'crtexewin.c': b'#include <mbctype.h>\n#endif\n',
-        'wdirent.c': b'#include "dirent.c"\n',
-        'ucrtexewin.c': b'#include "crtexewin.c"\n',
-        'pseudo-reloc.c': b'# define NO_COPY\n#endif\n',
-        'thread.c': b'#include "winpthread_internal.h"\n',
+    file_map: Dict[str, bytes] = {
+        # 'thread.c': b'#include "winpthread_internal.h"\n',
     }
 
     with open(filename, 'rb') as file:
@@ -276,7 +272,7 @@ def patch_visibility(filename: str) -> bool:
     content_lf = content.replace(b'\r\n', b'\n')
 
     # If the patch is already applied, do not apply it again.
-    if insert in content_lf:
+    if insert.strip() in content_lf:
         return False
 
     if dll_import in content_lf and vis_default not in content_lf:
@@ -403,24 +399,17 @@ def patch_visibility(filename: str) -> bool:
         print(f'Patching {filename}')
         new_lines = []
         if -1 in push_lines:
-            new_lines.append(insert.strip())
-            new_lines.append(b'')
+            new_lines.extend([insert.strip(), b''])
 
         for idx, line in enumerate(lines):
             if idx in pop_lines:
-                new_lines.append(b'')
-                new_lines.append(append.strip())
-                new_lines.append(b'')
+                new_lines.extend([b'', append.strip(), b''])
             new_lines.append(line)
             if idx in push_lines:
-                new_lines.append(b'')
-                new_lines.append(insert.strip())
-                new_lines.append(b'')
+                new_lines.extend([b'', insert.strip(), b''])
 
         if append_pop_to_end:
-            new_lines.append(b'')
-            new_lines.append(append.strip())
-            new_lines.append(b'')
+            new_lines.extend([b'', append.strip(), b''])
 
         patched_lf = b'\n'.join(new_lines)
 
