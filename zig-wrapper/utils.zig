@@ -7,7 +7,7 @@ pub inline fn strEql(a: []const u8, b: []const u8) bool {
 }
 
 /// Remove trailing whitespace from `s`.
-pub inline fn strTrimRight(s: []const u8) []const u8 {
+pub inline fn strTrimEnd(s: []const u8) []const u8 {
     return std.mem.trimEnd(u8, s, " \t\r\n");
 }
 
@@ -221,16 +221,14 @@ pub fn sysArgMax() usize {
     if (builtin.os.tag == .windows) {
         return 32767;
     } else {
-        const unistd = @cImport({
-            @cInclude("unistd.h");
-        });
+        const unistd = @import("c");
         return @intCast(unistd.sysconf(@intCast(unistd._SC_ARG_MAX)));
     }
 }
 
 pub fn getEnvVar(env_map: *const std.process.Environ.Map, allocator: std.mem.Allocator, key: []const u8) ![]u8 {
     const val = env_map.get(key) orelse return error.EnvironmentVariableNotFound;
-    const s = strTrimRight(val);
+    const s = strTrimEnd(val);
     if (s.len > 0) {
         return try allocator.dupe(u8, s);
     }
@@ -250,4 +248,3 @@ pub fn freeStringSet(allocator: std.mem.Allocator, set: *std.array_hash_map.Stri
     }
     set.deinit(allocator);
 }
-

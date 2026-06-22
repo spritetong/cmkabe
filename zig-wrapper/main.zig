@@ -586,7 +586,7 @@ pub const ZigWrapper = struct {
             } else if (parser.parseNamed(&.{"--skip-lib"}, true)) {
                 var parts = std.mem.splitAny(u8, parser.value, ",;");
                 while (parts.next()) |part| {
-                    const v = utils.strTrimRight(part);
+                    const v = utils.strTrimEnd(part);
                     if (v.len > 0) {
                         const res = try self.skipped_libs.getOrPut(self.allocator, v);
                         if (!res.found_existing) {
@@ -600,7 +600,7 @@ pub const ZigWrapper = struct {
             } else if (parser.parseNamed(&.{"--skip-lib-path"}, true)) {
                 var parts = std.mem.splitAny(u8, parser.value, ";");
                 while (parts.next()) |part| {
-                    const v = utils.strTrimRight(part);
+                    const v = utils.strTrimEnd(part);
                     if (v.len > 0) {
                         const res = try self.skipped_lib_paths.getOrPut(self.allocator, v);
                         if (!res.found_existing) {

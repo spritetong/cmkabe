@@ -95,6 +95,10 @@ pub const ZigArgFilter = struct {
                     .match("mingw64").eof()
                     .match("mingwex").eof()
                     .match("stdc++").replaceWith(&.{ "-lc++", "-lc++abi" }).done();
+                // Fix LTO link errors from ZIG 0.16+
+                if (ctx.is_linker) {
+                    map.initFilter("-flto").done();
+                }
             }
         } else if (ctx.command == .link) {
             map.initFilter("--help").replaceWith(&.{"-help"}).done();
