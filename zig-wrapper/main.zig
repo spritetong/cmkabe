@@ -11,6 +11,7 @@ const TempFile = log_mod.TempFile;
 const filter_mod = @import("filter.zig");
 const ZigArgFilter = filter_mod.ZigArgFilter;
 const ZigArgFilterMap = filter_mod.ZigArgFilterMap;
+const elf_mod = @import("elf.zig");
 
 const StringArray = std.array_list.Managed([]const u8);
 const StringSet = std.array_hash_map.String(void);
@@ -1110,68 +1111,44 @@ pub const ZigWrapper = struct {
         //    zig build: Incorrect path prefix added to Linux shared library paths in ELF dynamic section
         if (self.cc_output) |output| {
             if (self.is_linker and !self.target_is_windows) {
-                // Get the real path of `elf_path_fixer.py`
-                const script_dir = std.fs.path.dirname(self.sys_argv0 orelse "") orelse ".";
-                const script = try std.fs.path.join(self.allocator, &.{
-                    script_dir,
-                    "elf_path_fixer.py",
-                });
-                defer self.allocator.free(script);
-                if ((std.Io.Dir.accessAbsolute(self.io, script, .{}) catch null) == null) {
-                    return;
+                var patterns = StringArray.init(self.allocator);
+                defer {
+                    for (patterns.items) |pat| {
+                        self.allocator.free(pat);
+                    }
+                    patterns.deinit();
                 }
 
-                // Arguments passed to `elf_path_fixer.py`.
-                var args = StringArray.init(self.allocator);
-                defer utils.freeStringArray(self.allocator, &args);
-
-                if (builtin.os.tag == .windows) {
-                    try args.append(try self.allocator.dupe(u8, "python.exe"));
-                } else {
-                    try args.append(try self.allocator.dupe(u8, "python3"));
-                }
-
-                try args.append(try self.allocator.dupe(u8, script));
-                try args.append(try self.allocator.dupe(u8, output));
-                try args.append(try self.allocator.dupe(u8, "--no-backup"));
-                try args.append(try self.allocator.dupe(u8, "--quiet"));
-
-                // Remove paths containing backslash on Windows.
-                try args.append(try self.allocator.dupe(u8, "-t"));
-                try args.append(try self.allocator.dupe(u8, "[:\\\\]"));
-                try args.append(try self.allocator.dupe(u8, "-t"));
-                try args.append(try self.allocator.dupe(u8, "^/mnt/[a-z]/"));
-                try args.append(try self.allocator.dupe(u8, "-t"));
-                try args.append(try self.allocator.dupe(u8, "/.rmake/"));
+                try patterns.append(try self.allocator.dupe(u8, ":|\\\\"));
+                try patterns.append(try self.allocator.dupe(u8, "^/mnt/[a-z]/"));
+                try patterns.append(try self.allocator.dupe(u8, "/.rmake/"));
 
                 if (utils.getEnvVar(self.environ_map, self.allocator, "CARGO_WORKSPACE_DIR")) |ws| {
                     defer self.allocator.free(ws);
-                    const ws_esc = try std.mem.replaceOwned(u8, self.allocator, ws, "\\", "\\\\");
-                    try args.append(try self.allocator.dupe(u8, "-t"));
-                    try args.append(ws_esc);
+                    try patterns.append(try self.allocator.dupe(u8, ws));
                 } else |_| {}
 
                 for (&[_][]const u8{ "CMKABE_TARGET", "CMKABE_CARGO_TARGET" }) |env| {
                     if (utils.getEnvVar(self.environ_map, self.allocator, env)) |target| {
                         defer self.allocator.free(target);
-                        try args.append(try self.allocator.dupe(u8, "-t"));
-                        try args.append(try std.fmt.allocPrint(self.allocator, "{s}/", .{target}));
+                        try patterns.append(try std.fmt.allocPrint(self.allocator, "{s}/", .{target}));
                     } else |_| {}
                 }
 
-                var child = try std.process.spawn(self.io, .{
-                    .argv = args.items,
-                    .stdin = .inherit,
-                    .stdout = .inherit,
-                    .stderr = .inherit,
-                });
-                const term = try child.wait(self.io);
-                const exit_code = switch (term) {
-                    .exited => |code| code,
-                    else => 1,
-                };
-                if (exit_code != 0) {
-                    self.log.print("***** elf_path_fixer.py error code: {d}\n", .{exit_code});
+                const elf_success = try elf_mod.modifyElfFile(
+                    self.allocator,
+                    self.io,
+                    output,
+                    patterns.items,
+                    false, // fix_rpath
+                    false, // create_backup
+                    true, // in_place
+                    false, // verbose
+                    true, // quiet
+                );
+
+                if (!elf_success) {
+                    self.log.print("***** elf_path_fixer error\n", .{});
                 }
             }
         }
