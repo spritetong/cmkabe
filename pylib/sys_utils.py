@@ -52,6 +52,7 @@ OS_LIST: Tuple[str, ...] = (
     'cuda',
     'uefi',
     'none',
+    'freestanding',
 )
 OS_PREFIXES: Tuple[str, ...] = ('wasi',)
 ENV_LIST: Tuple[str, ...] = ('msvc', 'android', 'gnu', 'musl', 'sgx', 'elf', 'ohos')
@@ -72,6 +73,10 @@ RUST_ARCH_MAP: Dict[str, str] = {
     'win32': 'i686',
     'x64': 'x86_64',
     'x86_64': 'x86_64',
+    'riscv64': 'riscv64gc',
+    'riscv64gc': 'riscv64gc',
+    'wasm32': 'wasm32',
+    'wasm64': 'wasm64',
 }
 
 # Rust ARCH -> MSVC ARCH
@@ -97,6 +102,8 @@ ANDROID_ARCH_MAP: Dict[str, str] = {
     'armv7': 'armv7a',
     'thumbv7neon': 'armv7a',
     'aarch64': 'aarch64',
+    'riscv64': 'riscv64',
+    'riscv64gc': 'riscv64',
 }
 
 # Rust ARCH -> Android ABI (JNI Directory Name)
@@ -106,6 +113,8 @@ ANDROID_ABI_MAP: Dict[str, str] = {
     'armv7': 'armeabi-v7a',
     'thumbv7neon': 'armeabi-v7a',
     'aarch64': 'arm64-v8a',
+    'riscv64': 'riscv64',
+    'riscv64gc': 'riscv64',
 }
 
 # Rust ARCH -> Apple ARCH
@@ -121,12 +130,22 @@ ZIG_ARCH_MAP: Dict[str, str] = {
     'armv7': 'arm',
     'thumbv7neon': 'thumb',
     'aarch64': 'aarch64',
+    'riscv64': 'riscv64',
+    'riscv64gc': 'riscv64',
+    'wasm32': 'wasm32',
+    'wasm64': 'wasm64',
 }
 
 # Rust OS -> Zig OS
 ZIG_OS_MAP: Dict[str, str] = {
     'darwin': 'macos',
     'ios-sim': 'ios',
+    'none': 'freestanding',
+    'unknown': 'freestanding',
+    'wasi': 'wasi',
+    'wasip1': 'wasi',
+    'wasip2': 'wasi',
+    'wasip1-threads': 'wasi',
 }
 
 

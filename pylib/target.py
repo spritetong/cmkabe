@@ -98,6 +98,7 @@ class TargetParser:
         self.unix: bool = False
         self.apple: bool = False
         self.ios: bool = False
+        self.wasm: bool = False
 
         # Tools
         self.cargo_target_dir: str = ''
@@ -286,6 +287,13 @@ class TargetParser:
                 ZIG_OS_MAP.get(self.os, self.os),
                 'none',
             )
+        elif self.arch in ('wasm32', 'wasm64') or self.os.startswith('wasi'):
+            self.wasm = True
+            self.cargo_target = self.cargo_target or join_triple(
+                self.arch, self.vendor, self.os, self.env
+            )
+            zig_os = ZIG_OS_MAP.get(self.os, self.os)
+            zig_target = f"{ZIG_ARCH_MAP.get(self.arch, self.arch)}-{zig_os}"
         else:
             self.unix = True
             self.cargo_target = self.cargo_target or join_triple(
@@ -450,16 +458,6 @@ class TargetParser:
                 if os.path.lexists(dst):
                     os.unlink(dst)
                 os.symlink(os.path.basename(exe), dst)
-            for name in ['elf_path_fixer.py']:
-                dst = os.path.join(directory, name)
-                if os.path.lexists(dst):
-                    os.unlink(dst)
-                os.symlink(
-                    os.path.relpath(
-                        os.path.join(self.cmkabe_dir, name), directory
-                    ).replace('/', os.sep),
-                    dst,
-                )
 
         # Override the target CC for Zig.
         self.target_cc = normpath(self.zig_cc_dir + '/zig-cc' + EXE_EXT)
@@ -822,6 +820,7 @@ class TargetParser:
             fwrite(f, f'override TARGET_IS_UNIX = {onoff(self.unix)}\n')
             fwrite(f, f'override TARGET_IS_APPLE = {onoff(self.apple)}\n')
             fwrite(f, f'override TARGET_IS_IOS = {onoff(self.ios)}\n')
+            fwrite(f, f'override TARGET_IS_WASM = {onoff(self.wasm)}\n')
 
         with open(os.path.join(self.cmake_target_dir, '.settings.cmake'), 'wb') as f:
             fwrite(f, '# Home directory\n')
@@ -965,6 +964,7 @@ class TargetParser:
             fwrite(f, f'set(TARGET_IS_UNIX {onoff(self.unix)})\n')
             fwrite(f, f'set(TARGET_IS_APPLE {onoff(self.apple)})\n')
             fwrite(f, f'set(TARGET_IS_IOS {onoff(self.ios)})\n')
+            fwrite(f, f'set(TARGET_IS_WASM {onoff(self.wasm)})\n')
             fwrite(f, '\n')
             fwrite(f, '# Suppress warnings\n')
             fwrite(f, 'set(ignoreMe "${CMAKE_VERBOSE_MAKEFILE}")\n')

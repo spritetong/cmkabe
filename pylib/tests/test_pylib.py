@@ -481,13 +481,14 @@ class TestElfPathFixer(unittest.TestCase):
                 os.path.dirname(
                     os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
                 ),
-                'elf_path_fixer.py',
+                'shlutil.py',
             )
 
             res = subprocess.run(
                 [
                     sys.executable,
                     script_path,
+                    'elf-path-fixer',
                     elf_file,
                     '-t',
                     '/usr/lib',
@@ -513,6 +514,155 @@ class TestTargetParser(unittest.TestCase):
         self.assertEqual(
             parser.host_system, sys_utils.host_target_info()['host_system']
         )
+
+    def test_riscv_and_wasm_targets(self) -> None:
+        # 1. riscv64 Linux
+        parser = TargetParser(target='riscv64gc-unknown-linux-gnu')
+        parser.parse()
+        self.assertEqual(parser.arch, 'riscv64gc')
+        self.assertEqual(parser.os, 'linux')
+        self.assertEqual(parser.zig_target, 'riscv64-linux-gnu')
+        self.assertTrue(parser.unix)
+        self.assertFalse(parser.wasm)
+
+        # 2. riscv64 Android NDK
+        parser = TargetParser(target='riscv64-linux-android')
+        parser.parse()
+        self.assertEqual(parser.arch, 'riscv64gc')
+        self.assertEqual(parser.os, 'linux')
+        self.assertEqual(parser.android_arch, 'riscv64')
+        self.assertEqual(parser.android_abi, 'riscv64')
+        self.assertEqual(parser.android_target, 'riscv64-linux-android')
+        self.assertTrue(parser.android)
+        self.assertTrue(parser.unix)
+        self.assertFalse(parser.wasm)
+
+        # 3. wasm32-unknown-unknown
+        parser = TargetParser(target='wasm32-unknown-unknown')
+        parser.parse()
+        self.assertEqual(parser.arch, 'wasm32')
+        self.assertEqual(parser.os, 'unknown')
+        self.assertEqual(parser.zig_target, 'wasm32-freestanding')
+        self.assertTrue(parser.wasm)
+        self.assertFalse(parser.unix)
+
+        # 4. wasm32-wasip1
+        parser = TargetParser(target='wasm32-wasip1')
+        parser.parse()
+        self.assertEqual(parser.arch, 'wasm32')
+        self.assertEqual(parser.os, 'wasip1')
+        self.assertEqual(parser.zig_target, 'wasm32-wasi')
+        self.assertTrue(parser.wasm)
+        self.assertFalse(parser.unix)
+
+        # 5. wasm32-wasip2
+        parser = TargetParser(target='wasm32-wasip2')
+        parser.parse()
+        self.assertEqual(parser.arch, 'wasm32')
+        self.assertEqual(parser.os, 'wasip2')
+        self.assertEqual(parser.zig_target, 'wasm32-wasi')
+        self.assertEqual(parser.cargo_target, 'wasm32-wasip2')
+        self.assertTrue(parser.wasm)
+        self.assertFalse(parser.unix)
+
+        # 6. thumbv7neon-linux-androideabi
+        parser = TargetParser(target='thumbv7neon-linux-androideabi')
+        parser.parse()
+        self.assertEqual(parser.arch, 'thumbv7neon')
+        self.assertEqual(parser.os, 'linux')
+        self.assertEqual(parser.android_arch, 'armv7a')
+        self.assertEqual(parser.android_abi, 'armeabi-v7a')
+        self.assertEqual(parser.android_target, 'armv7a-linux-androideabi')
+        self.assertEqual(parser.cargo_target, 'thumbv7neon-linux-androideabi')
+        self.assertTrue(parser.android)
+        self.assertTrue(parser.unix)
+        self.assertFalse(parser.wasm)
+
+        # 7. Linux with custom vendor (4 parts)
+        parser = TargetParser(target='x86_64-myvendor-linux-gnu')
+        parser.parse()
+        self.assertEqual(parser.arch, 'x86_64')
+        self.assertEqual(parser.os, 'linux')
+        self.assertEqual(parser.vendor, 'myvendor')
+        self.assertEqual(parser.cargo_target, 'x86_64-unknown-linux-gnu')
+        self.assertEqual(parser.zig_target, 'x86_64-linux-gnu')
+        self.assertTrue(parser.unix)
+        self.assertFalse(parser.wasm)
+
+        # 8. Linux with custom vendor (3 parts)
+        parser = TargetParser(target='x86_64-myvendor-linux')
+        parser.parse()
+        self.assertEqual(parser.arch, 'x86_64')
+        self.assertEqual(parser.os, 'linux')
+        self.assertEqual(parser.vendor, 'myvendor')
+        self.assertEqual(parser.cargo_target, 'x86_64-unknown-linux')
+        self.assertEqual(parser.zig_target, 'x86_64-linux')
+        self.assertTrue(parser.unix)
+        self.assertFalse(parser.wasm)
+
+        # 9. wasm32-wasip1-threads (multi-threaded WASI)
+        parser = TargetParser(target='wasm32-wasip1-threads')
+        parser.parse()
+        self.assertEqual(parser.arch, 'wasm32')
+        self.assertEqual(parser.os, 'wasip1')
+        self.assertEqual(parser.env, 'threads')
+        self.assertEqual(parser.zig_target, 'wasm32-wasi')
+        self.assertEqual(parser.cargo_target, 'wasm32-wasip1-threads')
+        self.assertTrue(parser.wasm)
+        self.assertFalse(parser.unix)
+
+        # 10. aarch64-unknown-none (freestanding/bare-metal)
+        parser = TargetParser(target='aarch64-unknown-none')
+        parser.parse()
+        self.assertEqual(parser.arch, 'aarch64')
+        self.assertEqual(parser.os, 'none')
+        self.assertEqual(parser.zig_target, 'aarch64-none')
+        self.assertTrue(parser.unix)
+        self.assertFalse(parser.wasm)
+
+        # 11. riscv64gc-unknown-none-elf
+        parser = TargetParser(target='riscv64gc-unknown-none-elf')
+        parser.parse()
+        self.assertEqual(parser.arch, 'riscv64gc')
+        self.assertEqual(parser.os, 'none')
+        self.assertEqual(parser.env, 'elf')
+        self.assertEqual(parser.cargo_target, 'riscv64gc-unknown-none-elf')
+        self.assertEqual(parser.zig_target, 'riscv64-none-elf')
+        self.assertTrue(parser.unix)
+        self.assertFalse(parser.wasm)
+
+        # 12. thumbv6m-none-eabi (embedded thumb ARM)
+        parser = TargetParser(target='thumbv6m-none-eabi')
+        parser.parse()
+        self.assertEqual(parser.arch, 'thumbv6m')
+        self.assertEqual(parser.os, 'none')
+        self.assertEqual(parser.env, 'eabi')
+        self.assertEqual(parser.cargo_target, 'thumbv6m-none-eabi')
+        self.assertEqual(parser.zig_target, 'thumbv6m-none-eabi')
+        self.assertTrue(parser.unix)
+        self.assertFalse(parser.wasm)
+
+        # 13. x86_64-fortanix-unknown-sgx
+        parser = TargetParser(target='x86_64-fortanix-unknown-sgx')
+        parser.parse()
+        self.assertEqual(parser.arch, 'x86_64')
+        self.assertEqual(parser.vendor, 'fortanix')
+        self.assertEqual(parser.os, 'unknown')
+        self.assertEqual(parser.env, 'sgx')
+        self.assertTrue(parser.unix)
+        self.assertFalse(parser.wasm)
+
+        # 14. Linux with custom vendor and musl environment
+        parser = TargetParser(target='aarch64-custom-linux-musl')
+        parser.parse()
+        self.assertEqual(parser.arch, 'aarch64')
+        self.assertEqual(parser.os, 'linux')
+        self.assertEqual(parser.vendor, 'custom')
+        self.assertEqual(parser.env, 'musl')
+        self.assertEqual(parser.cargo_target, 'aarch64-unknown-linux-musl')
+        self.assertEqual(parser.zig_target, 'aarch64-linux-musl')
+        self.assertTrue(parser.unix)
+        self.assertFalse(parser.wasm)
 
 
 if __name__ == '__main__':
