@@ -56,13 +56,13 @@ class TargetParser:
         self.host_target: str = host_info['triple']
         self.host_cargo_target: str = host_info['cargo_triple']
 
-        self.script_dir: str = normpath(
+        self.cmkabe_dir: str = normpath(
             os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
         )
 
         # Paths
         self.workspace_dir: str = normpath(
-            os.path.abspath(workspace_dir or os.path.join(self.script_dir, '..'))
+            os.path.abspath(workspace_dir or os.path.join(self.cmkabe_dir, '..'))
         )
         self.target: str = target
         self.target_is_native: bool = False
@@ -403,7 +403,7 @@ class TargetParser:
         self.zig_cc_dir = normpath(
             os.path.join(self.target_dir, '.zig', self.host_system)
         )
-        src = self.script_dir + '/zig-wrapper/main.zig'
+        src = self.cmkabe_dir + '/zig-wrapper/main.zig'
         exe = self.zig_cc_dir + '/zig-wrapper' + EXE_EXT
         directory = self.zig_cc_dir
 
@@ -456,7 +456,7 @@ class TargetParser:
                     os.unlink(dst)
                 os.symlink(
                     os.path.relpath(
-                        os.path.join(self.script_dir, name), directory
+                        os.path.join(self.cmkabe_dir, name), directory
                     ).replace('/', os.sep),
                     dst,
                 )
@@ -656,7 +656,7 @@ class TargetParser:
 
         with open(os.path.join(self.cmake_target_dir, '.settings.mk'), 'wb') as f:
             fwrite(f, '# Home directory\n')
-            fwrite(f, f'override CMKABE_HOME = {self.script_dir}\n')
+            fwrite(f, f'override CMKABE_HOME = {self.cmkabe_dir}\n')
             fwrite(f, '\n')
 
             fwrite(f, '# Constants for the target platform\n')
@@ -825,7 +825,7 @@ class TargetParser:
 
         with open(os.path.join(self.cmake_target_dir, '.settings.cmake'), 'wb') as f:
             fwrite(f, '# Home directory\n')
-            fwrite(f, f'set(CMKABE_HOME "{self.script_dir}")\n')
+            fwrite(f, f'set(CMKABE_HOME "{self.cmkabe_dir}")\n')
             fwrite(f, '\n')
 
             fwrite(f, '# Constants for the target platform\n')

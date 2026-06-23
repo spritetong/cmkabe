@@ -20,7 +20,7 @@ endif()
 set(_cmkabe_env_inited ON)
 
 if(NOT DEFINED CMKABE_HOME)
-    # Since env.cmake is in cmk/cmake/, CMKABE_HOME should be the parent cmk/ directory.
+    # Since env.cmake is in cmake/, CMKABE_HOME should be the parent directory.
     get_filename_component(CMKABE_HOME "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
 endif()
 
