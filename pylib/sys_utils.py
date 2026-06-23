@@ -248,8 +248,8 @@ def parse_triple(target_triple: str) -> Tuple[str, str, str, str]:
 
 @dataclass(frozen=True)
 class HostTargetInfo:
-    host_system: str
-    system: str
+    host_system: str  # Host OS family (Make/CMake compatible, e.g., 'Windows', 'Linux', 'Darwin')
+    system: str       # Host system variant (not for Cargo, e.g., 'windows', 'linux', 'macos', 'mingw', 'cygwin')
     family: str
     os: str
     arch: str
