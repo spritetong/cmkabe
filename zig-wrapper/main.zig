@@ -178,10 +178,8 @@ pub const ZigWrapper = struct {
 
         // Parse Zig flags in the environment variables.
         try self.parseEnvFlags(&argv);
-        if (!utils.stringsContains(self.sys_argv.items, argv.items)) {
-            for (argv.items) |arg| {
-                try self.sys_argv.append(try self.allocator.dupe(u8, arg));
-            }
+        for (argv.items) |arg| {
+            try self.sys_argv.append(try self.allocator.dupe(u8, arg));
         }
         utils.freeStringArray(self.allocator, &argv);
         argv = StringArray.init(self.allocator);
