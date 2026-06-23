@@ -17,6 +17,7 @@ from .sys_utils import (
     VSTOOLS_ARCH_MAP,
     ZIG_ARCH_MAP,
     ZIG_OS_MAP,
+    HostTargetInfo,
     copy_env_for_cc,
     host_target_info,
     join_triple,
@@ -44,17 +45,17 @@ class TargetParser:
         make_clean: str = '',
         **_args: Any,
     ) -> None:
-        host_info = host_target_info()
+        host_info: HostTargetInfo = host_target_info()
 
         # Host properties
-        self.host_system: str = host_info['host_system']
-        self.host_system_ext: str = host_info['system']
-        self.host_arch: str = host_info['arch']
-        self.host_os: str = host_info['os']
-        self.host_vendor: str = host_info['vendor']
-        self.host_env: str = host_info['env']
-        self.host_target: str = host_info['triple']
-        self.host_cargo_target: str = host_info['cargo_triple']
+        self.host_system: str = host_info.host_system
+        self.host_system_ext: str = host_info.system
+        self.host_arch: str = host_info.arch
+        self.host_os: str = host_info.os
+        self.host_vendor: str = host_info.vendor
+        self.host_env: str = host_info.env
+        self.host_target: str = host_info.triple
+        self.host_cargo_target: str = host_info.cargo_triple
 
         self.cmkabe_dir: str = normpath(
             os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
@@ -293,7 +294,7 @@ class TargetParser:
                 self.arch, self.vendor, self.os, self.env
             )
             zig_os = ZIG_OS_MAP.get(self.os, self.os)
-            zig_target = f"{ZIG_ARCH_MAP.get(self.arch, self.arch)}-{zig_os}"
+            zig_target = f'{ZIG_ARCH_MAP.get(self.arch, self.arch)}-{zig_os}'
         else:
             self.unix = True
             self.cargo_target = self.cargo_target or join_triple(

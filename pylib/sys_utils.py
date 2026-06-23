@@ -5,6 +5,7 @@ import os
 import platform
 import re
 import sys
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 EXE_EXT: str = '.exe' if os.name == 'nt' else ''
@@ -245,7 +246,23 @@ def parse_triple(target_triple: str) -> Tuple[str, str, str, str]:
     return (arch, vendor, os_str, env_str)
 
 
-def host_target_info() -> Dict[str, Any]:
+@dataclass(frozen=True)
+class HostTargetInfo:
+    host_system: str
+    system: str
+    family: str
+    os: str
+    arch: str
+    vendor: str
+    env: str
+    pointer_width: int
+    endian: str
+    feature: str
+    triple: str
+    cargo_triple: str
+
+
+def host_target_info() -> HostTargetInfo:
     """Retrieve details about the host target system."""
     # (compatible with Make & CMake) Windows, Linux, Darwin
     host_system: str = 'Windows' if os.name == 'nt' else platform.uname()[0]
@@ -318,20 +335,20 @@ def host_target_info() -> Dict[str, Any]:
         target_arch, cargo_target_vendor, target_os, target_env
     )
 
-    return {
-        'host_system': host_system,
-        'system': target_system,
-        'family': target_family,
-        'os': target_os,
-        'arch': target_arch,
-        'vendor': target_vendor,
-        'env': target_env,
-        'pointer_width': target_pointer_width,
-        'endian': target_endian,
-        'feature': target_feature,
-        'triple': target_triple,
-        'cargo_triple': cargo_target_triple,
-    }
+    return HostTargetInfo(
+        host_system=host_system,
+        system=target_system,
+        family=target_family,
+        os=target_os,
+        arch=target_arch,
+        vendor=target_vendor,
+        env=target_env,
+        pointer_width=target_pointer_width,
+        endian=target_endian,
+        feature=target_feature,
+        triple=target_triple,
+        cargo_triple=cargo_target_triple,
+    )
 
 
 def win2wsl_path(path: str) -> str:

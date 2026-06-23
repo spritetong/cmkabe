@@ -512,7 +512,7 @@ class TestTargetParser(unittest.TestCase):
         )
         self.assertEqual(parser.target, 'x86_64-pc-windows-msvc')
         self.assertEqual(
-            parser.host_system, sys_utils.host_target_info()['host_system']
+            parser.host_system, sys_utils.host_target_info().host_system
         )
 
     def test_riscv_and_wasm_targets(self) -> None:
