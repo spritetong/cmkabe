@@ -776,9 +776,7 @@ pub const ZigWrapper = struct {
         var parser = SimpleOptionParser{ .args = self.args.items };
 
         outer: while (parser.hasArgument()) {
-            if (parser.parseNamed(&.{"-l"}, false)) {
-                continue;
-            } else if (parser.parseNamed(&.{"-l"}, true)) {
+            if (parser.parseNamed(&.{"-l"}, true)) {
                 var lib = self.libFromFileName(parser.value);
                 lib.index = args.items.len;
 
@@ -820,6 +818,9 @@ pub const ZigWrapper = struct {
                     try libs.append(lib);
                     try lib_map.put(self.allocator, lib_ver[0], libs);
                 }
+                const opt = try std.fmt.allocPrint(self.allocator, "-l{s}", .{parser.value});
+                try args.append(opt);
+                continue;
             } else if (parser.parseNamed(&.{"-L"}, true)) {
                 // normalize path
                 if (std.fs.path.relative(
