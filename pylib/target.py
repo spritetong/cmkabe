@@ -81,6 +81,8 @@ class TargetParser:
         self.vendor: str = ''
         self.os: str = ''
         self.env: str = ''
+        self.version: str = ''
+        self.version_sep: str = ''
 
         # Target indicators
         self.win32: bool = False
@@ -227,7 +229,7 @@ class TargetParser:
         if self.target_is_native:
             self.target = self.host.triple
 
-        self.arch, self.vendor, self.os, self.env = parse_triple(self.target)
+        self.arch, self.vendor, self.os, self.env, self.version, self.version_sep = parse_triple(self.target)
         self.arch = RUST_ARCH_MAP.get(self.arch, self.arch)
 
         # Detect platform properties
@@ -293,6 +295,9 @@ class TargetParser:
             zig_target = join_triple(
                 ZIG_ARCH_MAP.get(self.arch, self.arch), '', self.os, self.env
             )
+
+        if self.version:
+            zig_target += f'.{self.version}'
 
         # Cross compiler checks
         self.zig = os.path.splitext(os.path.basename(self.target_cc))[0] in (
@@ -763,6 +768,8 @@ class TargetParser:
             fwrite(f, '\n')
 
             fwrite(f, '# Android\n')
+            if self.android and self.version:
+                fwrite(f, f'override ANDROID_SDK_VERSION = {self.version}\n')
             fwrite(
                 f,
                 f'override ANDROID_TARGET = {self.android_target}{"$(ANDROID_SDK_VERSION)" if self.android_target else ""}\n',
@@ -905,6 +912,8 @@ class TargetParser:
             fwrite(f, '\n')
 
             fwrite(f, '# Android\n')
+            if self.android and self.version:
+                fwrite(f, f'set(ANDROID_SDK_VERSION "{self.version}")\n')
             android_target_val = (
                 f'{self.android_target}${{ANDROID_SDK_VERSION}}'
                 if self.android_target

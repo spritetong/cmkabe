@@ -162,16 +162,35 @@ def need_update(source_file: str, dest_file: str) -> bool:
     )
 
 
-def join_triple(arch: str, vendor: str, os_name: str, env: str) -> str:
+def split_env_version(env_part: str) -> Tuple[str, str, str]:
+    """Split an environment string like gnu.2.28 or android24 into (base_env, separator, version)."""
+    if not env_part:
+        return '', '', ''
+    m = re.match(r'^([a-zA-Z]+)(\.?)(\d+(?:\.\d+)*)$', env_part)
+    if m:
+        base, sep, ver = m.groups()
+        return base, sep, ver
+    return env_part, '', ''
+
+
+def join_triple(
+    arch: str,
+    vendor: str,
+    os_name: str,
+    env: str,
+    version: str = '',
+    version_sep: str = '',
+) -> str:
     """Join target triple components into a standard string representation."""
     vendor_part = f'-{vendor}' if vendor else ''
     os_part = f'-{os_name}' if os_name else ''
-    env_part = f'-{env}' if env else ''
+    full_env = env + (version_sep + version if version else '')
+    env_part = f'-{full_env}' if full_env else ''
     return f'{arch}{vendor_part}{os_part}{env_part}'
 
 
-def parse_triple(target_triple: str) -> Tuple[str, str, str, str]:
-    """Parse a target triple string into (arch, vendor, os, env)."""
+def parse_triple(target_triple: str) -> Tuple[str, str, str, str, str, str]:
+    """Parse a target triple string into (arch, vendor, os, env, version, version_sep)."""
     triple = target_triple.lower().split('-')
 
     # Fix up '-ios-sim'
@@ -183,6 +202,8 @@ def parse_triple(target_triple: str) -> Tuple[str, str, str, str]:
     vendor: str = ''
     os_str: str = ''
     env_str: str = ''
+    version: str = ''
+    version_sep: str = ''
 
     def is_vendor_str(s: str) -> bool:
         return s in VENDOR_LIST
@@ -191,10 +212,11 @@ def parse_triple(target_triple: str) -> Tuple[str, str, str, str]:
         return s in OS_LIST or any(s.startswith(x) for x in OS_PREFIXES)
 
     def is_env_str(s: str) -> bool:
+        base, _, _ = split_env_version(s)
         return (
-            s in ENV_LIST
-            or any(s.startswith(x) for x in ENV_PREFIXES)
-            or any(s.endswith(x) for x in ENV_SUFFIXES)
+            base in ENV_LIST
+            or any(base.startswith(x) for x in ENV_PREFIXES)
+            or any(base.endswith(x) for x in ENV_SUFFIXES)
         )
 
     if len(triple) == 1:
@@ -223,6 +245,9 @@ def parse_triple(target_triple: str) -> Tuple[str, str, str, str]:
         os_str = triple[2]
         env_str = triple[3]
 
+    if env_str:
+        env_str, version_sep, version = split_env_version(env_str)
+
     rust_arch = RUST_ARCH_MAP.get(arch, arch)
     if 'windows' in target_triple and (
         os_str != 'windows' or rust_arch not in MSVC_ARCH_MAP
@@ -239,17 +264,17 @@ def parse_triple(target_triple: str) -> Tuple[str, str, str, str]:
     ):
         raise ValueError(f'Invalid ARCH for Apple: {target_triple}')
 
-    parsed_triple = join_triple(arch, vendor, os_str, env_str)
+    parsed_triple = join_triple(arch, vendor, os_str, env_str, version, version_sep)
     if not arch or not os_str or parsed_triple != target_triple:
         raise ValueError(f'Invalid target triple: {target_triple}')
 
-    return (arch, vendor, os_str, env_str)
+    return (arch, vendor, os_str, env_str, version, version_sep)
 
 
 @dataclass(frozen=True)
 class HostTargetInfo:
     host_system: str  # Host OS family (Make/CMake compatible, e.g., 'Windows', 'Linux', 'Darwin')
-    system: str       # Host system variant (not for Cargo, e.g., 'windows', 'linux', 'macos', 'mingw', 'cygwin')
+    system: str  # Host system variant (not for Cargo, e.g., 'windows', 'linux', 'macos', 'mingw', 'cygwin')
     family: str
     os: str
     arch: str

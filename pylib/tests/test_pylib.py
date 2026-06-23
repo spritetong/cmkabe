@@ -23,13 +23,15 @@ class TestSysUtils(unittest.TestCase):
 
     def test_triple_parsing(self) -> None:
         triple = 'x86_64-unknown-linux-gnu'
-        arch, vendor, os_name, env = sys_utils.parse_triple(triple)
+        arch, vendor, os_name, env, version, version_sep = sys_utils.parse_triple(triple)
         self.assertEqual(arch, 'x86_64')
         self.assertEqual(vendor, 'unknown')
         self.assertEqual(os_name, 'linux')
         self.assertEqual(env, 'gnu')
+        self.assertEqual(version, '')
+        self.assertEqual(version_sep, '')
 
-        joined = sys_utils.join_triple(arch, vendor, os_name, env)
+        joined = sys_utils.join_triple(arch, vendor, os_name, env, version, version_sep)
         self.assertEqual(joined, triple)
 
     def test_path_conversions(self) -> None:
@@ -661,6 +663,38 @@ class TestTargetParser(unittest.TestCase):
         self.assertEqual(parser.env, 'musl')
         self.assertEqual(parser.cargo_target, 'aarch64-unknown-linux-musl')
         self.assertEqual(parser.zig_target, 'aarch64-linux-musl')
+        self.assertTrue(parser.unix)
+        self.assertFalse(parser.wasm)
+
+        # 15. Linux with glibc version suffix
+        parser = TargetParser(target='x86_64-unknown-linux-gnu.2.28', target_cc='zig')
+        parser.parse()
+        self.assertEqual(parser.arch, 'x86_64')
+        self.assertEqual(parser.os, 'linux')
+        self.assertEqual(parser.vendor, 'unknown')
+        self.assertEqual(parser.env, 'gnu')
+        self.assertEqual(parser.version, '2.28')
+        self.assertEqual(parser.version_sep, '.')
+        self.assertEqual(parser.cargo_target, 'x86_64-unknown-linux-gnu')
+        self.assertEqual(parser.zig_target, 'x86_64-linux-gnu.2.28')
+        self.assertTrue(parser.unix)
+        self.assertFalse(parser.wasm)
+
+        # 16. Android with API version suffix
+        parser = TargetParser(target='aarch64-linux-android24', target_cc='zig')
+        parser.parse()
+        self.assertEqual(parser.arch, 'aarch64')
+        self.assertEqual(parser.os, 'linux')
+        self.assertEqual(parser.vendor, '')
+        self.assertEqual(parser.env, 'android')
+        self.assertEqual(parser.version, '24')
+        self.assertEqual(parser.version_sep, '')
+        self.assertEqual(parser.cargo_target, 'aarch64-linux-android')
+        self.assertEqual(parser.zig_target, 'aarch64-linux-android.24')
+        self.assertEqual(parser.android_target, 'aarch64-linux-android')
+        self.assertEqual(parser.android_arch, 'aarch64')
+        self.assertEqual(parser.android_abi, 'arm64-v8a')
+        self.assertTrue(parser.android)
         self.assertTrue(parser.unix)
         self.assertFalse(parser.wasm)
 
