@@ -1687,6 +1687,7 @@ fn parseCharSet(in: []const u8, patt: []RegOp, sets: []CharSet, j: usize, i_in: 
     while (i < in.len and in[i] != ']') : (i += 1) {
         // An escape might be a range:
         var c1_x = false; // Was c1 an \x escape?
+        var is_escaped_special = false;
         const c1 = which: {
             if (in[i] == '\\') {
                 const may_b = valueFor(in[i + 1 ..]);
@@ -1699,8 +1700,8 @@ fn parseCharSet(in: []const u8, patt: []RegOp, sets: []CharSet, j: usize, i_in: 
                     }
                     break :which b;
                 } else {
-                    // handle normal stuff later
-                    break :which in[1];
+                    is_escaped_special = true;
+                    break :which '\\';
                 }
             } else {
                 break :which in[i];
@@ -1718,69 +1719,74 @@ fn parseCharSet(in: []const u8, patt: []RegOp, sets: []CharSet, j: usize, i_in: 
                     hi |= one << cut_c;
                 }, // aka 0x5c:
                 '\\' => { // escaped value, we don't care what
-                    // thought I had established that already but ok
-                    if (i + 1 < in.len) {
-                        i += 1;
-                        const c2 = in[i];
-                        switch (c2) {
-                            0...63 => {
-                                const cut_c: u6 = @truncate(c2);
-                                low |= one << cut_c;
-                            },
-                            'w' => {
-                                low |= w_LOW_MASK;
-                                hi |= w_HI_MASK;
-                            },
-                            'W' => {
-                                low |= ~w_LOW_MASK;
-                                hi |= ~w_HI_MASK;
-                            },
-                            's' => {
-                                low |= s_MASK;
-                            },
-                            'S' => {
-                                low |= ~s_MASK;
-                                hi |= ~ALL_MASK;
-                            },
-                            'd' => {
-                                low |= d_MASK;
-                            },
-                            'D' => {
-                                low |= ~d_MASK;
-                                hi |= ALL_MASK;
-                            }, // TODO these might be unreachable now, kcov it
-                            'n' => {
-                                low |= one << '\n';
-                            },
-                            't' => {
-                                low |= one << '\t';
-                            },
-                            'r' => {
-                                low |= one << '\r';
-                            },
-                            'x' => {
-                                i += 1;
-                                const b = parseHex(in[i..]) catch return BadString;
-                                if (b > 127) {
-                                    logError("charsets can't fit {d}\n", .{b});
+                    if (is_escaped_special) {
+                        if (i + 1 < in.len) {
+                            i += 1;
+                            const c2 = in[i];
+                            switch (c2) {
+                                0...63 => {
+                                    const cut_c: u6 = @truncate(c2);
+                                    low |= one << cut_c;
+                                },
+                                'w' => {
+                                    low |= w_LOW_MASK;
+                                    hi |= w_HI_MASK;
+                                },
+                                'W' => {
+                                    low |= ~w_LOW_MASK;
+                                    hi |= ~w_HI_MASK;
+                                },
+                                's' => {
+                                    low |= s_MASK;
+                                },
+                                'S' => {
+                                    low |= ~s_MASK;
+                                    hi |= ~ALL_MASK;
+                                },
+                                'd' => {
+                                    low |= d_MASK;
+                                },
+                                'D' => {
+                                    low |= ~d_MASK;
+                                    hi |= ALL_MASK;
+                                }, // TODO these might be unreachable now, kcov it
+                                'n' => {
+                                    low |= one << '\n';
+                                },
+                                't' => {
+                                    low |= one << '\t';
+                                },
+                                'r' => {
+                                    low |= one << '\r';
+                                },
+                                'x' => {
+                                    i += 1;
+                                    const b = parseHex(in[i..]) catch return BadString;
+                                    if (b > 127) {
+                                        logError("charsets can't fit {d}\n", .{b});
+                                        return BadString;
+                                    }
+                                    i += 1;
+                                    const b_trunc: u6 = @truncate(b);
+                                    switch (b) {
+                                        0...63 => low |= one << b_trunc,
+                                        64...127 => hi |= one << b_trunc,
+                                        else => unreachable,
+                                    }
+                                },
+                                128...255 => {
                                     return BadString;
-                                }
-                                i += 1;
-                                const b_trunc: u6 = @truncate(b);
-                                switch (b) {
-                                    0...63 => low |= one << b_trunc,
-                                    64...127 => hi |= one << b_trunc,
-                                    else => unreachable,
-                                }
-                            },
-                            128...255 => {
-                                return BadString;
-                            },
-                            else => {
-                                const cut_c: u6 = @truncate(c2);
-                                hi |= one << cut_c;
-                            },
+                                },
+                                else => {
+                                    const cut_c: u6 = @truncate(c2);
+                                    hi |= one << cut_c;
+                                },
+                            }
                         }
+                    } else {
+                        // A literal backslash
+                        const cut_c: u6 = @truncate(c1);
+                        hi |= one << cut_c;
                     }
                 },
                 0x80...0xff => {
@@ -2198,6 +2204,9 @@ test "match some things" {
     try testMatchAll("^1??abc", "1abc");
     try testMatchAll("^1??1abc", "1abc");
     try testMatchAll("[^abc]+", "defgh");
+    try testMatchAll("[:\\\\]", ":");
+    try testMatchAll("[:\\\\]", "\\");
+    try testMatchAll("a[\\w]", "ab");
     try testMatchAll("^1??1abc$", "1abc");
     try testFail("^1??1abc$", "1abccc");
     try testMatchAll("foo|bar|baz", "foo");

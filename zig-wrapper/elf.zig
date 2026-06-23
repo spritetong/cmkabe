@@ -254,8 +254,8 @@ pub fn matchPattern(pattern: []const u8, text: []const u8) bool {
 }
 
 /// Helper function to log informational messages
-fn printInfo(io: std.Io, quiet: bool, verbose: bool, is_verbose_msg: bool, comptime fmt: []const u8, args: anytype) void {
-    if (is_verbose_msg or (!quiet and !verbose)) {
+fn printInfo(io: std.Io, quiet: bool, is_verbose_msg: bool, comptime fmt: []const u8, args: anytype) void {
+    if (is_verbose_msg or (!quiet and !is_verbose_msg)) {
         const file = std.Io.File.stdout();
         var buf: [1024]u8 = undefined;
         const msg = std.fmt.bufPrint(&buf, "[INFO] " ++ fmt ++ "\n", args) catch return;
@@ -300,15 +300,15 @@ pub fn modifyElfFile(
     {
         var buf: [512]u8 = undefined;
         const msg = std.fmt.bufPrint(&buf, "Found {d} dynamic libraries in {s}", .{ needed_libs.len, elf_path }) catch "";
-        printInfo(io, quiet, verbose, false, "{s}", .{msg});
+        printInfo(io, quiet, false, "{s}", .{msg});
     }
     for (needed_libs) |lib| {
-        printInfo(io, quiet, verbose, true, "  - {s}", .{lib.name});
+        printInfo(io, quiet, verbose, "  - {s}", .{lib.name});
     }
 
-    printInfo(io, quiet, verbose, false, "Found {d} RUNPATH/RPATH entries", .{paths.len});
+    printInfo(io, quiet, false, "Found {d} RUNPATH/RPATH entries", .{paths.len});
     for (paths) |path| {
-        printInfo(io, quiet, verbose, true, "  - {s}", .{path.path});
+        printInfo(io, quiet, verbose, "  - {s}", .{path.path});
     }
 
     // 2. Identify libraries that match target patterns and plan replacements
@@ -376,7 +376,7 @@ pub fn modifyElfFile(
                     }
                 }
                 if (p_matched) {
-                    printInfo(io, quiet, verbose, false, "  Removing directory path from: {s}", .{p});
+                    printInfo(io, quiet, false, "  Removing directory path from: {s}", .{p});
                 } else {
                     try new_paths.append(p);
                 }
@@ -397,7 +397,7 @@ pub fn modifyElfFile(
 
     // 4. Return immediately if no modifications are required
     if (modified_libs.items.len == 0 and modified_paths.items.len == 0) {
-        printInfo(io, quiet, verbose, false, "No modifications needed", .{});
+        printInfo(io, quiet, false, "No modifications needed", .{});
         return true;
     }
 
@@ -413,10 +413,10 @@ pub fn modifyElfFile(
         defer allocator.free(backup_path);
 
         temp_path = try std.fmt.allocPrint(allocator, "{s}.tmp", .{elf_path});
-        printInfo(io, quiet, verbose, false, "Creating temporary copy for backup", .{});
+        printInfo(io, quiet, false, "Creating temporary copy for backup", .{});
         try cwd.copyFile(elf_path, cwd, temp_path.?, io, .{});
 
-        printInfo(io, quiet, verbose, false, "Creating backup at {s}", .{backup_path});
+        printInfo(io, quiet, false, "Creating backup at {s}", .{backup_path});
         try cwd.copyFile(elf_path, cwd, backup_path, io, .{});
     }
 
@@ -453,7 +453,7 @@ pub fn modifyElfFile(
             continue;
         }
 
-        printInfo(io, quiet, verbose, false, "Replacing {s} with {s}", .{ ml.old_lib, ml.new_lib });
+        printInfo(io, quiet, false, "Replacing {s} with {s}", .{ ml.old_lib, ml.new_lib });
 
         if (ml.new_lib.len > ml.old_lib.len) {
             printError(io, quiet, "New library name is longer than old name, cannot replace in-place", .{});
@@ -483,7 +483,7 @@ pub fn modifyElfFile(
             continue;
         }
 
-        printInfo(io, quiet, verbose, false, "Replacing path {s} with {s}", .{ mp.old_path, mp.new_path });
+        printInfo(io, quiet, false, "Replacing path {s} with {s}", .{ mp.old_path, mp.new_path });
 
         if (mp.new_path.len > mp.old_path.len) {
             printError(io, quiet, "New path is longer than old path, cannot replace in-place", .{});
@@ -507,11 +507,11 @@ pub fn modifyElfFile(
 
     // 9. Swap the temporary file back to original file if temporary file was used
     if (use_temp) {
-        printInfo(io, quiet, verbose, false, "Updating {s} with modified version", .{elf_path});
+        printInfo(io, quiet, false, "Updating {s} with modified version", .{elf_path});
         try cwd.copyFile(temp_path.?, cwd, elf_path, io, .{});
         try cwd.deleteFile(io, temp_path.?);
     }
 
-    printInfo(io, quiet, verbose, false, "ELF file successfully updated", .{});
+    printInfo(io, quiet, false, "ELF file successfully updated", .{});
     return true;
 }

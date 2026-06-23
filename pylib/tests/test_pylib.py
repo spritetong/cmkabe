@@ -3,7 +3,6 @@ import sys
 import tempfile
 import time
 import unittest
-from typing import List
 
 # Setup sys.path to find cmk package
 cmk_parent = os.path.dirname(
@@ -12,9 +11,9 @@ cmk_parent = os.path.dirname(
 if cmk_parent not in sys.path:
     sys.path.insert(0, cmk_parent)
 
-from cmk.pylib import sys_utils
-from cmk.pylib.commands import ShellCmd
-from cmk.pylib.target import TargetParser
+from .. import sys_utils
+from .. import ShellCmd
+from .. import TargetParser
 
 
 class TestSysUtils(unittest.TestCase):
@@ -277,7 +276,8 @@ class TestCommands(unittest.TestCase):
             code = ShellCmd.main(['zig-clean-cache', '-v'])
             self.assertEqual(code, 0)
             self.assertEqual(
-                fake_out.getvalue().strip().replace('\\', '/'), 'Removing /mock/zig/cache'
+                fake_out.getvalue().strip().replace('\\', '/'),
+                'Removing /mock/zig/cache',
             )
             mock_rmtree.assert_called_once_with('/mock/zig/cache', ignore_errors=True)
 
@@ -291,7 +291,8 @@ class TestCommands(unittest.TestCase):
             code = ShellCmd.main(['zig-clean-cache', '--verbose'])
             self.assertEqual(code, 0)
             self.assertEqual(
-                fake_out.getvalue().strip().replace('\\', '/'), 'Removing /mock/zig/cache'
+                fake_out.getvalue().strip().replace('\\', '/'),
+                'Removing /mock/zig/cache',
             )
 
 
@@ -305,7 +306,7 @@ class TestElfPathFixer(unittest.TestCase):
         # 1. ELF Header
         header = bytearray(b'\x7fELF')
         header.append(2 if is_64bit else 1)  # class
-        header.append(1 if is_le else 2)     # endianness
+        header.append(1 if is_le else 2)  # endianness
         header.extend(b'\x01\x00' + b'\x00' * 8)  # version + pad
 
         sh_offset = 128
@@ -362,10 +363,10 @@ class TestElfPathFixer(unittest.TestCase):
 
         dyn_entries = [
             (5, strtab_offset),  # DT_STRTAB
-            (10, strtab_size),   # DT_STRSZ
-            (1, 1),              # DT_NEEDED -> "/usr/lib/libtest.so"
-            (29, 21),            # DT_RUNPATH -> "/path/to/runpath"
-            (0, 0)               # DT_NULL
+            (10, strtab_size),  # DT_STRSZ
+            (1, 1),  # DT_NEEDED -> "/usr/lib/libtest.so"
+            (29, 21),  # DT_RUNPATH -> "/path/to/runpath"
+            (0, 0),  # DT_NULL
         ]
 
         dyn_data = bytearray()
@@ -377,15 +378,15 @@ class TestElfPathFixer(unittest.TestCase):
 
         # Build full data
         full_data = bytearray(header)
-        full_data[sh_offset:sh_offset+len(sections)] = sections
+        full_data[sh_offset : sh_offset + len(sections)] = sections
 
         if len(full_data) < dyn_offset:
             full_data.extend(b'\x00' * (dyn_offset - len(full_data)))
-        full_data[dyn_offset:dyn_offset+len(dyn_data)] = dyn_data
+        full_data[dyn_offset : dyn_offset + len(dyn_data)] = dyn_data
 
         if len(full_data) < strtab_offset:
             full_data.extend(b'\x00' * (strtab_offset - len(full_data)))
-        full_data[strtab_offset:strtab_offset+strtab_size] = strtab_data
+        full_data[strtab_offset : strtab_offset + strtab_size] = strtab_data
 
         return bytes(full_data)
 
@@ -436,31 +437,40 @@ class TestElfPathFixer(unittest.TestCase):
                 f.write(mock_elf)
 
             # Run subcommand
-            code = ShellCmd.main([
-                'elf-path-fixer',
-                elf_file,
-                '-t', '/usr/lib',
-                '-t', '/path/to',
-                '--fix-rpath',
-                '--no-backup',
-                '--quiet'
-            ])
+            code = ShellCmd.main(
+                [
+                    'elf-path-fixer',
+                    elf_file,
+                    '-t',
+                    '/usr/lib',
+                    '-t',
+                    '/path/to',
+                    '--fix-rpath',
+                    '--no-backup',
+                    '--quiet',
+                ]
+            )
             self.assertEqual(code, 0)
 
             # Run again, should return 0 (no modifications needed)
-            code = ShellCmd.main([
-                'elf-path-fixer',
-                elf_file,
-                '-t', '/usr/lib',
-                '-t', '/path/to',
-                '--fix-rpath',
-                '--no-backup',
-                '--quiet'
-            ])
+            code = ShellCmd.main(
+                [
+                    'elf-path-fixer',
+                    elf_file,
+                    '-t',
+                    '/usr/lib',
+                    '-t',
+                    '/path/to',
+                    '--fix-rpath',
+                    '--no-backup',
+                    '--quiet',
+                ]
+            )
             self.assertEqual(code, 0)
 
     def test_elf_path_fixer_standalone_script(self) -> None:
         import subprocess
+
         mock_elf = self._create_mock_elf(is_64bit=True, is_le=True)
         with tempfile.TemporaryDirectory() as tmpdir:
             elf_file = os.path.join(tmpdir, 'test.elf')
@@ -468,19 +478,25 @@ class TestElfPathFixer(unittest.TestCase):
                 f.write(mock_elf)
 
             script_path = os.path.join(
-                os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__)))),
-                'elf_path_fixer.py'
+                os.path.dirname(
+                    os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+                ),
+                'elf_path_fixer.py',
             )
 
-            res = subprocess.run([
-                sys.executable,
-                script_path,
-                elf_file,
-                '-t', '/usr/lib',
-                '--fix-rpath',
-                '--no-backup',
-                '--quiet'
-            ], capture_output=True)
+            res = subprocess.run(
+                [
+                    sys.executable,
+                    script_path,
+                    elf_file,
+                    '-t',
+                    '/usr/lib',
+                    '--fix-rpath',
+                    '--no-backup',
+                    '--quiet',
+                ],
+                capture_output=True,
+            )
             self.assertEqual(res.returncode, 0)
 
 

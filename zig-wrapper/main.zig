@@ -1119,7 +1119,7 @@ pub const ZigWrapper = struct {
                     patterns.deinit();
                 }
 
-                try patterns.append(try self.allocator.dupe(u8, ":|\\\\"));
+                try patterns.append(try self.allocator.dupe(u8, "[:\\\\]"));
                 try patterns.append(try self.allocator.dupe(u8, "^/mnt/[a-z]/"));
                 try patterns.append(try self.allocator.dupe(u8, "/.rmake/"));
 
