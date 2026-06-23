@@ -221,8 +221,9 @@ pub fn sysArgMax() usize {
     if (builtin.os.tag == .windows) {
         return 32767;
     } else {
-        const unistd = @import("c");
-        return @intCast(unistd.sysconf(@intCast(unistd._SC_ARG_MAX)));
+        // On Unix-like systems, return a conservative 128KB (131072 bytes) limit.
+        // This is safe, portable, and avoids compiling/linking against libc.
+        return 131072;
     }
 }
 
