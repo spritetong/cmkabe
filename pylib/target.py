@@ -45,17 +45,7 @@ class TargetParser:
         make_clean: str = '',
         **_args: Any,
     ) -> None:
-        host_info: HostTargetInfo = host_target_info()
-
-        # Host properties
-        self.host_system: str = host_info.host_system
-        self.host_system_ext: str = host_info.system
-        self.host_arch: str = host_info.arch
-        self.host_os: str = host_info.os
-        self.host_vendor: str = host_info.vendor
-        self.host_env: str = host_info.env
-        self.host_target: str = host_info.triple
-        self.host_cargo_target: str = host_info.cargo_triple
+        self.host: HostTargetInfo = host_target_info()
 
         self.cmkabe_dir: str = normpath(
             os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
@@ -74,7 +64,7 @@ class TargetParser:
             os.path.abspath(target_cmake_dir or (self.target_dir + '/.cmake'))
         )
         self.cmake_lock_file: str = normpath(
-            os.path.join(self.target_cmake_dir, self.host_system, '.cmake.lock')
+            os.path.join(self.target_cmake_dir, self.host.host_system, '.cmake.lock')
         )
         self.cmake_target_prefix: str = normpath(
             os.path.abspath(cmake_target_prefix or (self.workspace_dir + '/installed'))
@@ -124,43 +114,43 @@ class TargetParser:
 
     @property
     def host_is_windows(self) -> bool:
-        return self.host_system == 'Windows'
+        return self.host.host_system == 'Windows'
 
     @property
     def host_is_win_posix(self) -> bool:
-        return self.host_system_ext in ['mingw', 'cygwin']
+        return self.host.system in ['mingw', 'cygwin']
 
     @property
     def host_is_mingw(self) -> bool:
-        return self.host_system_ext == 'mingw'
+        return self.host.system == 'mingw'
 
     @property
     def host_is_cygwin(self) -> bool:
-        return self.host_system_ext == 'cygwin'
+        return self.host.system == 'cygwin'
 
     @property
     def host_is_unix(self) -> bool:
-        return self.host_system != 'Windows'
+        return self.host.host_system != 'Windows'
 
     @property
     def host_is_linux(self) -> bool:
-        return self.host_system == 'Linux'
+        return self.host.host_system == 'Linux'
 
     @property
     def host_is_macos(self) -> bool:
-        return self.host_system == 'Darwin'
+        return self.host.host_system == 'Darwin'
 
     @property
     def target_is_runnable(self) -> bool:
-        if self.target_is_native or self.cargo_target == self.host_cargo_target:
+        if self.target_is_native or self.cargo_target == self.host.cargo_triple:
             return True
         if (
             not self.android
             and not self.ios
-            and (self.host_os == self.os)
+            and (self.host.os == self.os)
             and (
-                self.host_arch == self.arch
-                or (self.host_arch == 'x86_64' and self.arch in ['i586', 'i686'])
+                self.host.arch == self.arch
+                or (self.host.arch == 'x86_64' and self.arch in ['i586', 'i686'])
             )
             and (self.vendor in ['pc', 'apple', 'unknown'])
             and (self.env in ['msvc', 'gnu', 'musl', ''])
@@ -170,7 +160,7 @@ class TargetParser:
 
     @property
     def is_cross_compiling(self) -> bool:
-        return self.cargo_target != self.host_cargo_target
+        return self.cargo_target != self.host.cargo_triple
 
     @property
     def target_cxx(self) -> str:
@@ -192,7 +182,7 @@ class TargetParser:
 
     def cargo_out_dir(self, make: bool = False, cmake: bool = False) -> str:
         """Get the cargo output binary directory path."""
-        if self.cargo_target == self.host_cargo_target:
+        if self.cargo_target == self.host.cargo_triple:
             directory = self.cargo_target_dir
         else:
             directory = f'{self.cargo_target_dir}/{self.cargo_target}'
@@ -235,7 +225,7 @@ class TargetParser:
         """Parse target parameters, setup compilers, and directories."""
         self.target_is_native = self.target in ('', 'native')
         if self.target_is_native:
-            self.target = self.host_target
+            self.target = self.host.triple
 
         self.arch, self.vendor, self.os, self.env = parse_triple(self.target)
         self.arch = RUST_ARCH_MAP.get(self.arch, self.arch)
@@ -324,9 +314,9 @@ class TargetParser:
                 self.target_cc = normpath(target_cc)
                 self.zig = False
             elif (
-                self.vendor != self.host_vendor
-                or self.os != self.host_os
-                or self.env != self.host_env
+                self.vendor != self.host.vendor
+                or self.os != self.host.os
+                or self.env != self.host.env
             ) or (self.host_is_linux and self.os == 'linux'):
                 if zig is None:
                     zig = shutil.which('zig' + EXE_EXT)
@@ -345,7 +335,7 @@ class TargetParser:
                 self.cmake_generator = 'Unix Makefiles'
 
         if (
-            self.target_is_native or self.cargo_target != self.host_cargo_target
+            self.target_is_native or self.cargo_target != self.host.cargo_triple
         ) and self.target == self.cargo_target:
             self.cargo_target_dir = self.target_dir
         else:
@@ -386,7 +376,7 @@ class TargetParser:
                     '-requires',
                     'Microsoft.VisualStudio.Component.VC.Tools.*',
                     '-find',
-                    rf'VC\Tools\MSVC\**\bin\*{VSTOOLS_ARCH_MAP.get(self.host_arch, self.host_arch)}\{VSTOOLS_ARCH_MAP.get(self.arch, self.arch)}\ml*.exe',
+                    rf'VC\Tools\MSVC\**\bin\*{VSTOOLS_ARCH_MAP.get(self.host.arch, self.host.arch)}\{VSTOOLS_ARCH_MAP.get(self.arch, self.arch)}\ml*.exe',
                 ],
                 stdin=subprocess.DEVNULL,
                 capture_output=True,
@@ -399,7 +389,7 @@ class TargetParser:
             pass
 
     def _cmake_init(self) -> None:
-        self.cmake_target_dir = f'{self.target_cmake_dir}/{self.host_system}/{"native" if self.target_is_native else self.target}'
+        self.cmake_target_dir = f'{self.target_cmake_dir}/{self.host.host_system}/{"native" if self.target_is_native else self.target}'
         os.makedirs(self.cmake_target_dir, exist_ok=True)
 
     def _zig_init(self) -> None:
@@ -410,7 +400,7 @@ class TargetParser:
         self.zig_root = normpath(os.path.realpath(os.path.dirname(zig_path)))
 
         self.zig_cc_dir = normpath(
-            os.path.join(self.target_dir, '.zig', self.host_system)
+            os.path.join(self.target_dir, '.zig', self.host.host_system)
         )
         src = self.cmkabe_dir + '/zig-wrapper/main.zig'
         exe = self.zig_cc_dir + '/zig-wrapper' + EXE_EXT
@@ -487,7 +477,7 @@ class TargetParser:
     def _android_init(self) -> None:
         self.android_ndk_root = normpath(ndk_root(check_env=True))
         self.android_ndk_bin = self.android_ndk_root + (
-            f'/toolchains/llvm/prebuilt/{self.host_system.lower()}-{self.host_arch.lower()}/bin'
+            f'/toolchains/llvm/prebuilt/{self.host.host_system.lower()}-{self.host.arch.lower()}/bin'
         )
         if not self.android_ndk_root or not os.path.isdir(self.android_ndk_root):
             raise FileNotFoundError(
@@ -606,19 +596,19 @@ class TargetParser:
             )
 
         with open(
-            os.path.join(self.target_cmake_dir, self.host_system, '.host.mk'),
+            os.path.join(self.target_cmake_dir, self.host.host_system, '.host.mk'),
             'wb',
         ) as f:
-            fwrite(f, f'override HOST_SYSTEM = {self.host_system}\n')
-            fwrite(f, f'override HOST_TARGET = {self.host_target}\n')
+            fwrite(f, f'override HOST_SYSTEM = {self.host.host_system}\n')
+            fwrite(f, f'override HOST_TARGET = {self.host.triple}\n')
             fwrite(
                 f,
-                f'override HOST_CARGO_TARGET = {self.host_cargo_target}\n',
+                f'override HOST_CARGO_TARGET = {self.host.cargo_triple}\n',
             )
-            fwrite(f, f'override HOST_ARCH = {self.host_arch}\n')
-            fwrite(f, f'override HOST_VENDOR = {self.host_vendor}\n')
-            fwrite(f, f'override HOST_OS = {self.host_os}\n')
-            fwrite(f, f'override HOST_ENV = {self.host_env}\n')
+            fwrite(f, f'override HOST_ARCH = {self.host.arch}\n')
+            fwrite(f, f'override HOST_VENDOR = {self.host.vendor}\n')
+            fwrite(f, f'override HOST_OS = {self.host.os}\n')
+            fwrite(f, f'override HOST_ENV = {self.host.env}\n')
             fwrite(f, '\n')
             fwrite(f, '# Constants for the host platform\n')
             fwrite(f, f'override HOST_SEP := $(strip {os.sep})\n')
@@ -633,19 +623,19 @@ class TargetParser:
                 fwrite(f, f'unexport {key}\n')
 
         with open(
-            os.path.join(self.target_cmake_dir, self.host_system, '.host.cmake'),
+            os.path.join(self.target_cmake_dir, self.host.host_system, '.host.cmake'),
             'wb',
         ) as f:
-            fwrite(f, f'set(HOST_SYSTEM "{self.host_system}")\n')
-            fwrite(f, f'set(HOST_TARGET "{self.host_target}")\n')
+            fwrite(f, f'set(HOST_SYSTEM "{self.host.host_system}")\n')
+            fwrite(f, f'set(HOST_TARGET "{self.host.triple}")\n')
             fwrite(
                 f,
-                f'set(HOST_CARGO_TARGET "{self.host_cargo_target}")\n',
+                f'set(HOST_CARGO_TARGET "{self.host.cargo_triple}")\n',
             )
-            fwrite(f, f'set(HOST_ARCH "{self.host_arch}")\n')
-            fwrite(f, f'set(HOST_VENDOR "{self.host_vendor}")\n')
-            fwrite(f, f'set(HOST_OS "{self.host_os}")\n')
-            fwrite(f, f'set(HOST_ENV "{self.host_env}")\n')
+            fwrite(f, f'set(HOST_ARCH "{self.host.arch}")\n')
+            fwrite(f, f'set(HOST_VENDOR "{self.host.vendor}")\n')
+            fwrite(f, f'set(HOST_OS "{self.host.os}")\n')
+            fwrite(f, f'set(HOST_ENV "{self.host.env}")\n')
             fwrite(f, '\n')
             fwrite(f, '# Constants for the host platform\n')
             host_sep_escaped = os.sep.replace('\\', '\\\\')
@@ -1167,7 +1157,7 @@ class TargetParser:
                 f,
                 f'export CARGO_WORKSPACE_DIR = {self.workspace_dir}\n',
             )
-            fwrite(f, f'export CMKABE_HOST_TARGET = {self.host_target}\n')
+            fwrite(f, f'export CMKABE_HOST_TARGET = {self.host.triple}\n')
             fwrite(f, f'export CMKABE_TARGET = {self.cmkabe_target}\n')
             fwrite(f, f'export CMKABE_TARGET_DIR = {self.target_dir}\n')
             fwrite(
@@ -1248,7 +1238,7 @@ class TargetParser:
             )
             fwrite(
                 f,
-                f'set(ENV{{CMKABE_HOST_TARGET}} "{self.host_target}")\n',
+                f'set(ENV{{CMKABE_HOST_TARGET}} "{self.host.triple}")\n',
             )
             fwrite(f, f'set(ENV{{CMKABE_TARGET}} "{self.cmkabe_target}")\n')
             fwrite(f, f'set(ENV{{CMKABE_TARGET_DIR}} "{self.target_dir}")\n')
