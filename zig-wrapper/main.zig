@@ -307,7 +307,7 @@ pub const ZigWrapper = struct {
             defer utils.freeStringArray(self.allocator, &argv);
             std.mem.swap(StringArray, &self.sys_argv, &argv);
             for (argv.items) |arg| {
-                try self.fixCommandFlag(@constCast(arg), &self.sys_argv);
+                try self.fixCommandFlag(arg, &self.sys_argv);
             }
         }
 
@@ -668,14 +668,14 @@ pub const ZigWrapper = struct {
         return try self.allocator.dupe(u8, arg);
     }
 
-    fn fixCommandFlag(self: *Self, arg: []u8, dest: *StringArray) !void {
+    fn fixCommandFlag(self: *Self, arg: []const u8, dest: *StringArray) !void {
         // `-Wl,<linker flags>`
         if (self.is_linker and utils.strStartsWith(arg, "-Wl,")) {
             const buf = arg[4..];
-            var buf_used: usize = 0;
 
             var parts = std.mem.splitAny(u8, buf, ",");
             while (parts.next()) |flag| {
+                if (flag.len == 0) continue;
                 if (utils.strEndsWith(flag, ".def")) {
                     // `/DEF:<lib>.def`
                     var def_file = flag;
@@ -688,18 +688,11 @@ pub const ZigWrapper = struct {
                     // `-l<lib>`
                     const s = try self.fixLibFlag(flag);
                     try dest.append(s);
-                } else if (flag.len > 0) {
-                    if (buf_used > 0) {
-                        buf[buf_used] = ',';
-                        buf_used += 1;
-                    }
-                    std.mem.copyForwards(u8, buf[buf_used..], flag);
-                    buf_used += flag.len;
+                } else {
+                    // Pass other flags as -Wl,<flag>
+                    const s = try std.fmt.allocPrint(self.allocator, "-Wl,{s}", .{flag});
+                    try dest.append(s);
                 }
-            }
-
-            if (buf_used > 0) {
-                try dest.append(try self.allocator.dupe(u8, arg[0 .. 4 + buf_used]));
             }
             return;
         }
