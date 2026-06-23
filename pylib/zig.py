@@ -111,7 +111,8 @@ def zig_clean_cache(zig_root: Optional[str] = None, verbose: bool = False) -> No
                 global_cache = match.group(1).strip('"')
 
     if verbose and global_cache:
-        print(f'Removing {global_cache.replace("\\", "/")}')
+        clean_cache_path = global_cache.replace("\\", "/")
+        print(f"Removing {clean_cache_path}")
 
     if global_cache and os.path.isdir(global_cache):
         shutil.rmtree(global_cache, ignore_errors=True)
