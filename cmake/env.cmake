@@ -402,13 +402,13 @@ function(_cmkabe_build_make_deps)
     endif()
     cmkabe_make_options(options)
     execute_process(
-        COMMAND ${python} ${CMKABE_HOME}/shlutil.py build_target_deps ${options}
+        COMMAND ${python} ${CMKABE_HOME}/shlutil.py build-target-deps ${options}
         RESULT_VARIABLE res
         OUTPUT_VARIABLE out
         ERROR_VARIABLE err
     )
     if(NOT res EQUAL 0)
-        message(WARNING "Failed to build target deps. Exit code: ${res}\nCMKABE_HOME: ${CMKABE_HOME}\nCmd: ${python} ${CMKABE_HOME}/shlutil.py build_target_deps ${options}\nOUT: ${out}\nERR: ${err}")
+        message(WARNING "Failed to build target deps. Exit code: ${res}\nCMKABE_HOME: ${CMKABE_HOME}\nCmd: ${python} ${CMKABE_HOME}/shlutil.py build-target-deps ${options}\nOUT: ${out}\nERR: ${err}")
     endif()
 endfunction()
 

@@ -77,6 +77,12 @@ pub const ElfParser = struct {
             .dynamic_section = std.array_list.Managed(DynEntry).init(allocator),
             .string_table = &.{},
         };
+        errdefer {
+            self.dynamic_section.deinit();
+            if (self.string_table.len > 0) {
+                self.allocator.free(self.string_table);
+            }
+        }
 
         try self.parseElfHeader();
         try self.findDynamicSection();
@@ -275,7 +281,6 @@ pub fn modifyElfFile(
     target_patterns: []const []const u8,
     fix_rpath: bool,
     create_backup: bool,
-    in_place: bool,
     verbose: bool,
     quiet: bool,
 ) !bool {
@@ -326,9 +331,14 @@ pub fn modifyElfFile(
         }
         if (matched) {
             const basename = std.fs.path.basename(lib.name);
+            const old_lib = try allocator.dupe(u8, lib.name);
+            errdefer allocator.free(old_lib);
+            const new_lib = try allocator.dupe(u8, basename);
+            errdefer allocator.free(new_lib);
+
             try modified_libs.append(.{
-                .old_lib = try allocator.dupe(u8, lib.name),
-                .new_lib = try allocator.dupe(u8, basename),
+                .old_lib = old_lib,
+                .new_lib = new_lib,
                 .offset = lib.offset,
             });
         }
@@ -373,8 +383,12 @@ pub fn modifyElfFile(
             }
 
             const joined = try std.mem.join(allocator, ":", new_paths.items);
+            errdefer allocator.free(joined);
+            const old_path = try allocator.dupe(u8, path.path);
+            errdefer allocator.free(old_path);
+
             try modified_paths.append(.{
-                .old_path = try allocator.dupe(u8, path.path),
+                .old_path = old_path,
                 .new_path = joined,
                 .offset = path.offset,
             });
@@ -390,9 +404,7 @@ pub fn modifyElfFile(
     const cwd = std.Io.Dir.cwd();
 
     // 5. Perform backup copying if backup requested
-    // If in_place is true, we modify the original file directly (after creating backup if requested).
-    // If in_place is false and create_backup is true, we modify a temporary copy and swap it back.
-    const use_temp = !in_place and create_backup;
+    const use_temp = create_backup;
     var temp_path: ?[]const u8 = null;
     defer if (temp_path) |tp| allocator.free(tp);
 
@@ -400,20 +412,12 @@ pub fn modifyElfFile(
         const backup_path = try std.fmt.allocPrint(allocator, "{s}.backup", .{elf_path});
         defer allocator.free(backup_path);
 
-        if (use_temp) {
-            temp_path = try std.fmt.allocPrint(allocator, "{s}.tmp", .{elf_path});
-            printInfo(io, quiet, verbose, false, "Creating temporary copy for backup", .{});
-            try cwd.copyFile(elf_path, cwd, temp_path.?, io, .{});
-        }
+        temp_path = try std.fmt.allocPrint(allocator, "{s}.tmp", .{elf_path});
+        printInfo(io, quiet, verbose, false, "Creating temporary copy for backup", .{});
+        try cwd.copyFile(elf_path, cwd, temp_path.?, io, .{});
 
         printInfo(io, quiet, verbose, false, "Creating backup at {s}", .{backup_path});
         try cwd.copyFile(elf_path, cwd, backup_path, io, .{});
-    }
-
-    if (use_temp) {
-        printInfo(io, quiet, verbose, false, "Modifying temporary file", .{});
-    } else {
-        printInfo(io, quiet, verbose, false, "Modifying original file directly in-place", .{});
     }
 
     const file_to_modify = if (use_temp) temp_path.? else elf_path;
@@ -427,11 +431,13 @@ pub fn modifyElfFile(
     }
 
     // 6. Open the file to modify in read+write mode
-    var f = try cwd.createFile(io, file_to_modify, .{
+    var opt_f: ?std.Io.File = try cwd.createFile(io, file_to_modify, .{
         .read = true,
         .truncate = false,
     });
-    defer f.close(io);
+    defer if (opt_f) |*file| {
+        file.close(io);
+    };
 
     // 7. Apply library name replacements
     for (modified_libs.items) |ml| {
@@ -440,7 +446,7 @@ pub fn modifyElfFile(
         // Verify the original string in the file matches our expectation
         const actual_bytes = try allocator.alloc(u8, ml.old_lib.len);
         defer allocator.free(actual_bytes);
-        _ = try f.readPositionalAll(io, actual_bytes, abs_offset);
+        _ = try opt_f.?.readPositionalAll(io, actual_bytes, abs_offset);
 
         if (!std.mem.eql(u8, actual_bytes, ml.old_lib)) {
             printError(io, quiet, "Verification failed: Expected '{s}' but found '{s}' at offset {d}", .{ ml.old_lib, actual_bytes, abs_offset });
@@ -460,7 +466,7 @@ pub fn modifyElfFile(
         @memset(write_buf, 0);
         @memcpy(write_buf[0..ml.new_lib.len], ml.new_lib);
 
-        try f.writePositionalAll(io, write_buf, abs_offset);
+        try opt_f.?.writePositionalAll(io, write_buf, abs_offset);
     }
 
     // 8. Apply RPATH/RUNPATH replacements
@@ -470,7 +476,7 @@ pub fn modifyElfFile(
         // Verify the original path string in the file matches our expectation
         const actual_bytes = try allocator.alloc(u8, mp.old_path.len);
         defer allocator.free(actual_bytes);
-        _ = try f.readPositionalAll(io, actual_bytes, abs_offset);
+        _ = try opt_f.?.readPositionalAll(io, actual_bytes, abs_offset);
 
         if (!std.mem.eql(u8, actual_bytes, mp.old_path)) {
             printError(io, quiet, "Verification failed: Expected '{s}' but found '{s}' at offset {d}", .{ mp.old_path, actual_bytes, abs_offset });
@@ -490,11 +496,14 @@ pub fn modifyElfFile(
         @memset(write_buf, 0);
         @memcpy(write_buf[0..mp.new_path.len], mp.new_path);
 
-        try f.writePositionalAll(io, write_buf, abs_offset);
+        try opt_f.?.writePositionalAll(io, write_buf, abs_offset);
     }
 
     // Explicitly close before copying to prevent file locking/sharing issues on Windows
-    f.close(io);
+    if (opt_f) |*file| {
+        file.close(io);
+        opt_f = null;
+    }
 
     // 9. Swap the temporary file back to original file if temporary file was used
     if (use_temp) {

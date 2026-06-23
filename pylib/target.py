@@ -7,7 +7,7 @@ import shutil
 import subprocess
 from typing import Any, Generator, List, Optional
 
-from cmk.pylib.sys_utils import (
+from .sys_utils import (
     ANDROID_ABI_MAP,
     ANDROID_ARCH_MAP,
     EXE_EXT,
@@ -403,7 +403,7 @@ class TargetParser:
         self.zig_cc_dir = normpath(
             os.path.join(self.target_dir, '.zig', self.host_system)
         )
-        src = self.script_dir + '/zig-wrapper.zig'
+        src = self.script_dir + '/zig-wrapper/main.zig'
         exe = self.zig_cc_dir + '/zig-wrapper' + EXE_EXT
         directory = self.zig_cc_dir
 

@@ -75,7 +75,7 @@ TARGET_CMAKE_DIR ?= $(TARGET_DIR)/.cmake
 
 # ==============================================================================
 # Build target dependencies and apply.
-cmake_build_target_deps = $(SHLUTIL) build_target_deps \
+cmake_build_target_deps = $(SHLUTIL) build-target-deps \
     WORKSPACE_DIR=$(WORKSPACE_DIR) \
     TARGET=$(CMKABE_TARGET) \
     TARGET_DIR=$(TARGET_DIR) \
@@ -116,7 +116,7 @@ endif
 include $(_X_DOT_SETTINGS_MK)
 
 # Auto rebuild dependencies.
-$(_X_DOT_SETTINGS_MK): $(addprefix $(CMKABE_HOME)/,shlutil.py zig-wrapper.zig) $(filter-out $(subst \,/,$(TARGET_CMAKE_DIR))/%,$(subst \,/,$(MAKEFILE_LIST)))
+$(_X_DOT_SETTINGS_MK): $(addprefix $(CMKABE_HOME)/,shlutil.py zig-wrapper/main.zig) $(filter-out $(subst \,/,$(TARGET_CMAKE_DIR))/%,$(subst \,/,$(MAKEFILE_LIST)))
 	@$(cmake_build_target_deps)
 ifeq ($(CMAKE_TARGET_DIR),)
     $(error Can not parse target: $(TARGET))
@@ -369,12 +369,12 @@ cargo-upgrade:
 # Patch Zig source files
 .PHONY: zig-patch
 zig-patch:
-	@$(SHLUTIL) zig_patch "$(ZIG_ROOT)"
+	@$(SHLUTIL) zig-patch "$(ZIG_ROOT)"
 
 # Clean Zig cache
 .PHONY: zig-clean-cache
 zig-clean-cache:
-	@$(SHLUTIL) zig_clean_cache "$(ZIG_ROOT)" || $(OK)
+	@$(SHLUTIL) zig-clean-cache -v "$(ZIG_ROOT)" || $(OK)
 	@$(RM) -rf "$(TARGET_DIR)/.zig" || $(OK)
 	@$(cmake_build_target_deps)
 
@@ -382,7 +382,7 @@ zig-clean-cache:
 .PHONY: shell
 shell:
     ifeq ($(HOST_SYSTEM),Windows)
-		-@$(SHLUTIL) find-shell exit-code & if errorlevel 2 (pwsh.exe -NoLogo) else if errorlevel 1 (powershell.exe -NoLogo) else (cmd.exe /k set "PROMPT=(make) %PROMPT%")
+		-@$(SHLUTIL) find-shell --exit-code & if errorlevel 2 (pwsh.exe -NoLogo) else if errorlevel 1 (powershell.exe -NoLogo) else (cmd.exe /k set "PROMPT=(make) %PROMPT%")
     else
 		-@bash --norc
     endif

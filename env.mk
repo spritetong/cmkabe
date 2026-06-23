@@ -163,7 +163,7 @@ CD      = cd
 CMPVER  = $(SHLUTIL) cmpver
 CP      = cp
 CWD     = $(SHLUTIL) cwd
-FIXLINK = $(SHLUTIL) fix_symlink
+FIXLINK = $(SHLUTIL) fix-symlink
 less    = less $(1)
 MKDIR   = $(SHLUTIL) mkdir
 MKLINK  = $(SHLUTIL) mklink
@@ -175,8 +175,8 @@ RMDIR   = $(SHLUTIL) rmdir -f
 TOUCH   = touch
 UPLOAD  = $(SHLUTIL) upload
 WHICH   = which
-WIN2WSL = $(SHLUTIL) win2wsl_path
-WSL2WIN = $(SHLUTIL) wsl2win_path
+WIN2WSL = $(SHLUTIL) win2wsl-path
+WSL2WIN = $(SHLUTIL) wsl2win-path
 
 ifeq ($(HOST_SYSTEM),Windows)
     exists   = (IF NOT EXIST $(subst /,$(SEP),$(1)) $(ERR))

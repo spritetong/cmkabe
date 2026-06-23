@@ -1142,7 +1142,6 @@ pub const ZigWrapper = struct {
                     patterns.items,
                     false, // fix_rpath
                     false, // create_backup
-                    true, // in_place
                     false, // verbose
                     true, // quiet
                 );

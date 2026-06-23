@@ -5,7 +5,7 @@ import os
 import platform
 import re
 import sys
-from typing import Dict, List, Tuple, Optional, Any
+from typing import Any, Dict, List, Optional, Tuple
 
 EXE_EXT: str = '.exe' if os.name == 'nt' else ''
 

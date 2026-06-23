@@ -106,7 +106,7 @@ To ensure that Unix-centric `Makefiles` can run seamlessly on native Windows hos
 | `relpath` | — | Prints the relative path from a start directory to a target. |
 | `win2wsl-path` | — | Converts a Windows absolute path (e.g., `C:\foo`) to a WSL path (`/mnt/c/foo`). |
 | `wsl2win-path` | — | Converts a WSL path back to a Windows drive path. |
-| `is-wsl-win-path`| — | Checks whether a path points to a WSL Windows mount `/mnt/[a-z]/`. |
+| `is-wsl-win-path` | — | Checks whether a path points to a WSL Windows mount `/mnt/[a-z]/`. |
 | `touch` | `-f` | Updates file timestamps or creates empty files. |
 | `timestamp` | — | Prints the current epoch timestamp. |
 | `cmpver` | `-f` | Compares version strings. Outputs `+` if v1 > v2, `0` if equal, `-` if v1 < v2. |
@@ -138,7 +138,7 @@ Configure your target settings to use `rmake` in your local environment, or use 
 
 Cross-compiling C/C++ alongside Rust cargo libraries is typically error-prone. `cmkabe` automates this using **Zig as a cross-compiler wrapper** and **Android NDK auto-detection**.
 
-### 1. Zig CC/CXX Wrapper (`zig-wrapper.zig`)
+### 1. Zig CC/CXX Wrapper (`zig-wrapper/main.zig`)
 
 `cmkabe` packages a custom wrapper binary that allows the Zig compiler to be used as a drop-in replacement for traditional compilers like `gcc`, `clang`, `ar`, and `ld.lld`.
 
@@ -149,7 +149,7 @@ Cross-compiling C/C++ alongside Rust cargo libraries is typically error-prone. `
   - `logger.zig`: File logging tool for tracing parameters (`ZIG_WRAPPER_LOG`).
   - `filter.zig`: Flag rewriting rules (translates system include flags, filters unsupported options, maps `-fopenmp` to `-lomp`).
   - `main.zig`: Child process spawner with Windows shell boundary protection (checks command length and falls back to safe `@flags` files).
-- **Compilation**: The compiler wrapper is automatically recompiled from `cmk/zig-wrapper.zig` using `zig build-exe` whenever changes are detected.
+- **Compilation**: The compiler wrapper is automatically recompiled from `cmk/zig-wrapper/main.zig` using `zig build-exe` whenever changes are detected.
 
 ### 2. Android NDK Toolchain Discovery
 

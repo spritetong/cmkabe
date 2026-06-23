@@ -71,12 +71,12 @@ import subprocess
 import sys
 from typing import Callable, Dict, List, Optional, Set
 
-from cmk.pylib.sys_utils import EXE_EXT
+from .sys_utils import EXE_EXT
 
 EFAIL: int = 1
 
 
-def zig_clean_cache(zig_root: Optional[str] = None) -> None:
+def zig_clean_cache(zig_root: Optional[str] = None, verbose: bool = False) -> None:
     """Clean the global Zig cache directory."""
     import ast
 
@@ -109,6 +109,9 @@ def zig_clean_cache(zig_root: Optional[str] = None) -> None:
                 global_cache = ast.literal_eval(match.group(1))
             except Exception:
                 global_cache = match.group(1).strip('"')
+
+    if verbose and global_cache:
+        print(f'Removing {global_cache.replace("\\", "/")}')
 
     if global_cache and os.path.isdir(global_cache):
         shutil.rmtree(global_cache, ignore_errors=True)

@@ -7,12 +7,12 @@ import sys
 import time
 from typing import Any, Generator, List, Optional
 
-from cmk.pylib.sys_utils import (
+from .sys_utils import (
     ndk_root,
     win2wsl_path,
     wsl2win_path,
 )
-from cmk.pylib.zig import zig_clean_cache, zig_dll2lib, zig_patch
+from .zig import zig_clean_cache, zig_dll2lib, zig_patch
 
 
 class ShellCmd:
@@ -23,22 +23,23 @@ class ShellCmd:
     EINVAL: int = 8
     EINTERRUPT: int = 254
 
-    def __init__(self, namespace: Any) -> None:
-        self.options = namespace
-        self.args: List[str] = namespace.args
+    def __init__(self) -> None:
+        pass
 
-    def run__rm(self) -> int:
+    def rm(
+        self,
+        paths: List[str],
+        recursive: bool = False,
+        force: bool = False,
+        args_from_stdin: bool = False,
+    ) -> int:
         """Simulate rm / rm -rf.
 
         Removes files, directories, or glob patterns. Automatically handles Windows read-only file system permissions.
-        Options:
-            -r / -R / --recursive: Recursively remove directories.
-            -f / --force: Ignore nonexistent files and execution errors.
-            --stdin / --args-from-stdin: Read arguments from stdin.
         """
 
         def read_arg() -> Generator[str, None, None]:
-            if self.options.args_from_stdin:
+            if args_from_stdin:
                 import shlex
 
                 while True:
@@ -51,14 +52,14 @@ class ShellCmd:
                     except EOFError:
                         break
             else:
-                for arg in self.args:
+                for arg in paths:
                     yield arg
 
         status = 0
-        if not self.options.recursive:
+        if not recursive:
             for pattern in read_arg():
                 files = glob.glob(pattern)
-                if not files and not self.options.force:
+                if not files and not force:
                     print(f'Can not find file {pattern}', file=sys.stderr)
                     return self.EFAIL
                 for file in files:
@@ -72,14 +73,14 @@ class ShellCmd:
                             os.remove(file)
                     except OSError:
                         status = self.EFAIL
-                        if self.options.force:
+                        if force:
                             continue
                         print(f'Can not remove file {file}', file=sys.stderr)
                         return status
         else:
             for pattern in read_arg():
                 files = glob.glob(pattern)
-                if not files and not self.options.force:
+                if not files and not force:
                     print(f'Can not find file {pattern}', file=sys.stderr)
                     return self.EFAIL
                 for file in files:
@@ -93,21 +94,19 @@ class ShellCmd:
                             os.remove(file)
                     except OSError:
                         status = self.EFAIL
-                        if self.options.force:
+                        if force:
                             continue
                         print(f'Can not remove tree {file}', file=sys.stderr)
                         return status
         return status
 
-    def run__mkdir(self) -> int:
+    def mkdir(self, paths: List[str], force: bool = False) -> int:
         """Simulate mkdir / mkdir -p.
 
         Creates directory paths. Always acts like Unix `mkdir -p` (creates parent directories, ignores existing paths).
-        Options:
-            -f / --force: Ignore execution errors.
         """
         status = 0
-        for path in self.args:
+        for path in paths:
             ok = False
             for _ in range(100):
                 try:
@@ -127,45 +126,44 @@ class ShellCmd:
                 break
             if not ok:
                 status = self.EFAIL
-                if self.options.force:
+                if force:
                     continue
                 print(f'Can not make directory {path}', file=sys.stderr)
                 return status
         return status
 
-    def run__rmdir(self) -> int:
+    def rmdir(
+        self, paths: List[str], remove_empty_dirs: bool = False, force: bool = False
+    ) -> int:
         """Simulate rmdir.
 
         Removes directory paths.
-        Options:
-            -e / --empty-dirs: Recursively prune empty subdirectories and parent directories.
-            -f / --force: Ignore execution errors.
         """
         status = 0
-        for path in self.args:
-            if not self.options.remove_empty_dirs:
+        for path in paths:
+            if not remove_empty_dirs:
                 try:
                     os.rmdir(path)
                 except OSError:
                     status = self.EFAIL
-                    if self.options.force:
+                    if force:
                         continue
                     print(f'Can not remove directory {path}', file=sys.stderr)
                     return status
             else:
 
-                def remove_empty_dirs(p: str) -> None:
+                def remove_empty_dirs_recur(p: str) -> None:
                     # Remove empty sub-directories recursively
                     for item in os.listdir(p):
                         directory = os.path.join(p, item)
                         if os.path.isdir(directory):
-                            remove_empty_dirs(directory)
+                            remove_empty_dirs_recur(directory)
                             if not os.listdir(directory):
                                 os.rmdir(directory)
 
                 if os.path.isdir(path):
                     try:
-                        remove_empty_dirs(path)
+                        remove_empty_dirs_recur(path)
                         # Try to remove empty ancestor directories.
                         curr: str = path
                         while curr:
@@ -175,58 +173,52 @@ class ShellCmd:
                         pass
         return status
 
-    def run__mv(self) -> int:
+    def mv(self, paths: List[str], force: bool = False) -> int:
         """Simulate mv.
 
         Moves files, directories, or glob patterns to a destination path.
-        Arguments:
-            args[:-1]: Source file/directory paths or glob patterns.
-            args[-1]: Destination path.
-        Options:
-            -f / --force: Ignore execution errors.
         """
         import shutil
 
         status = 0
-        if len(self.args) < 2:
-            print(f'Invalid parameter {self.args} for mv', file=sys.stderr)
+        if len(paths) < 2:
+            print(f'Invalid parameter {paths} for mv', file=sys.stderr)
             return self.EFAIL
-        dst = self.args[-1]
+        dst = paths[-1]
         files: List[str] = []
-        for pattern in self.args[:-1]:
+        for pattern in paths[:-1]:
             files += glob.glob(pattern)
         if len(files) > 1 and not os.path.isdir(dst):
             print(f'{dst} is not a directory', file=sys.stderr)
             return self.EFAIL
-        if not files and not self.options.force:
-            print(f'Can not find file {self.args[:-1]}', file=sys.stderr)
+        if not files and not force:
+            print(f'Can not find file {paths[:-1]}', file=sys.stderr)
             return self.EFAIL
         for file in files:
             try:
                 shutil.move(file, dst)
             except OSError:
                 status = self.EFAIL
-                if not self.options.force:
+                if not force:
                     print(f'Can not move {file} to {dst}', file=sys.stderr)
                 return status
         return status
 
-    def run__cp(self) -> int:
+    def cp(
+        self,
+        paths: List[str],
+        recursive: bool = False,
+        follow_symlinks: bool = True,
+        force: bool = False,
+    ) -> int:
         """Simulate cp.
 
         Copies files, directories, or glob patterns to a destination path.
-        Arguments:
-            args[:-1]: Source file/directory paths or glob patterns.
-            args[-1]: Destination path (defaults to '.' if only one argument is provided).
-        Options:
-            -r / -R / --recursive: Recursively copy directories.
-            -P / --no-dereference: Preserve symbolic links without following them.
-            -f / --force: Ignore execution errors.
         """
         import shutil
 
         def copy_file(src: str, dst: str) -> None:
-            if os.path.islink(src) and not self.options.follow_symlinks:
+            if os.path.islink(src) and not follow_symlinks:
                 if os.path.isdir(dst):
                     dst = os.path.join(dst, os.path.basename(src))
                 if os.path.lexists(dst):
@@ -237,26 +229,27 @@ class ShellCmd:
                 shutil.copy2(src, dst)
 
         status = 0
-        if len(self.args) < 1:
-            print(f'Invalid parameter {self.args} for cp', file=sys.stderr)
+        if len(paths) < 1:
+            print(f'Invalid parameter {paths} for cp', file=sys.stderr)
             return self.EFAIL
-        if len(self.args) == 1:
-            self.args.append('.')
-        dst = self.args[-1]
+        args_copy = list(paths)
+        if len(args_copy) == 1:
+            args_copy.append('.')
+        dst = args_copy[-1]
         files: List[str] = []
-        for pattern in self.args[:-1]:
+        for pattern in args_copy[:-1]:
             files += glob.glob(pattern)
         if len(files) > 1 and not os.path.isdir(dst):
             print(f'{dst} is not a directory', file=sys.stderr)
             return self.EFAIL
-        if not files and not self.options.force:
-            print(f'Can not find file {self.args[:-1]}', file=sys.stderr)
+        if not files and not force:
+            print(f'Can not find file {args_copy[:-1]}', file=sys.stderr)
             return self.EFAIL
         for file in files:
             try:
                 if os.path.isfile(file):
                     copy_file(file, dst)
-                elif self.options.recursive:
+                elif recursive:
                     shutil.copytree(
                         file,
                         os.path.join(dst, os.path.basename(file)),
@@ -265,51 +258,37 @@ class ShellCmd:
                     )
             except OSError:
                 status = self.EFAIL
-                if not self.options.force:
+                if not force:
                     print(f'Can not copy {file} to {dst}', file=sys.stderr)
                 return status
         return status
 
-    def run__mklink(self) -> int:
+    def mklink(
+        self, link: str, target: str, symlinkd: bool = False, force: bool = False
+    ) -> int:
         """Simulate symlink creation.
 
         Creates file or directory symbolic links.
-        Arguments:
-            args[0]: Link path.
-            args[1]: Target path.
-        Options:
-            -D / --symlinkd: Force directory symlink.
-            -f / --force: Ignore execution errors.
         """
         status = 0
-        if len(self.args) < 2:
-            print('Invalid parameter', file=sys.stderr)
-            return self.EINVAL
-        link = self.args[0]
-        target = self.args[1]
         try:
             target = target.replace('/', os.sep).replace('\\', os.sep)
             os.symlink(
                 target,
                 link,
-                target_is_directory=self.options.symlinkd or os.path.isdir(target),
+                target_is_directory=symlinkd or os.path.isdir(target),
             )
         except OSError:
             status = self.EFAIL
-            if not self.options.force:
+            if not force:
                 print(
                     f'Can not create symbolic link: {link} -> {target}',
                     file=sys.stderr,
                 )
         return status
 
-    def run__fix_symlink(self) -> int:
-        """Fix Windows/WSL broken symbolic links.
-
-        Fixes directory junctions on Windows and absolute symlinks on WSL recursively.
-        Arguments:
-            args: Glob patterns to search and fix.
-        """
+    def fix_symlink(self, patterns: List[str]) -> int:
+        """Fix Windows/WSL broken symbolic links."""
         is_wsl = 'WSL_DISTRO_NAME' in os.environ
 
         def walk(pattern: str) -> None:
@@ -326,7 +305,7 @@ class ShellCmd:
                         os.symlink(target, file)
                     elif not is_link and not os.path.isfile(file):
                         # On Windows, a link like a bad <JUNCTION> can't be accessed.
-                        # Try to find it's target and rebuild it.
+                        # Try to find its target and rebuild it.
                         for target in glob.glob(os.path.splitext(file)[0] + '.*'):
                             if os.path.isfile(target) and not os.path.islink(target):
                                 os.unlink(file)
@@ -340,18 +319,18 @@ class ShellCmd:
                     raise
 
         try:
-            for pattern in self.args:
+            for pattern in patterns:
                 walk(pattern)
             return 0
         except OSError:
             return self.EFAIL
 
-    def run__cwd(self) -> int:
+    def cwd(self) -> int:
         """Print current working directory in Unix format (forward slashes)."""
         print(os.getcwd().replace('\\', '/'), end='')
         return 0
 
-    def run__mydir(self) -> int:
+    def mydir(self) -> int:
         """Print the directory of CMK utility in Unix format (forward slashes)."""
         path = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
         if os.path.isdir(path):
@@ -361,76 +340,49 @@ class ShellCmd:
         print(path.replace('\\', '/'), end='')
         return 0
 
-    def run__relpath(self) -> int:
-        """Print relative path.
-
-        Arguments:
-            args[0]: Target path.
-            args[1] (optional): Start directory.
-        """
-        start = None if len(self.args) <= 1 else self.args[1]
+    def relpath(self, path: str, start: Optional[str] = None) -> int:
+        """Print relative path."""
         try:
-            path = self.args[0]
-            path = os.path.relpath(path, start)
+            res = os.path.relpath(path, start)
         except (IndexError, ValueError, OSError):
-            path = ''
-        print(path.replace('\\', '/'), end='')
+            res = ''
+        print(res.replace('\\', '/'), end='')
         return 0
 
-    def run__win2wsl_path(self) -> int:
-        """Convert Windows path to WSL.
-
-        Arguments:
-            args[0] (optional): Windows path to convert (defaults to current directory).
-        """
-        path = win2wsl_path(self.args[0] if self.args else os.getcwd())
-        print(path, end='')
+    def win2wsl_path(self, path: Optional[str] = None) -> int:
+        """Convert Windows path to WSL."""
+        res = win2wsl_path(path if path else os.getcwd())
+        print(res, end='')
         return 0
 
-    def run__wsl2win_path(self) -> int:
-        """Convert WSL path to Windows.
-
-        Arguments:
-            args[0] (optional): WSL path to convert (defaults to current directory).
-        """
-        path = wsl2win_path(self.args[0] if self.args else os.getcwd())
-        print(path, end='')
+    def wsl2win_path(self, path: Optional[str] = None) -> int:
+        """Convert WSL path to Windows."""
+        res = wsl2win_path(path if path else os.getcwd())
+        print(res, end='')
         return 0
 
-    def run__is_wsl_win_path(self) -> int:
-        """Check if path is a WSL mapped Windows drive path (/mnt/*).
-
-        Prints 'true' or 'false'.
-        Arguments:
-            args[0] (optional): Path to check (defaults to current directory).
-        """
-        path = os.path.abspath(self.args[0]) if self.args else os.getcwd()
-        path = path.replace('\\', '/')
-        if len(path) >= 6 and path.startswith('/mnt/') and path[5].isalpha():
-            if len(path) == 6 or path[6] == '/':
+    def is_wsl_win_path(self, path: Optional[str] = None) -> int:
+        """Check if path is a WSL mapped Windows drive path (/mnt/*)."""
+        p = os.path.abspath(path) if path else os.getcwd()
+        p = p.replace('\\', '/')
+        if len(p) >= 6 and p.startswith('/mnt/') and p[5].isalpha():
+            if len(p) == 6 or p[6] == '/':
                 print('true', end='')
                 return 0
         print('false', end='')
         return 0
 
-    def run__touch(self) -> int:
-        """Simulate touch.
-
-        Creates empty files or updates access and modification times of files.
-        Arguments:
-            args: File paths or glob patterns.
-        Options:
-            -f / --force: Ignore execution errors.
-        """
+    def touch(self, paths: List[str], force: bool = False) -> int:
+        """Simulate touch."""
         status = 0
-        for pattern in self.args:
+        for pattern in paths:
             files = glob.glob(pattern)
             if not files:
                 try:
                     open(pattern, 'ab').close()
                 except OSError:
                     status = self.EFAIL
-                    if self.options.force:
+                    if force:
                         continue
                     print(f'Can not create file {pattern}', file=sys.stderr)
                     return status
@@ -439,33 +391,25 @@ class ShellCmd:
                     os.utime(file, None)
                 except OSError:
                     status = self.EFAIL
-                    if self.options.force:
+                    if force:
                         continue
                     print(f'Can not touch file {file}', file=sys.stderr)
                     return status
         return status
 
-    def run__timestamp(self) -> int:
+    def timestamp(self) -> int:
         """Print current epoch timestamp."""
         print(time.time(), end='')
         return 0
 
-    def run__cmpver(self) -> int:
-        """Compare two version strings.
-
-        Prints '+' if v1 > v2, '0' if equal, '-' if v1 < v2.
-        Arguments:
-            args[0]: First version string (v1).
-            args[1]: Second version string (v2).
-        Options:
-            -f / --force: Force return exit code 0.
-        """
+    def cmpver(self, v1: str, v2: str, force: bool = False) -> int:
+        """Compare two version strings."""
         try:
-            v1 = [int(x) for x in (self.args[0] + '.0.0.0').split('.')[:4]]
-            v2 = [int(x) for x in (self.args[1] + '.0.0.0').split('.')[:4]]
-            if v1 > v2:
+            parsed_v1 = [int(x) for x in (v1 + '.0.0.0').split('.')[:4]]
+            parsed_v2 = [int(x) for x in (v2 + '.0.0.0').split('.')[:4]]
+            if parsed_v1 > parsed_v2:
                 result = (1, '+')
-            elif v1 == v2:
+            elif parsed_v1 == parsed_v2:
                 result = (0, '0')
             else:
                 result = (2, '-')
@@ -473,37 +417,33 @@ class ShellCmd:
             result = (self.EINVAL, '')
             print('Invalid arguments', file=sys.stderr)
         print(result[1], end='')
-        return 0 if self.options.force else result[0]
+        return 0 if force else result[0]
 
-    def run__winreg(self) -> int:
-        """Query registry value on Windows.
-
-        Arguments:
-            args: Registry key path (e.g. HKEY_LOCAL_MACHINE\\SOFTWARE\\...).
-        """
+    def winreg(self, keys: List[str]) -> int:
+        """Query registry value on Windows."""
         try:
             value = None
             try:
-                import winreg
+                import winreg as _winreg
 
                 root_keys = {
-                    'HKEY_CLASSES_ROOT': winreg.HKEY_CLASSES_ROOT,
-                    'HKEY_CURRENT_USER': winreg.HKEY_CURRENT_USER,
-                    'HKEY_LOCAL_MACHINE': winreg.HKEY_LOCAL_MACHINE,
-                    'HKEY_USERS': winreg.HKEY_USERS,
-                    'HKEY_PERFORMANCE_DATA': winreg.HKEY_PERFORMANCE_DATA,
-                    'HKEY_CURRENT_CONFIG': winreg.HKEY_CURRENT_CONFIG,
+                    'HKEY_CLASSES_ROOT': _winreg.HKEY_CLASSES_ROOT,
+                    'HKEY_CURRENT_USER': _winreg.HKEY_CURRENT_USER,
+                    'HKEY_LOCAL_MACHINE': _winreg.HKEY_LOCAL_MACHINE,
+                    'HKEY_USERS': _winreg.HKEY_USERS,
+                    'HKEY_PERFORMANCE_DATA': _winreg.HKEY_PERFORMANCE_DATA,
+                    'HKEY_CURRENT_CONFIG': _winreg.HKEY_CURRENT_CONFIG,
                 }
-                for arg in self.args:
-                    keys = arg.split('\\')
-                    key = root_keys[keys[0]]
-                    sub_key = '\\'.join(keys[1:-1])
-                    value_name = keys[-1]
+                for arg in keys:
+                    keys_split = arg.split('\\')
+                    key = root_keys[keys_split[0]]
+                    sub_key = '\\'.join(keys_split[1:-1])
+                    value_name = keys_split[-1]
                     try:
-                        with winreg.OpenKey(
-                            key, sub_key, 0, winreg.KEY_READ | winreg.KEY_WOW64_64KEY
+                        with _winreg.OpenKey(
+                            key, sub_key, 0, _winreg.KEY_READ | _winreg.KEY_WOW64_64KEY
                         ) as rkey:
-                            value = winreg.QueryValueEx(rkey, value_name)[0]
+                            value = _winreg.QueryValueEx(rkey, value_name)[0]
                             if value:
                                 break
                     except OSError:
@@ -515,7 +455,7 @@ class ShellCmd:
         except (NameError, AttributeError):
             return self.EFAIL
 
-    def run__ndk_root(self) -> int:
+    def ndk_root(self) -> int:
         """Print Android NDK root directory path."""
         root_dir = ndk_root()
         if root_dir:
@@ -523,24 +463,15 @@ class ShellCmd:
             return 0
         return self.ENOENT
 
-    def run__cargo_exec(self) -> int:
-        """Simulate cargo build environment execution.
-
-        Sets up Cargo environment variables from a Cargo.toml file and executes a command.
-        Arguments:
-            args[0]: Path to Cargo.toml or directory.
-            args[1:]: Shell command to execute.
-        """
+    def cargo_exec(self, cargo_toml_path: str, command: List[str]) -> int:
+        """Simulate cargo build environment execution."""
         import subprocess
 
-        if len(self.args) < 1:
-            print(f'Invalid parameter {self.args} for cargo-exec', file=sys.stderr)
-            return self.EFAIL
         ws_dir = os.environ.get('CARGO_WORKSPACE_DIR', '.')
         cfg_file = (
-            self.args[0]
-            if self.args[0].endswith('.toml')
-            else os.path.join(self.args[0], 'Cargo.toml')
+            cargo_toml_path
+            if cargo_toml_path.endswith('.toml')
+            else os.path.join(cargo_toml_path, 'Cargo.toml')
         )
         cargo_toml = (
             os.path.join(ws_dir, cfg_file)
@@ -567,27 +498,15 @@ class ShellCmd:
         os.environ['CARGO_PKG_NAME'] = package['name']
         os.environ['CARGO_PKG_VERSION'] = package['version']
         os.environ['CARGO_MAKE_TIMESTAMP'] = f'{time.time()}'
-        return subprocess.call(' '.join(self.args[1:]), shell=True)
+        return subprocess.call(' '.join(command), shell=True)
 
-    def run__upload(self) -> int:
-        """Upload file via FTP or SFTP.
-
-        Arguments:
-            args[0]: Remote server URL (e.g. sftp://user:pass@host/path).
-            args[1:]: File patterns to upload (format: [remote_file=]local_glob).
-        """
+    def upload(self, ftp_path: str, files: List[str]) -> int:
+        """Upload file via FTP or SFTP."""
         import urllib.parse
-
-        if len(self.args) < 2:
-            print(f'Invalid parameter {self.args} for upload', file=sys.stderr)
-            return self.EFAIL
-
-        ftp_path = self.args[0]
-        files = self.args[1:]
 
         parsed = urllib.parse.urlparse(ftp_path)
         if not parsed.hostname:
-            print(f'No hostname in {self.args}', file=sys.stderr)
+            print(f'No hostname in {ftp_path}', file=sys.stderr)
             return self.EINVAL
         scheme = parsed.scheme
         hostname = parsed.hostname
@@ -669,22 +588,17 @@ class ShellCmd:
             ssh.close()
         return 0
 
-    def run__build_target_deps(self) -> int:
-        """Call TargetParser to build target dependencies.
-
-        Arguments:
-            args: Key-value parameters passed to TargetParser (e.g. TARGET=native).
-        """
-        from cmk.pylib.target import TargetParser
+    def build_target_deps(self, params: List[str]) -> int:
+        """Call TargetParser to build target dependencies."""
+        from .target import TargetParser
 
         try:
             args = {
                 k.strip().lower(): v
-                for (k, v) in map(lambda x: x.split('=', 1), self.args)
+                for (k, v) in map(lambda x: x.split('=', 1), params)
             }
             TargetParser(**args).parse().build()
         except Exception as e:
-            # Check for debug environment
             if os.environ.get('CMKABE_DEBUG') == '1':
                 import traceback
 
@@ -697,55 +611,33 @@ class ShellCmd:
             return 1
         return 0
 
-    def run__dll2lib(self) -> int:
-        """Call dll2lib to generate MSVC import libraries from DLLs.
-
-        Arguments:
-            args[0]: Path to source DLL file.
-            args[1] (optional): Path to output import library (.lib).
-        Options:
-            -f / --force: Overwrite existing .lib files.
-        """
-        if len(self.args) < 1:
-            print('Please input the DLL file path', file=sys.stderr)
-            return self.EINVAL
+    def dll2lib(
+        self, dll_path: str, out_path: Optional[str] = None, force: bool = False
+    ) -> int:
+        """Call dll2lib to generate MSVC import libraries from DLLs."""
         return zig_dll2lib(
-            self.args[0],
-            out_path=self.args[1] if len(self.args) >= 2 else None,
-            force=self.options.force,
+            dll_path,
+            out_path=out_path,
+            force=force,
         )
 
-    def run__zig_patch(self) -> int:
-        """Call zig_patch to patch Zig source libraries to hide runtime exports.
-
-        Arguments:
-            args[0] (optional): Path to Zig installation root.
-        """
-        zig_root = self.args[0] if self.args and self.args[0] else None
+    def zig_patch(self, zig_root: Optional[str] = None) -> int:
+        """Call zig_patch to patch Zig source libraries to hide runtime exports."""
         zig_patch(zig_root)
         return 0
 
-    def run__zig_clean_cache(self) -> int:
-        """Call zig_clean_cache to clean Zig global cache.
-
-        Arguments:
-            args[0] (optional): Path to Zig installation root.
-        """
-        zig_root = self.args[0] if self.args and self.args[0] else None
-        zig_clean_cache(zig_root)
+    def zig_clean_cache(
+        self, zig_root: Optional[str] = None, verbose: bool = False
+    ) -> int:
+        """Call zig_clean_cache to clean Zig global cache."""
+        zig_clean_cache(zig_root, verbose=verbose)
         return 0
 
     def _detect_win_shell(self) -> str:
-        """Detect the parent/ancestor shell on Windows.
-
-        Returns:
-            'pwsh.exe', 'powershell.exe', or 'cmd.exe'
-        """
+        """Detect the parent/ancestor shell on Windows."""
         import ctypes
         from ctypes import wintypes
-        import os
 
-        # Load kernel32 and ntdll
         try:
             kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
             ntdll = ctypes.WinDLL('ntdll', use_last_error=True)
@@ -843,35 +735,30 @@ class ShellCmd:
         except Exception:
             return 'cmd.exe'
 
-        # Find topmost make.exe in the chain (ignoring cmd.exe parent directly below it)
         topmost_make_idx = -1
         for i, (pid, name) in enumerate(chain):
             if name == 'make.exe' or name == 'gmake.exe' or name.endswith('make.exe'):
                 topmost_make_idx = i
 
         if topmost_make_idx != -1:
-            # Check processes above topmost make.exe
             upper_ancestors = chain[topmost_make_idx + 1 :]
             for pid, name in upper_ancestors:
                 if name in ['pwsh.exe', 'powershell.exe']:
                     return name
             return 'cmd.exe'
         else:
-            # Fallback: check entire chain for shell
             for pid, name in chain:
                 if name in ['pwsh.exe', 'powershell.exe']:
                     return name
             return 'cmd.exe'
 
-    def run__find_shell(self) -> int:
+    def find_shell(self, exit_code: bool = False) -> int:
         """Find the shell matching the parent/ancestor terminal environment."""
-
-        is_exit_code_mode = len(self.args) > 0 and self.args[0] == 'exit-code'
+        is_exit_code_mode = exit_code
 
         if sys.platform != 'win32':
             if is_exit_code_mode:
                 return 0
-            # On Unix-like systems, bash or fallback to sh
             print(os.environ.get('SHELL', 'bash'), end='')
             return 0
 
@@ -888,26 +775,40 @@ class ShellCmd:
         print(shell_exe, end='')
         return 0
 
-    def run__update_libs(self) -> int:
-        """Download or rebuild external libraries and copy files.
+    def elf_path_fixer(
+        self,
+        elf_file: str,
+        targets: List[str],
+        fix_rpath: bool = False,
+        create_backup: bool = True,
+        verbose: bool = False,
+        quiet: bool = False,
+    ) -> int:
+        """Fix ELF dynamic library paths by removing directory paths."""
+        from .elf import modify_elf_file
 
-        Options are parsed from self.options (added in main parser):
-            --url: remote URL or local path
-            --local-repo: local repository path
-            --dest-dir: target destination directory
-            --files: semicolon-separated list of file patterns/mappings
-            --tmp-dir: temporary directory path
-            --rebuild: flag to trigger rebuilding
-        """
+        success = modify_elf_file(
+            elf_file,
+            targets,
+            fix_rpath=fix_rpath,
+            create_backup=create_backup,
+            verbose=verbose,
+            quiet=quiet,
+        )
+        return 0 if success else self.EFAIL
+
+    def update_libs(
+        self,
+        dest_dir: str,
+        url: str = '',
+        local_repo: str = '',
+        files: str = '',
+        tmp_dir: str = '.libs',
+        rebuild: bool = False,
+    ) -> int:
+        """Download or rebuild external libraries and copy files."""
         import shutil
         import subprocess
-
-        url = self.options.url or ''
-        local_repo = self.options.local_repo or ''
-        dest_dir = self.options.dest_dir or ''
-        files = self.options.files or ''
-        tmp_dir = self.options.tmp_dir or '.libs'
-        rebuild = bool(self.options.rebuild)
 
         if not dest_dir:
             print('Error: --dest-dir is required', file=sys.stderr)
@@ -919,7 +820,6 @@ class ShellCmd:
                 base = base[:-4]
             local_repo = os.path.join('..', base)
 
-        # Clean up tmp_dir at the beginning
         if os.path.exists(tmp_dir):
             try:
                 self._rmtree_try_chmod(tmp_dir)
@@ -981,7 +881,6 @@ class ShellCmd:
                         pass
                 shutil.copy2(src, dst)
 
-        # Process file mappings
         mapping_list = [f.strip() for f in files.split(';') if f.strip()]
         for m in mapping_list:
             parts = m.split(':', 1)
@@ -1003,13 +902,10 @@ class ShellCmd:
             for f in matched_files:
                 copy_item(f, target_dest_dir)
 
-            # Fix symlinks on the destination folder
-            saved_args = self.args
-            self.args = [target_dest_dir]
             try:
-                self.run__fix_symlink()
-            finally:
-                self.args = saved_args
+                self.fix_symlink([target_dest_dir])
+            except Exception:
+                pass
 
         if need_cleanup:
             try:
@@ -1029,7 +925,6 @@ class ShellCmd:
         def onerror(func: Any, path: str, _exc_info: Any) -> None:
             import stat
 
-            # Is the error an access error?
             if not os.access(path, os.W_OK):
                 os.chmod(path, stat.S_IWUSR)
                 func(path)
@@ -1046,126 +941,468 @@ class ShellCmd:
             from argparse import ArgumentParser, RawTextHelpFormatter
 
             parser = ArgumentParser(formatter_class=RawTextHelpFormatter)
-            parser.add_argument(
-                '-D',
-                '--symlinkd',
+            subparsers = parser.add_subparsers(dest='command')
+
+            # 1. rm subparser
+            rm_parser = subparsers.add_parser('rm', help='Simulate rm / rm -rf')
+            rm_parser.add_argument(
+                '-r', '-R', '--recursive', action='store_true', help='Recursive remove'
+            )
+            rm_parser.add_argument(
+                '-f', '--force', action='store_true', help='Force remove'
+            )
+            rm_parser.add_argument(
+                '--stdin',
+                '--args-from-stdin',
                 action='store_true',
-                default=False,
-                dest='symlinkd',
-                help='creates a directory symbolic link',
+                dest='args_from_stdin',
+                help='Read from stdin',
             )
-            parser.add_argument(
-                '-e',
-                '--empty-dirs',
-                action='store_true',
-                default=False,
-                dest='remove_empty_dirs',
-                help='remove all empty directories',
+            rm_parser.add_argument(
+                'paths', nargs='*', help='Files or directories to remove'
             )
-            parser.add_argument(
-                '-f',
-                '--force',
-                action='store_true',
-                default=False,
-                dest='force',
-                help='ignore errors, never prompt',
+
+            # 2. mkdir subparser
+            mkdir_parser = subparsers.add_parser(
+                'mkdir', help='Simulate mkdir / mkdir -p'
             )
-            parser.add_argument(
-                '--list',
-                action='store_true',
-                default=False,
-                dest='list_cmds',
-                help='list all commands',
+            mkdir_parser.add_argument(
+                '-f', '--force', action='store_true', help='Force create'
             )
-            parser.add_argument(
-                '-P',
-                '--no-dereference',
-                action='store_false',
-                default=True,
-                dest='follow_symlinks',
-                help='always follow symbolic links in SOURCE',
-            )
-            parser.add_argument(
+            mkdir_parser.add_argument(
                 '-p',
                 '--parents',
                 action='store_true',
-                default=True,
-                dest='parents',
-                help='if existing, make parent directories as needed',
+                help='Make parent directories as needed',
             )
-            parser.add_argument(
-                '-r',
-                '-R',
-                '--recursive',
-                action='store_true',
-                default=False,
-                dest='recursive',
-                help='copy/remove directories and their contents recursively',
+            mkdir_parser.add_argument(
+                'paths', nargs='+', help='Directory paths to create'
             )
-            parser.add_argument(
-                '--args-from-stdin',
-                '--stdin',
-                action='store_true',
-                default=False,
-                dest='args_from_stdin',
-                help='read arguments from stdin',
-            )
-            parser.add_argument(
-                '--url',
-                default='',
-                help='remote git repository URL or local path for update-libs',
-            )
-            parser.add_argument(
-                '--local-repo',
-                default='',
-                help='local source repository path for update-libs',
-            )
-            parser.add_argument(
-                '--dest-dir',
-                default='',
-                help='local destination directory for update-libs',
-            )
-            parser.add_argument(
-                '--files',
-                default='',
-                help='semicolon-separated list of file mappings for update-libs',
-            )
-            parser.add_argument(
-                '--tmp-dir',
-                default='',
-                help='temporary directory for update-libs',
-            )
-            parser.add_argument(
-                '--rebuild',
-                action='store_true',
-                default=False,
-                help='rebuild libraries in local repo for update-libs',
-            )
-            parser.add_argument('command', nargs='?', default='')
-            parser.add_argument('args', nargs='*', default=[])
-            namespace = parser.parse_intermixed_args(args)
 
-            inst = cls(namespace)
-            if namespace.list_cmds:
-                for name in dir(inst):
-                    if name.startswith('run__'):
-                        print(name[5:].replace('_', '-'))
-                return 0
+            # 3. rmdir subparser
+            rmdir_parser = subparsers.add_parser('rmdir', help='Simulate rmdir')
+            rmdir_parser.add_argument(
+                '-e',
+                '--empty-dirs',
+                action='store_true',
+                dest='remove_empty_dirs',
+                help='Remove all empty directories',
+            )
+            rmdir_parser.add_argument(
+                '-f', '--force', action='store_true', help='Ignore errors'
+            )
+            rmdir_parser.add_argument('paths', nargs='+', help='Directories to remove')
+
+            # 4. mv subparser
+            mv_parser = subparsers.add_parser('mv', help='Simulate mv')
+            mv_parser.add_argument(
+                '-f', '--force', action='store_true', help='Force move'
+            )
+            mv_parser.add_argument(
+                'paths', nargs='+', help='Source files and destination directory'
+            )
+
+            # 5. cp subparser
+            cp_parser = subparsers.add_parser('cp', help='Simulate cp')
+            cp_parser.add_argument(
+                '-r', '-R', '--recursive', action='store_true', help='Recursive copy'
+            )
+            cp_parser.add_argument(
+                '-P',
+                '--no-dereference',
+                action='store_false',
+                dest='follow_symlinks',
+                default=True,
+                help='No dereference symlinks',
+            )
+            cp_parser.add_argument(
+                '-f', '--force', action='store_true', help='Force copy'
+            )
+            cp_parser.add_argument(
+                'paths', nargs='+', help='Source files and destination directory'
+            )
+
+            # 6. mklink subparser
+            mklink_parser = subparsers.add_parser(
+                'mklink', help='Simulate symlink creation'
+            )
+            mklink_parser.add_argument(
+                '-D', '--symlinkd', action='store_true', help='Force directory symlink'
+            )
+            mklink_parser.add_argument(
+                '-f', '--force', action='store_true', help='Force link'
+            )
+            mklink_parser.add_argument('link', help='Link path')
+            mklink_parser.add_argument('target', help='Target path')
+
+            # 7. fix-symlink subparser
+            fix_symlink_parser = subparsers.add_parser(
+                'fix-symlink',
+                help='Fix Windows/WSL broken symbolic links',
+            )
+            fix_symlink_parser.add_argument(
+                'patterns', nargs='+', help='Glob patterns to search and fix'
+            )
+
+            # 8. cwd subparser
+            subparsers.add_parser(
+                'cwd', help='Print current working directory in Unix format'
+            )
+
+            # 9. mydir subparser
+            subparsers.add_parser(
+                'mydir', help='Print the directory of CMKABE utility in Unix format'
+            )
+
+            # 10. relpath subparser
+            relpath_parser = subparsers.add_parser(
+                'relpath', help='Print relative path'
+            )
+            relpath_parser.add_argument('path', help='Target path')
+            relpath_parser.add_argument(
+                'start', nargs='?', default=None, help='Start directory'
+            )
+
+            # 11. win2wsl-path subparser
+            win2wsl_parser = subparsers.add_parser(
+                'win2wsl-path', help='Convert Windows path to WSL'
+            )
+            win2wsl_parser.add_argument(
+                'path', nargs='?', default=None, help='Windows path'
+            )
+
+            # 12. wsl2win-path subparser
+            wsl2win_parser = subparsers.add_parser(
+                'wsl2win-path',
+                help='Convert WSL path to Windows',
+            )
+            wsl2win_parser.add_argument(
+                'path', nargs='?', default=None, help='WSL path'
+            )
+
+            # 13. is-wsl-win-path subparser
+            is_wsl_win_parser = subparsers.add_parser(
+                'is-wsl-win-path',
+                help='Check if path is a WSL mapped Windows drive path',
+            )
+            is_wsl_win_parser.add_argument(
+                'path', nargs='?', default=None, help='Path to check'
+            )
+
+            # 14. touch subparser
+            touch_parser = subparsers.add_parser('touch', help='Simulate touch')
+            touch_parser.add_argument(
+                '-f', '--force', action='store_true', help='Force touch'
+            )
+            touch_parser.add_argument('paths', nargs='+', help='File paths')
+
+            # 15. timestamp subparser
+            subparsers.add_parser('timestamp', help='Print current epoch timestamp')
+
+            # 16. cmpver subparser
+            cmpver_parser = subparsers.add_parser(
+                'cmpver', help='Compare two version strings'
+            )
+            cmpver_parser.add_argument(
+                '-f', '--force', action='store_true', help='Force exit code 0'
+            )
+            cmpver_parser.add_argument('v1', help='Version 1')
+            cmpver_parser.add_argument('v2', help='Version 2')
+
+            # 17. winreg subparser
+            winreg_parser = subparsers.add_parser(
+                'winreg', help='Query registry value on Windows'
+            )
+            winreg_parser.add_argument('keys', nargs='+', help='Registry key paths')
+
+            # 18. ndk-root subparser
+            subparsers.add_parser('ndk-root', help='Print Android NDK root path')
+
+            # 19. cargo-exec subparser
+            cargo_exec_parser = subparsers.add_parser(
+                'cargo-exec',
+                help='Simulate cargo build environment execution',
+            )
+            cargo_exec_parser.add_argument(
+                'cargo_toml_path', help='Path to Cargo.toml or directory'
+            )
+            cargo_exec_parser.add_argument(
+                'command', nargs='+', help='Command to execute'
+            )
+
+            # 20. upload subparser
+            upload_parser = subparsers.add_parser(
+                'upload', help='Upload file via FTP or SFTP'
+            )
+            upload_parser.add_argument('ftp_path', help='Remote FTP server URL')
+            upload_parser.add_argument(
+                'files', nargs='+', help='File patterns to upload'
+            )
+
+            # 21. build-target-deps subparser
+            build_deps_parser = subparsers.add_parser(
+                'build-target-deps',
+                help='Build target dependencies',
+            )
+            build_deps_parser.add_argument(
+                'params', nargs='*', help='Key-value parameters'
+            )
+
+            # 22. dll2lib subparser
+            dll2lib_parser = subparsers.add_parser(
+                'dll2lib', help='Call dll2lib to generate MSVC import libraries'
+            )
+            dll2lib_parser.add_argument(
+                '-f', '--force', action='store_true', help='Force overwrite'
+            )
+            dll2lib_parser.add_argument('dll_path', help='DLL path')
+            dll2lib_parser.add_argument(
+                'out_path', nargs='?', default=None, help='Output import library path'
+            )
+
+            # 23. zig-patch subparser
+            zig_patch_parser = subparsers.add_parser(
+                'zig-patch',
+                help='Call zig_patch to patch Zig source libraries',
+            )
+            zig_patch_parser.add_argument(
+                'zig_root', nargs='?', default=None, help='Zig installation root'
+            )
+
+            # 24. zig-clean-cache subparser
+            zig_clean_parser = subparsers.add_parser(
+                'zig-clean-cache', help='Clean Zig global cache'
+            )
+            zig_clean_parser.add_argument(
+                '-v', '--verbose', action='store_true', help='Verbose output'
+            )
+            zig_clean_parser.add_argument(
+                'zig_root', nargs='?', default=None, help='Zig installation root'
+            )
+
+            # 25. find-shell subparser
+            find_shell_parser = subparsers.add_parser(
+                'find-shell', help='Find the shell matching the terminal environment'
+            )
+            find_shell_parser.add_argument(
+                '--exit-code',
+                action='store_true',
+                dest='exit_code',
+                help='Exit code mode',
+            )
+
+            # 26. update-libs subparser
+            update_libs_parser = subparsers.add_parser(
+                'update-libs', help='Download or rebuild external libraries'
+            )
+            update_libs_parser.add_argument(
+                '--dest-dir', required=True, help='Target destination directory'
+            )
+            update_libs_parser.add_argument(
+                '--url', default='', help='Remote URL or local path'
+            )
+            update_libs_parser.add_argument(
+                '--local-repo', default='', help='Local repository path'
+            )
+            update_libs_parser.add_argument(
+                '--files', default='', help='Semicolon-separated files list'
+            )
+            update_libs_parser.add_argument(
+                '--tmp-dir', default='.libs', help='Temporary directory path'
+            )
+            update_libs_parser.add_argument(
+                '--rebuild', action='store_true', help='Flag to trigger rebuilding'
+            )
+
+            # 27. elf-path-fixer subparser
+            elf_path_fixer_parser = subparsers.add_parser(
+                'elf-path-fixer',
+                help='Fix ELF dynamic library paths by removing directory paths',
+            )
+            elf_path_fixer_parser.add_argument(
+                'elf_file', help='Path to the ELF executable file to process'
+            )
+            elf_path_fixer_parser.add_argument(
+                '--target',
+                '-t',
+                required=True,
+                dest='targets',
+                action='append',
+                help='Regular expression pattern to match in library paths',
+            )
+            elf_path_fixer_parser.add_argument(
+                '--fix-rpath',
+                action='store_true',
+                dest='fix_rpath',
+                default=False,
+                help='fix both RPATH and RUNPATH',
+            )
+            elf_path_fixer_parser.add_argument(
+                '--no-backup',
+                action='store_false',
+                dest='create_backup',
+                default=True,
+                help='Do not create a backup of the original file',
+            )
+            elf_path_fixer_parser.add_argument(
+                '--verbose',
+                '-v',
+                action='store_true',
+                default=False,
+                help='Enable verbose output',
+            )
+            elf_path_fixer_parser.add_argument(
+                '--quiet',
+                '-q',
+                action='store_true',
+                default=False,
+                help='Suppress all output except errors',
+            )
+
+            namespace = parser.parse_args(args)
 
             if not namespace.command:
                 print('Missing command', file=sys.stderr)
                 return cls.EINVAL
 
-            cmd_func_name = 'run__' + namespace.command.replace('-', '_')
-            try:
-                func = getattr(inst, cmd_func_name)
-                return int(func())
-            except AttributeError:
-                print(
-                    f'Unrecognized command "{namespace.command}"',
-                    file=sys.stderr,
+            inst = cls()
+            cmd = namespace.command
+
+            if cmd == 'rm':
+                return inst.rm(
+                    paths=namespace.paths,
+                    recursive=namespace.recursive,
+                    force=namespace.force,
+                    args_from_stdin=namespace.args_from_stdin,
                 )
-                return cls.EINVAL
+            elif cmd == 'mkdir':
+                return inst.mkdir(
+                    paths=namespace.paths,
+                    force=namespace.force,
+                )
+            elif cmd == 'rmdir':
+                return inst.rmdir(
+                    paths=namespace.paths,
+                    remove_empty_dirs=namespace.remove_empty_dirs,
+                    force=namespace.force,
+                )
+            elif cmd == 'mv':
+                return inst.mv(
+                    paths=namespace.paths,
+                    force=namespace.force,
+                )
+            elif cmd == 'cp':
+                return inst.cp(
+                    paths=namespace.paths,
+                    recursive=namespace.recursive,
+                    follow_symlinks=namespace.follow_symlinks,
+                    force=namespace.force,
+                )
+            elif cmd == 'mklink':
+                return inst.mklink(
+                    link=namespace.link,
+                    target=namespace.target,
+                    symlinkd=namespace.symlinkd,
+                    force=namespace.force,
+                )
+            elif cmd == 'fix-symlink':
+                return inst.fix_symlink(
+                    patterns=namespace.patterns,
+                )
+            elif cmd == 'cwd':
+                return inst.cwd()
+            elif cmd == 'mydir':
+                return inst.mydir()
+            elif cmd == 'relpath':
+                return inst.relpath(
+                    path=namespace.path,
+                    start=namespace.start,
+                )
+            elif cmd == 'win2wsl-path':
+                return inst.win2wsl_path(
+                    path=namespace.path,
+                )
+            elif cmd == 'wsl2win-path':
+                return inst.wsl2win_path(
+                    path=namespace.path,
+                )
+            elif cmd == 'is-wsl-win-path':
+                return inst.is_wsl_win_path(
+                    path=namespace.path,
+                )
+            elif cmd == 'touch':
+                return inst.touch(
+                    paths=namespace.paths,
+                    force=namespace.force,
+                )
+            elif cmd == 'timestamp':
+                return inst.timestamp()
+            elif cmd == 'cmpver':
+                return inst.cmpver(
+                    v1=namespace.v1,
+                    v2=namespace.v2,
+                    force=namespace.force,
+                )
+            elif cmd == 'winreg':
+                return inst.winreg(
+                    keys=namespace.keys,
+                )
+            elif cmd == 'ndk-root':
+                return inst.ndk_root()
+            elif cmd == 'cargo-exec':
+                return inst.cargo_exec(
+                    cargo_toml_path=namespace.cargo_toml_path,
+                    command=namespace.command,
+                )
+            elif cmd == 'upload':
+                return inst.upload(
+                    ftp_path=namespace.ftp_path,
+                    files=namespace.files,
+                )
+            elif cmd == 'build-target-deps':
+                return inst.build_target_deps(
+                    params=namespace.params,
+                )
+            elif cmd == 'dll2lib':
+                return inst.dll2lib(
+                    dll_path=namespace.dll_path,
+                    out_path=namespace.out_path,
+                    force=namespace.force,
+                )
+            elif cmd == 'zig-patch':
+                return inst.zig_patch(
+                    zig_root=namespace.zig_root,
+                )
+            elif cmd == 'zig-clean-cache':
+                return inst.zig_clean_cache(
+                    zig_root=namespace.zig_root,
+                    verbose=namespace.verbose,
+                )
+            elif cmd == 'find-shell':
+                return inst.find_shell(
+                    exit_code=namespace.exit_code,
+                )
+            elif cmd == 'update-libs':
+                return inst.update_libs(
+                    dest_dir=namespace.dest_dir,
+                    url=namespace.url,
+                    local_repo=namespace.local_repo,
+                    files=namespace.files,
+                    tmp_dir=namespace.tmp_dir,
+                    rebuild=namespace.rebuild,
+                )
+            elif cmd == 'elf-path-fixer':
+                return inst.elf_path_fixer(
+                    elf_file=namespace.elf_file,
+                    targets=namespace.targets,
+                    fix_rpath=namespace.fix_rpath,
+                    create_backup=namespace.create_backup,
+                    verbose=namespace.verbose,
+                    quiet=namespace.quiet,
+                )
+
+            print(f'Unrecognized command "{cmd}"', file=sys.stderr)
+            return cls.EINVAL
 
         except PermissionError as e:
             print(e)
