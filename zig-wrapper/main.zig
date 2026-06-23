@@ -125,9 +125,12 @@ pub const ZigWrapper = struct {
         while (arg_iter.next()) |arg| {
             if (utils.strStartsWith(arg, "@")) {
                 // Parse the flags file.
-                try self.parseFileFlags(arg[1..], &argv);
-                self.at_file_opt = try self.allocator.dupe(u8, arg);
-                continue;
+                if (self.parseFileFlags(arg[1..], &argv, 0)) |_| {
+                    self.at_file_opt = try self.allocator.dupe(u8, arg);
+                    continue;
+                } else |_| {
+                    // Fallback: treat as a literal argument
+                }
             }
 
             // If the flags file is not the last argument, ignore it.
@@ -381,7 +384,9 @@ pub const ZigWrapper = struct {
         return exit_code;
     }
 
-    pub fn parseFileFlags(self: *Self, path: []const u8, dest: *StringArray) !void {
+    pub fn parseFileFlags(self: *Self, path: []const u8, dest: *StringArray, depth: usize) anyerror!void {
+        if (depth > 10) return error.FlagsFileTooDeep;
+
         // Open the file for reading
         const cwd = std.Io.Dir.cwd();
         var file = try cwd.openFile(self.io, path, .{});
@@ -404,6 +409,14 @@ pub const ZigWrapper = struct {
         );
         defer arg_iter.deinit();
         while (arg_iter.next()) |arg| {
+            if (utils.strStartsWith(arg, "@")) {
+                // Recursively parse the nested flags file.
+                if (self.parseFileFlags(arg[1..], dest, depth + 1)) |_| {
+                    continue;
+                } else |_| {
+                    // Fallback: treat as a literal argument
+                }
+            }
             try dest.append(try self.allocator.dupe(u8, arg));
         }
     }
