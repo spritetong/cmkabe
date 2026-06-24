@@ -85,28 +85,24 @@ pub const ZigWrapper = struct {
         const io_ = proc_init.io;
         const allocator_ = proc_init.gpa;
         const environ_map_ = proc_init.environ_map;
-        var self = outer: {
-            // logger
-            const log = blk: {
-                const log_path = utils.getEnvVar(environ_map_, "ZIG_WRAPPER_LOG");
-                const v = try ZigLog.init(io_, log_path);
-                break :blk v;
-            };
 
-            break :outer Self{
-                .io = io_,
-                .allocator = allocator_,
-                .environ_map = environ_map_,
-                .log = log,
-                .sys_argv = StringArray.init(allocator_),
-                .zig_cpu_opts = StringArray.init(allocator_),
-                .zig_cpu_tune_opts = StringArray.init(allocator_),
-                .skipped_libs = .{},
-                .skipped_lib_patterns = StringArray.init(allocator_),
-                .skipped_lib_paths = .{},
-                .arg_filter = ZigArgFilterMap.init(allocator_),
-                .args = StringArray.init(allocator_),
-            };
+        // logger
+        const log_path = utils.getEnvVar(environ_map_, "ZIG_WRAPPER_LOG");
+        const log = try ZigLog.init(io_, log_path);
+
+        var self = Self{
+            .io = io_,
+            .allocator = allocator_,
+            .environ_map = environ_map_,
+            .log = log,
+            .sys_argv = StringArray.init(allocator_),
+            .zig_cpu_opts = StringArray.init(allocator_),
+            .zig_cpu_tune_opts = StringArray.init(allocator_),
+            .skipped_libs = .{},
+            .skipped_lib_patterns = StringArray.init(allocator_),
+            .skipped_lib_paths = .{},
+            .arg_filter = ZigArgFilterMap.init(allocator_),
+            .args = StringArray.init(allocator_),
         };
         errdefer self.deinit();
 
@@ -478,26 +474,27 @@ pub const ZigWrapper = struct {
                     }
 
                     // Parse flags.
-                    const flags_str = utils.getEnvVar(self.environ_map, key) orelse continue;
-                    var arg_iter = try ArgIteratorGeneral.init(
-                        self.allocator,
-                        flags_str,
-                    );
-                    defer arg_iter.deinit();
+                    if (utils.getEnvVar(self.environ_map, key)) |flags_str| {
+                        var arg_iter = try ArgIteratorGeneral.init(
+                            self.allocator,
+                            flags_str,
+                        );
+                        defer arg_iter.deinit();
 
-                    while (arg_iter.next()) |arg| {
-                        try utils.dupeAndAppend(u8, &tmp, self.allocator, arg);
-                    }
-
-                    // Do not append the same flags.
-                    if (!utils.stringsContains(args.items, tmp.items)) {
-                        try args.appendSlice(tmp.items);
-                        tmp.clearRetainingCapacity();
-                    } else {
-                        for (tmp.items) |item| {
-                            self.allocator.free(item);
+                        while (arg_iter.next()) |arg| {
+                            try utils.dupeAndAppend(u8, &tmp, self.allocator, arg);
                         }
-                        tmp.clearRetainingCapacity();
+
+                        // Do not append the same flags.
+                        if (!utils.stringsContains(args.items, tmp.items)) {
+                            try args.appendSlice(tmp.items);
+                            tmp.clearRetainingCapacity();
+                        } else {
+                            for (tmp.items) |item| {
+                                self.allocator.free(item);
+                            }
+                            tmp.clearRetainingCapacity();
+                        }
                     }
                 }
             }
@@ -773,7 +770,9 @@ pub const ZigWrapper = struct {
             args.deinit();
         }
 
+        // lib_map: key - string reference, value - owned list<tring reference>
         var lib_map = std.array_hash_map.String(std.array_list.Managed(LinkerLib)){};
+        // path_set: key - owned string
         var path_set = std.array_hash_map.String(void){};
         defer {
             for (lib_map.values()) |array| {
@@ -1127,10 +1126,8 @@ pub const ZigWrapper = struct {
                 try utils.dupeAndAppend(u8, &patterns, self.allocator, "[:\\\\]");
                 try utils.dupeAndAppend(u8, &patterns, self.allocator, "^/mnt/[a-z]/");
                 try utils.dupeAndAppend(u8, &patterns, self.allocator, "/.rmake/");
-
-                if (utils.dupeEnvVar(self.environ_map, self.allocator, "CARGO_WORKSPACE_DIR")) |ws| {
-                    errdefer self.allocator.free(ws);
-                    try patterns.append(ws);
+                if (utils.getEnvVar(self.environ_map, "CARGO_WORKSPACE_DIR")) |v| {
+                    try utils.dupeAndAppend(u8, &patterns, self.allocator, v);
                 }
 
                 for (&[_][]const u8{ "CMKABE_TARGET", "CMKABE_CARGO_TARGET" }) |env| {
