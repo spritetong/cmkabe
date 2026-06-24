@@ -229,7 +229,9 @@ class TargetParser:
         if self.target_is_native:
             self.target = self.host.triple
 
-        self.arch, self.vendor, self.os, self.env, self.version, self.version_sep = parse_triple(self.target)
+        self.arch, self.vendor, self.os, self.env, self.version, self.version_sep = (
+            parse_triple(self.target)
+        )
         self.arch = RUST_ARCH_MAP.get(self.arch, self.arch)
 
         # Detect platform properties
@@ -373,6 +375,17 @@ class TargetParser:
             path = rf'{os.environ.get(program_files, "")}\Microsoft Visual Studio\Installer\vswhere.exe'
             if os.path.isfile(path):
                 vswhere = path
+
+        if self.arch == 'aarch64':
+            masm_pattern = 'armasm64.exe'
+        elif self.arch in ('arm', 'armv7'):
+            masm_pattern = 'armasm.exe'
+        else:
+            masm_pattern = 'ml*.exe'
+
+        host_arch = VSTOOLS_ARCH_MAP.get(self.host.arch, self.host.arch)
+        target_arch = VSTOOLS_ARCH_MAP.get(self.arch, self.arch)
+
         try:
             result = subprocess.run(
                 [
@@ -381,15 +394,17 @@ class TargetParser:
                     '-requires',
                     'Microsoft.VisualStudio.Component.VC.Tools.*',
                     '-find',
-                    rf'VC\Tools\MSVC\**\bin\*{VSTOOLS_ARCH_MAP.get(self.host.arch, self.host.arch)}\{VSTOOLS_ARCH_MAP.get(self.arch, self.arch)}\ml*.exe',
+                    f'VC/Tools/MSVC/**/bin/*{host_arch}/{target_arch}/{masm_pattern}',
                 ],
                 stdin=subprocess.DEVNULL,
                 capture_output=True,
                 text=True,
             )
-            ml = result.stdout.strip()
-            if ml:
-                self.msvc_masm = normpath(ml)
+            lines = [
+                line.strip() for line in result.stdout.splitlines() if line.strip()
+            ]
+            if lines:
+                self.msvc_masm = normpath(sorted(lines)[-1])
         except OSError:
             pass
 
