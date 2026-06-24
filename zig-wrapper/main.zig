@@ -88,10 +88,7 @@ pub const ZigWrapper = struct {
         var self = outer: {
             // logger
             const log = blk: {
-                const log_path = utils.getEnvVar(environ_map_, allocator_, "ZIG_WRAPPER_LOG") catch null;
-                errdefer if (log_path) |v| {
-                    allocator_.free(v);
-                };
+                const log_path = utils.getEnvVar(environ_map_, "ZIG_WRAPPER_LOG");
                 const v = try ZigLog.init(io_, log_path);
                 break :blk v;
             };
@@ -138,7 +135,7 @@ pub const ZigWrapper = struct {
                 self.allocator.free(v);
                 self.at_file_opt = null;
             }
-            try argv.append(try self.allocator.dupe(u8, arg));
+            try utils.dupeAndAppend(u8, &argv, self.allocator, arg);
         }
 
         // Write the input command line to log.
@@ -160,9 +157,9 @@ pub const ZigWrapper = struct {
         }
 
         // Parse environment variables.
-        self.zig_exe = utils.getEnvVar(self.environ_map, self.allocator, "ZIG_EXECUTABLE") catch null;
-        self.zig_target = utils.getEnvVar(self.environ_map, self.allocator, "ZIG_WRAPPER_TARGET") catch null;
-        self.clang_target = utils.getEnvVar(self.environ_map, self.allocator, "ZIG_WRAPPER_CLANG_TARGET") catch null;
+        self.zig_exe = utils.dupeEnvVar(self.environ_map, self.allocator, "ZIG_EXECUTABLE");
+        self.zig_target = utils.dupeEnvVar(self.environ_map, self.allocator, "ZIG_WRAPPER_TARGET");
+        self.clang_target = utils.dupeEnvVar(self.environ_map, self.allocator, "ZIG_WRAPPER_CLANG_TARGET");
 
         // Parse Zig flags in `argv[1..]`.
         try self.sys_argv.ensureUnusedCapacity(argv.items.len);
@@ -182,7 +179,7 @@ pub const ZigWrapper = struct {
         // Parse Zig flags in the environment variables.
         try self.parseEnvFlags(&argv);
         for (argv.items) |arg| {
-            try self.sys_argv.append(try self.allocator.dupe(u8, arg));
+            try utils.dupeAndAppend(u8, &self.sys_argv, self.allocator, arg);
         }
         utils.freeStringArray(self.allocator, &argv);
         argv = StringArray.init(self.allocator);
@@ -257,16 +254,16 @@ pub const ZigWrapper = struct {
 
     pub fn run(self: *Self) !u8 {
         // Zig executable
-        try self.args.append(try self.allocator.dupe(u8, self.zig_exe.?));
+        try utils.dupeAndAppend(u8, &self.args, self.allocator, self.zig_exe.?);
         // Zig command
-        try self.args.append(try self.allocator.dupe(u8, self.command.toName()));
+        try utils.dupeAndAppend(u8, &self.args, self.allocator, self.command.toName());
         // `cc`, `c++`: -target <target> [-march=<cpu>] [-mtune=<cpu>]
         if (self.command.isCompiler()) {
-            try self.args.append(try self.allocator.dupe(u8, "-target"));
-            try self.args.append(try self.allocator.dupe(u8, self.zig_target.?));
+            try utils.dupeAndAppend(u8, &self.args, self.allocator, "-target");
+            try utils.dupeAndAppend(u8, &self.args, self.allocator, self.zig_target.?);
 
             // Disable 'date-time' error by default.
-            try self.args.append(try self.allocator.dupe(u8, "-Wno-error=date-time"));
+            try utils.dupeAndAppend(u8, &self.args, self.allocator, "-Wno-error=date-time");
 
             if (!self.is_preprocessor) {
                 for (&[_]*StringArray{ &self.zig_cpu_opts, &self.zig_cpu_tune_opts }) |options| {
@@ -286,22 +283,22 @@ pub const ZigWrapper = struct {
                 }
 
                 // https://github.com/ziglang/zig/wiki/FAQ#why-do-i-get-illegal-instruction-when-using-with-zig-cc-to-build-c-code
-                try self.args.append(try self.allocator.dupe(u8, "-fno-sanitize=undefined"));
+                try utils.dupeAndAppend(u8, &self.args, self.allocator, "-fno-sanitize=undefined");
 
                 // Fix compilation issues of Rust native crates.
                 if (self.disable_dllexport) {
-                    try self.args.append(try self.allocator.dupe(u8, "-fvisibility-ms-compat"));
-                    try self.args.append(try self.allocator.dupe(u8, "-Ddllexport=nodebug"));
+                    try utils.dupeAndAppend(u8, &self.args, self.allocator, "-fvisibility-ms-compat");
+                    try utils.dupeAndAppend(u8, &self.args, self.allocator, "-Ddllexport=nodebug");
                 }
             }
             if (self.target_is_windows) {
                 // Undefine `_WIN32_WINNT` for Windows targets.
-                try self.args.append(try self.allocator.dupe(u8, "-U_WIN32_WINNT"));
+                try utils.dupeAndAppend(u8, &self.args, self.allocator, "-U_WIN32_WINNT");
             }
             if (self.is_linker) {
-                try self.args.append(try self.allocator.dupe(u8, "-lc++"));
-                try self.args.append(try self.allocator.dupe(u8, "-lc++abi"));
-                try self.args.append(try self.allocator.dupe(u8, "-lomp"));
+                try utils.dupeAndAppend(u8, &self.args, self.allocator, "-lc++");
+                try utils.dupeAndAppend(u8, &self.args, self.allocator, "-lc++abi");
+                try utils.dupeAndAppend(u8, &self.args, self.allocator, "-lomp");
             }
         }
 
@@ -417,7 +414,7 @@ pub const ZigWrapper = struct {
                     // Fallback: treat as a literal argument
                 }
             }
-            try dest.append(try self.allocator.dupe(u8, arg));
+            try utils.dupeAndAppend(u8, dest, self.allocator, arg);
         }
     }
 
@@ -481,8 +478,7 @@ pub const ZigWrapper = struct {
                     }
 
                     // Parse flags.
-                    const flags_str = utils.getEnvVar(self.environ_map, self.allocator, key) catch continue;
-                    defer self.allocator.free(flags_str);
+                    const flags_str = utils.getEnvVar(self.environ_map, key) orelse continue;
                     var arg_iter = try ArgIteratorGeneral.init(
                         self.allocator,
                         flags_str,
@@ -490,7 +486,7 @@ pub const ZigWrapper = struct {
                     defer arg_iter.deinit();
 
                     while (arg_iter.next()) |arg| {
-                        try tmp.append(try self.allocator.dupe(u8, arg));
+                        try utils.dupeAndAppend(u8, &tmp, self.allocator, arg);
                     }
 
                     // Do not append the same flags.
@@ -532,14 +528,14 @@ pub const ZigWrapper = struct {
                 }
                 // Skip positional arguments.
                 for (parser.consumed) |arg| {
-                    try dest.append(try self.allocator.dupe(u8, arg));
+                    try utils.dupeAndAppend(u8, dest, self.allocator, arg);
                 }
             } else if (parser.parseNamed(ZigArgFilter.query_version_opts, false)) {
                 self.is_quering_version = true;
                 self.is_linker = false;
                 // Do no consume the argument.
                 for (parser.consumed) |arg| {
-                    try dest.append(try self.allocator.dupe(u8, arg));
+                    try utils.dupeAndAppend(u8, dest, self.allocator, arg);
                 }
             } else if (parser.parseNamed(ZigArgFilter.compile_only_opts, false)) {
                 if (self.command.isCompiler()) {
@@ -550,7 +546,7 @@ pub const ZigWrapper = struct {
                 }
                 // Do no consume the argument.
                 for (parser.consumed) |arg| {
-                    try dest.append(try self.allocator.dupe(u8, arg));
+                    try utils.dupeAndAppend(u8, dest, self.allocator, arg);
                 }
             } else if (parser.parseNamed(&.{ "-shared", "-dll" }, false)) {
                 if (self.command.isCompiler()) {
@@ -559,7 +555,7 @@ pub const ZigWrapper = struct {
                 }
                 // Do no consume the argument.
                 for (parser.consumed) |arg| {
-                    try dest.append(try self.allocator.dupe(u8, arg));
+                    try utils.dupeAndAppend(u8, dest, self.allocator, arg);
                 }
             } else if (parser.parseNamed(&.{ "-target", "--target" }, true)) {
                 if (self.zig_target == null) {
@@ -568,33 +564,35 @@ pub const ZigWrapper = struct {
             } else if (parser.parseNamed(&.{ "-march", "-mcpu" }, true)) {
                 if (self.command.isCompiler()) {
                     for (parser.consumed) |arg| {
-                        try self.zig_cpu_opts.append(try self.allocator.dupe(u8, arg));
+                        try utils.dupeAndAppend(u8, &self.zig_cpu_opts, self.allocator, arg);
                     }
                 } else {
                     // Do no consume the argument.
                     for (parser.consumed) |arg| {
-                        try dest.append(try self.allocator.dupe(u8, arg));
+                        try utils.dupeAndAppend(u8, dest, self.allocator, arg);
                     }
                 }
             } else if (parser.parseNamed(&.{"-mtune"}, true)) {
                 if (self.command.isCompiler()) {
                     for (parser.consumed) |arg| {
-                        try self.zig_cpu_tune_opts.append(try self.allocator.dupe(u8, arg));
+                        try utils.dupeAndAppend(u8, &self.zig_cpu_tune_opts, self.allocator, arg);
                     }
                 } else {
                     // Do no consume the argument.
                     for (parser.consumed) |arg| {
-                        try dest.append(try self.allocator.dupe(u8, arg));
+                        try utils.dupeAndAppend(u8, dest, self.allocator, arg);
                     }
                 }
             } else if (parser.parseNamed(&.{"--zig"}, true)) {
-                if (self.zig_exe == null) {
-                    self.zig_exe = try self.allocator.dupe(u8, parser.value);
+                if (self.zig_exe) |v| {
+                    self.allocator.free(v);
                 }
+                self.zig_exe = try self.allocator.dupe(u8, parser.value);
             } else if (parser.parseNamed(&.{"--clang-target"}, true)) {
-                if (self.clang_target == null) {
-                    self.clang_target = try self.allocator.dupe(u8, parser.value);
+                if (self.clang_target) |v| {
+                    self.allocator.free(v);
                 }
+                self.clang_target = try self.allocator.dupe(u8, parser.value);
             } else if (parser.parseNamed(&.{"--skip-lib"}, true)) {
                 var parts = std.mem.splitAny(u8, parser.value, ",;");
                 while (parts.next()) |part| {
@@ -604,7 +602,7 @@ pub const ZigWrapper = struct {
                         if (!res.found_existing) {
                             res.key_ptr.* = try self.allocator.dupe(u8, v);
                             if (std.mem.indexOfAny(u8, v, "?*") != null) {
-                                try self.skipped_lib_patterns.append(try self.allocator.dupe(u8, v));
+                                try utils.dupeAndAppend(u8, &self.skipped_lib_patterns, self.allocator, v);
                             }
                         }
                     }
@@ -647,23 +645,24 @@ pub const ZigWrapper = struct {
                         "-Wl,--out-implib={s}.lib",
                         .{lib_name},
                     );
+                    errdefer self.allocator.free(lib_opt);
                     const dll_lib = lib_opt[17..];
 
-                    try dest.append(try self.allocator.dupe(u8, "-shared"));
-                    try dest.append(try self.allocator.dupe(u8, "-o"));
-                    try dest.append(try self.allocator.dupe(u8, dll));
+                    try utils.dupeAndAppend(u8, dest, self.allocator, "-shared");
+                    try utils.dupeAndAppend(u8, dest, self.allocator, "-o");
+                    try utils.dupeAndAppend(u8, dest, self.allocator, dll);
                     try dest.append(lib_opt);
                     self.cc_dll_a = try self.allocator.dupe(u8, dll_a);
                     self.cc_dll_lib = try self.allocator.dupe(u8, dll_lib);
                 } else {
                     // Do no consume the argument.
                     for (parser.consumed) |arg| {
-                        try dest.append(try self.allocator.dupe(u8, arg));
+                        try utils.dupeAndAppend(u8, dest, self.allocator, arg);
                     }
                 }
             } else {
                 // Do no consume the argument.
-                try dest.append(try self.allocator.dupe(u8, parser.next().?));
+                try utils.dupeAndAppend(u8, dest, self.allocator, parser.next().?);
             }
         }
     }
@@ -695,22 +694,23 @@ pub const ZigWrapper = struct {
                     if (utils.strStartsWith(def_file, "/DEF:")) {
                         def_file = def_file[5..];
                     }
-                    const s = try self.allocator.dupe(u8, def_file);
-                    try dest.append(s);
+                    try utils.dupeAndAppend(u8, dest, self.allocator, def_file);
                 } else if (utils.strStartsWith(flag, "-l")) {
                     // `-l<lib>`
                     const s = try self.fixLibFlag(flag);
+                    errdefer self.allocator.free(s);
                     try dest.append(s);
                 } else {
                     // Pass other flags as -Wl,<flag>
-                    const s = try std.fmt.allocPrint(self.allocator, "-Wl,{s}", .{flag});
-                    try dest.append(s);
+                    try utils.allocPrintAndAppend(dest, self.allocator, "-Wl,{s}", .{flag});
                 }
             }
             return;
         }
 
-        try dest.append(try self.fixLibFlag(arg));
+        const fixed = try self.fixLibFlag(arg);
+        errdefer self.allocator.free(fixed);
+        try dest.append(fixed);
     }
 
     fn getlibExts(self: Self, kind: LinkerLibKind) []const []const u8 {
@@ -831,8 +831,7 @@ pub const ZigWrapper = struct {
                     try libs.append(lib);
                     try lib_map.put(self.allocator, lib_ver[0], libs);
                 }
-                const opt = try std.fmt.allocPrint(self.allocator, "-l{s}", .{parser.value});
-                try args.append(opt);
+                try utils.allocPrintAndAppend(&args, self.allocator, "-l{s}", .{parser.value});
                 continue;
             } else if (parser.parseNamed(&.{"-L"}, true)) {
                 // normalize path
@@ -865,7 +864,7 @@ pub const ZigWrapper = struct {
                 parser.advance(1);
             }
             for (parser.consumed) |arg| {
-                try args.append(try self.allocator.dupe(u8, arg));
+                try utils.dupeAndAppend(u8, &args, self.allocator, arg);
             }
         }
 
@@ -960,8 +959,8 @@ pub const ZigWrapper = struct {
                 } else if (parser.parseNamed(&.{ "-F", "--target" }, true)) {
                     // skip
                 } else if (parser.parseNamed(&.{ "-I", "--include-dir" }, true)) {
-                    try self.args.append(try self.allocator.dupe(u8, "/i"));
-                    try self.args.append(try self.allocator.dupe(u8, parser.value));
+                    try utils.dupeAndAppend(u8, &self.args, self.allocator, "/i");
+                    try utils.dupeAndAppend(u8, &self.args, self.allocator, parser.value);
                 } else if (parser.parseNamed(&.{"--preprocessor"}, true)) {
                     // skip
                 } else if (parser.parseNamed(&.{"--preprocessor-arg"}, true)) {
@@ -981,19 +980,19 @@ pub const ZigWrapper = struct {
                         // Skip other processor arguments.
                     }
                 } else if (parser.parseNamed(&.{ "-D", "--define" }, true)) {
-                    try self.args.append(try self.allocator.dupe(u8, "/d"));
-                    try self.args.append(try self.allocator.dupe(u8, parser.value));
+                    try utils.dupeAndAppend(u8, &self.args, self.allocator, "/d");
+                    try utils.dupeAndAppend(u8, &self.args, self.allocator, parser.value);
                 } else if (parser.parseNamed(&.{ "-U", "--undefine" }, true)) {
-                    try self.args.append(try self.allocator.dupe(u8, "/u"));
-                    try self.args.append(try self.allocator.dupe(u8, parser.value));
+                    try utils.dupeAndAppend(u8, &self.args, self.allocator, "/u");
+                    try utils.dupeAndAppend(u8, &self.args, self.allocator, parser.value);
                 } else if (parser.parseNamed(&.{ "-v", "--verbose" }, false)) {
-                    try self.args.append(try self.allocator.dupe(u8, "/v"));
+                    try utils.dupeAndAppend(u8, &self.args, self.allocator, "/v");
                 } else if (parser.parseNamed(&.{ "-c", "--codepage" }, true)) {
-                    try self.args.append(try self.allocator.dupe(u8, "/c"));
-                    try self.args.append(try self.allocator.dupe(u8, parser.value));
+                    try utils.dupeAndAppend(u8, &self.args, self.allocator, "/c");
+                    try utils.dupeAndAppend(u8, &self.args, self.allocator, parser.value);
                 } else if (parser.parseNamed(&.{ "-l", "--language" }, true)) {
-                    try self.args.append(try self.allocator.dupe(u8, "/ln"));
-                    try self.args.append(try self.allocator.dupe(u8, parser.value));
+                    try utils.dupeAndAppend(u8, &self.args, self.allocator, "/ln");
+                    try utils.dupeAndAppend(u8, &self.args, self.allocator, parser.value);
                 } else if (parser.parseNamed(&.{"--use-temp-file"}, false)) {
                     // skip
                 } else if (parser.parseNamed(&.{"--no-use-temp-file"}, false)) {
@@ -1001,15 +1000,15 @@ pub const ZigWrapper = struct {
                 } else if (parser.parseNamed(&.{"-r"}, false)) {
                     // skip
                 } else if (parser.parseNamed(&.{ "-h", "--help" }, false)) {
-                    try self.args.append(try self.allocator.dupe(u8, "/h"));
+                    try utils.dupeAndAppend(u8, &self.args, self.allocator, "/h");
                 } else {
                     _ = parser.next();
                 }
 
                 if (!parser.hasArgument()) {
-                    try self.args.append(try self.allocator.dupe(u8, "--"));
-                    if (self.windres_input) |v| try self.args.append(try self.allocator.dupe(u8, v));
-                    if (self.windres_output) |v| try self.args.append(try self.allocator.dupe(u8, v));
+                    try utils.dupeAndAppend(u8, &self.args, self.allocator, "--");
+                    if (self.windres_input) |v| try utils.dupeAndAppend(u8, &self.args, self.allocator, v);
+                    if (self.windres_output) |v| try utils.dupeAndAppend(u8, &self.args, self.allocator, v);
                 }
             },
             else => {
@@ -1091,13 +1090,14 @@ pub const ZigWrapper = struct {
             },
             .windres => {
                 if (self.windres_depfile) |depfile| {
-                    var path = try self.allocator.dupe(u8, depfile);
-                    defer self.allocator.free(path);
-                    if (depfile.len == 0) {
+                    const path = if (depfile.len == 0) blk: {
                         const output = self.windres_output orelse return;
+                        break :blk try std.fmt.allocPrint(self.allocator, "{s}.d", .{output});
+                    } else depfile;
+                    defer if (depfile.len == 0) {
                         self.allocator.free(path);
-                        path = try std.fmt.allocPrint(self.allocator, "{s}.d", .{output});
-                    }
+                    };
+
                     if (success) {
                         // Create a pseudo dependency file.
                         (try std.Io.Dir.cwd().createFile(self.io, path, .{
@@ -1124,20 +1124,19 @@ pub const ZigWrapper = struct {
                     patterns.deinit();
                 }
 
-                try patterns.append(try self.allocator.dupe(u8, "[:\\\\]"));
-                try patterns.append(try self.allocator.dupe(u8, "^/mnt/[a-z]/"));
-                try patterns.append(try self.allocator.dupe(u8, "/.rmake/"));
+                try utils.dupeAndAppend(u8, &patterns, self.allocator, "[:\\\\]");
+                try utils.dupeAndAppend(u8, &patterns, self.allocator, "^/mnt/[a-z]/");
+                try utils.dupeAndAppend(u8, &patterns, self.allocator, "/.rmake/");
 
-                if (utils.getEnvVar(self.environ_map, self.allocator, "CARGO_WORKSPACE_DIR")) |ws| {
-                    defer self.allocator.free(ws);
-                    try patterns.append(try self.allocator.dupe(u8, ws));
-                } else |_| {}
+                if (utils.dupeEnvVar(self.environ_map, self.allocator, "CARGO_WORKSPACE_DIR")) |ws| {
+                    errdefer self.allocator.free(ws);
+                    try patterns.append(ws);
+                }
 
                 for (&[_][]const u8{ "CMKABE_TARGET", "CMKABE_CARGO_TARGET" }) |env| {
-                    if (utils.getEnvVar(self.environ_map, self.allocator, env)) |target| {
-                        defer self.allocator.free(target);
-                        try patterns.append(try std.fmt.allocPrint(self.allocator, "{s}/", .{target}));
-                    } else |_| {}
+                    if (utils.getEnvVar(self.environ_map, env)) |target| {
+                        try utils.allocPrintAndAppend(&patterns, self.allocator, "{s}/", .{target});
+                    }
                 }
 
                 const elf_success = try elf_mod.modifyElfFile(

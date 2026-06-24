@@ -227,13 +227,18 @@ pub fn sysArgMax() usize {
     }
 }
 
-pub fn getEnvVar(env_map: *const std.process.Environ.Map, allocator: std.mem.Allocator, key: []const u8) ![]u8 {
-    const val = env_map.get(key) orelse return error.EnvironmentVariableNotFound;
-    const s = strTrimEnd(val);
-    if (s.len > 0) {
-        return try allocator.dupe(u8, s);
+pub fn getEnvVar(env_map: *const std.process.Environ.Map, key: []const u8) ?[]const u8 {
+    if (env_map.get(key)) |val| {
+        const s = strTrimEnd(val);
+        if (s.len > 0) {
+            return s;
+        }
     }
-    return error.EnvironmentVariableNotFound;
+    return null;
+}
+
+pub inline fn dupeEnvVar(env_map: *const std.process.Environ.Map, allocator: std.mem.Allocator, key: []const u8) ?[]u8 {
+    return allocator.dupe(u8, getEnvVar(env_map, key) orelse return null) catch null;
 }
 
 pub fn freeStringArray(allocator: std.mem.Allocator, array: *std.array_list.Managed([]const u8)) void {
@@ -248,4 +253,26 @@ pub fn freeStringSet(allocator: std.mem.Allocator, set: *std.array_hash_map.Stri
         allocator.free(key);
     }
     set.deinit(allocator);
+}
+
+pub inline fn dupeAndAppend(
+    comptime T: type,
+    array_ptr: anytype,
+    allocator: std.mem.Allocator,
+    item: []const T,
+) !void {
+    const duped = try allocator.dupe(T, item);
+    errdefer allocator.free(duped);
+    return array_ptr.*.append(duped);
+}
+
+pub inline fn allocPrintAndAppend(
+    array_ptr: anytype,
+    allocator: std.mem.Allocator,
+    comptime fmt: []const u8,
+    args: anytype,
+) !void {
+    const printed = try std.fmt.allocPrint(allocator, fmt, args);
+    errdefer allocator.free(printed);
+    return array_ptr.*.append(printed);
 }
