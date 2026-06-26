@@ -841,8 +841,7 @@ class ShellCmd:
 
         if rebuild is not None:
             print(f"Rebuilding in local repository '{local_repo}'...")
-            make_cmd = f'make {rebuild} DEBUG=0' if rebuild else 'make DEBUG=0'
-            ret = subprocess.call(make_cmd, shell=True, cwd=local_repo)
+            ret = subprocess.call(f'make {rebuild} DEBUG=0', shell=True, cwd=local_repo)
             if ret != 0:
                 print(
                     f"Error: rebuild in '{local_repo}' failed with exit code {ret}",
