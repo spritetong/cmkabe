@@ -70,7 +70,6 @@ class RsyncMake:
         'clean-*',
         'cmake',
         'cmake-*',
-        'update-libs',
     ]
 
     def __init__(self) -> None:

@@ -187,11 +187,10 @@ CMAKE_DEFS +=
 CMAKE_INIT_OPTS +=
 #! CMake additional options
 CMAKE_OPTS +=
-#! If automatically clean the $(CMAKE_TARGET_PREFIX) directory
-CMAKE_AUTO_CLEAN_TARGET ?= ON
 
 _X_CMAKE_INIT = cmake --toolchain "$(CMKABE_HOME)/cmake/toolchain.cmake" -B "$(CMAKE_BUILD_DIR)"
 _X_CMAKE_INIT += $(if $(CMAKE_GENERATOR),-G "$(CMAKE_GENERATOR)",)
+_X_CMAKE_INIT += -D "WORKSPACE_DIR:FILEPATH=$(WORKSPACE_DIR)"
 _X_CMAKE_INIT += -D "TARGET:STRING=$(CMKABE_TARGET)"
 _X_CMAKE_INIT += -D "TARGET_DIR:FILEPATH=$(TARGET_DIR)"
 _X_CMAKE_INIT += -D "TARGET_CMAKE_DIR:FILEPATH=$(TARGET_CMAKE_DIR)"
@@ -292,11 +291,6 @@ $(call cmkabe_update_toolchain)
 # Directory of Cargo output binaries, normally is "<workspace_dir>/target/<triple>/<debug|release>"
 CARGO_OUT_DIR ?=
 
-# Clean the $(CMAKE_TARGET_PREFIX) directory by default.
-ifeq ($(call bool,$(CMAKE_AUTO_CLEAN_TARGET)),ON)
-    CMAKE_OUTPUT_DIRS += $(CMAKE_TARGET_PREFIX)
-endif
-
 # ==============================================================================
 # = Rules
 
@@ -344,7 +338,7 @@ cmake-distclean: $(CMAKE_CLEAN_DEPS)
 # Clean extra output files.
 .PHONY: cmake-clean-output
 cmake-clean-output:
-	@$(if $(CMAKE_OUTPUT_DIRS),$(call git_remove_ignored,$(CMAKE_OUTPUT_DIRS),$(CMAKE_OUTPUT_FILE_PATTERNS)) || $(OK),$(OK))
+	@$(RM) -rf $(CMAKE_OUTPUT_DIRS) && $(RMDIR) -p $(CMAKE_OUTPUT_DIRS) || $(OK)
 	@$(RM) -rf $(CMAKE_OUTPUT_FILES) "$(WORKSPACE_DIR)/-" || $(OK)
 	@$(call exists,"$(WORKSPACE_DIR)/CMakeLists.txt") && $(TOUCH) "$(WORKSPACE_DIR)/CMakeLists.txt" || $(OK)
 
@@ -514,9 +508,7 @@ define _x_cargo_build_lib_tpl
 endef
 
 # Download external libraries for CMake.
-# cmkabe_update_libs(
-# <make_target_name:str>
-#    Target name, defaults (an empty string) to "update-libs".
+# cmkabe_clone_libs(
 # <local_destination_dir:str>
 #    The destination directory in the local workspace.
 # --url <git_repo_url:str>
@@ -533,21 +525,21 @@ endef
 # --rebuild=<rebuild_target_name:str>
 #    The Make target name used to rebuild the libraries in the local source repository `<LOCAL_REPO>`.
 # )
-cmkabe_update_libs = $(eval $(call _x_cmkabe_update_libs_tpl,$(if $(1),$(1),update-libs),$(2),$(3)))
-define _x_cmkabe_update_libs_tpl
+cmkabe_clone_libs = $(eval $(call _x_cmkabe_clone_libs_tpl,$(1),$(2)))
+define _x_cmkabe_clone_libs_tpl
     _x_saved_default_goal := $(.DEFAULT_GOAL)
 
 ifeq ($$(CMKABE_IS_CLEANING),OFF)
-    .PHONY: $(1)
-    $(1): $$(CMAKE_CLEAN_DEPS) $(2)/.dirstamp
-    $(1) $(2)/.dirstamp:
-		@$$(SHLUTIL) update-libs --dest-dir "$(2)" $(3)
-		@$(TOUCH) "$(2)/.dirstamp"
+    $(1)/.dirstamp:
+		@$$(RM) -rf "$(1)" || $$(OK)
+		@$$(SHLUTIL) clone-libs --dest-dir "$(1)" $(2)
+		@$(TOUCH) "$(1)/.dirstamp"
 		@$(cmake_build_target_deps)
 
-    cmake-before-build: $(2)/.dirstamp
-    $$(call cmkabe_depend_on,$(2)/.dirstamp)
+    cmake-before-build: $(1)/.dirstamp
+    $$(call cmkabe_depend_on,$(1)/.dirstamp)
 endif
+    CMAKE_OUTPUT_DIRS += $(1)
 
     .DEFAULT_GOAL := $(_x_saved_default_goal)
     undefine _x_saved_default_goal

@@ -133,7 +133,7 @@ class ShellCmd:
         return status
 
     def rmdir(
-        self, paths: List[str], remove_empty_dirs: bool = False, force: bool = False
+        self, paths: List[str], remove_parents: bool = False, force: bool = False
     ) -> int:
         """Simulate rmdir.
 
@@ -141,7 +141,7 @@ class ShellCmd:
         """
         status = 0
         for path in paths:
-            if not remove_empty_dirs:
+            if not remove_parents:
                 try:
                     os.rmdir(path)
                 except OSError:
@@ -151,26 +151,36 @@ class ShellCmd:
                     print(f'Can not remove directory {path}', file=sys.stderr)
                     return status
             else:
-
-                def remove_empty_dirs_recur(p: str) -> None:
-                    # Remove empty sub-directories recursively
-                    for item in os.listdir(p):
-                        directory = os.path.join(p, item)
-                        if os.path.isdir(directory):
-                            remove_empty_dirs_recur(directory)
-                            if not os.listdir(directory):
-                                os.rmdir(directory)
-
+                # If path is a directory, keep the original logic of "downward recursion" to
+                # clean up empty subdirectories.
                 if os.path.isdir(path):
+                    def remove_parents_recur(p: str) -> None:
+                        try:
+                            for item in os.listdir(p):
+                                directory = os.path.join(p, item)
+                                if os.path.isdir(directory):
+                                    remove_parents_recur(directory)
+                                    if not os.listdir(directory):
+                                        os.rmdir(directory)
+                        except OSError:
+                            pass
+                    remove_parents_recur(path)
+
+                curr: str = os.path.normpath(path)
+                while curr:
+                    # Once the source is traced back to the current directory '.' or 
+                    # the root directory '/', immediately cut it off and never delete it.
+                    if curr in ('.', '..', '/'):
+                        break
                     try:
-                        remove_empty_dirs_recur(path)
-                        # Try to remove empty ancestor directories.
-                        curr: str = path
-                        while curr:
-                            os.rmdir(curr)
-                            curr = os.path.dirname(curr)
+                        os.rmdir(curr)
                     except OSError:
                         pass
+                    parent = os.path.normpath(os.path.dirname(curr))
+                    # Defense against infinite loops (e.g., when unable to split at the top level)
+                    if parent == curr:
+                        break
+                    curr = parent
         return status
 
     def mv(self, paths: List[str], force: bool = False) -> int:
@@ -797,7 +807,7 @@ class ShellCmd:
         )
         return 0 if success else self.EFAIL
 
-    def update_libs(
+    def clone_libs(
         self,
         dest_dir: str,
         url: str = '',
@@ -831,7 +841,8 @@ class ShellCmd:
 
         if rebuild is not None:
             print(f"Rebuilding in local repository '{local_repo}'...")
-            ret = subprocess.call(f'make {rebuild} DEBUG=0', shell=True, cwd=local_repo)
+            make_cmd = f'make {rebuild} DEBUG=0' if rebuild else 'make DEBUG=0'
+            ret = subprocess.call(make_cmd, shell=True, cwd=local_repo)
             if ret != 0:
                 print(
                     f"Error: rebuild in '{local_repo}' failed with exit code {ret}",
@@ -982,16 +993,16 @@ class ShellCmd:
             # 3. rmdir subparser
             rmdir_parser = subparsers.add_parser('rmdir', help='Simulate rmdir')
             rmdir_parser.add_argument(
-                '-e',
-                '--empty-dirs',
+                '-p',
+                '--parents',
                 action='store_true',
-                dest='remove_empty_dirs',
-                help='Remove all empty directories',
+                dest='remove_parents',
+                help='Remove parent directories as needed',
             )
             rmdir_parser.add_argument(
                 '-f', '--force', action='store_true', help='Ignore errors'
             )
-            rmdir_parser.add_argument('paths', nargs='+', help='Directories to remove')
+            rmdir_parser.add_argument('paths', nargs='*', help='Directories to remove')
 
             # 4. mv subparser
             mv_parser = subparsers.add_parser('mv', help='Simulate mv')
@@ -1191,26 +1202,26 @@ class ShellCmd:
                 help='Exit code mode',
             )
 
-            # 26. update-libs subparser
-            update_libs_parser = subparsers.add_parser(
-                'update-libs', help='Download or rebuild external libraries'
+            # 26. clone_libs subparser
+            clone_libs_parser = subparsers.add_parser(
+                'clone-libs', help='Download or rebuild external libraries'
             )
-            update_libs_parser.add_argument(
+            clone_libs_parser.add_argument(
                 '--dest-dir', required=True, help='Target destination directory'
             )
-            update_libs_parser.add_argument(
+            clone_libs_parser.add_argument(
                 '--url', default='', help='Remote URL or local path'
             )
-            update_libs_parser.add_argument(
+            clone_libs_parser.add_argument(
                 '--local-repo', default='', help='Local repository path'
             )
-            update_libs_parser.add_argument(
+            clone_libs_parser.add_argument(
                 '--files', default='', help='Semicolon-separated files list'
             )
-            update_libs_parser.add_argument(
+            clone_libs_parser.add_argument(
                 '--tmp-dir', default='.libs', help='Temporary directory path'
             )
-            update_libs_parser.add_argument(
+            clone_libs_parser.add_argument(
                 '--rebuild',
                 nargs='?',
                 default=None,
@@ -1287,7 +1298,7 @@ class ShellCmd:
             elif cmd == 'rmdir':
                 return inst.rmdir(
                     paths=namespace.paths,
-                    remove_empty_dirs=namespace.remove_empty_dirs,
+                    remove_parents=namespace.remove_parents,
                     force=namespace.force,
                 )
             elif cmd == 'mv':
@@ -1386,8 +1397,8 @@ class ShellCmd:
                 return inst.find_shell(
                     exit_code=namespace.exit_code,
                 )
-            elif cmd == 'update-libs':
-                return inst.update_libs(
+            elif cmd == 'clone-libs':
+                return inst.clone_libs(
                     dest_dir=namespace.dest_dir,
                     url=namespace.url,
                     local_repo=namespace.local_repo,

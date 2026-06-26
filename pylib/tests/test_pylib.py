@@ -115,7 +115,7 @@ class TestCommands(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertEqual(fake_out.getvalue().strip(), '0')
 
-    def test_update_libs(self) -> None:
+    def test_clone_libs(self) -> None:
         import io
         from unittest.mock import patch
 
@@ -136,12 +136,12 @@ class TestCommands(unittest.TestCase):
             with open(os.path.join(lib_dir, 'file3.txt'), 'w') as f:
                 f.write('content3')
 
-            # Run update-libs
+            # Run clone-libs
             # We map ext/* to dest root, and lib/file3.txt to target_lib
             files_arg = 'ext/*;lib/file3.txt:target_lib'
             code = ShellCmd.main(
                 [
-                    'update-libs',
+                    'clone-libs',
                     '--url',
                     tmp_src,
                     '--dest-dir',
@@ -166,7 +166,7 @@ class TestCommands(unittest.TestCase):
             with open(os.path.join(tmp_dst, 'target_lib', 'file3.txt'), 'r') as f:
                 self.assertEqual(f.read(), 'content3')
 
-    def test_update_libs_rebuild(self) -> None:
+    def test_clone_libs_rebuild(self) -> None:
         import io
         from unittest.mock import patch
 
@@ -184,7 +184,7 @@ class TestCommands(unittest.TestCase):
             with patch('subprocess.call', return_value=0) as mock_call:
                 code = ShellCmd.main(
                     [
-                        'update-libs',
+                        'clone-libs',
                         '--url',
                         tmp_src,
                         '--dest-dir',
@@ -393,7 +393,7 @@ class TestElfPathFixer(unittest.TestCase):
         return bytes(full_data)
 
     def test_elf_parser_and_modifier(self) -> None:
-        from cmk.pylib.elf import ElfParser, modify_elf_file
+        from ..elf import ElfParser, modify_elf_file
 
         mock_elf = self._create_mock_elf(is_64bit=True, is_le=True)
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -507,10 +507,6 @@ class TestTargetParser(unittest.TestCase):
     def test_parser_init(self) -> None:
         parser = TargetParser(
             target='x86_64-pc-windows-msvc',
-            cmake_build_type='Release',
-            cmake_build_dir='build',
-            toolchain='msvc',
-            rust_target='x86_64-pc-windows-msvc',
         )
         self.assertEqual(parser.target, 'x86_64-pc-windows-msvc')
         self.assertEqual(

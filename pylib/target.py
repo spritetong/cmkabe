@@ -34,15 +34,19 @@ class TargetParser:
 
     def __init__(
         self,
+        *,
         workspace_dir: str = '',
         target: str = '',
         target_dir: str = '',
         target_cmake_dir: str = '',
         cmake_target_prefix: str = '',
+        target_cc: str = '',
         cargo_target: str = '',
         zig_target: str = '',
-        target_cc: str = '',
-        **_args: Any,
+        #
+        debug: str = 'OFF', # unused
+        minsize: str = 'OFF', # unused
+        dbginfo: str = 'OFF', # unused
     ) -> None:
         self.host: HostTargetInfo = host_target_info()
 
