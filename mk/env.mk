@@ -17,6 +17,9 @@ CMKABE_HOME := $(abspath $(dir $(__ENV_MK__))/..)
 
 CMKABE_VERSION = 0.9.0
 
+# all clean goal names
+CMKABE_CLEAN_GOALS = clean distclean cargo-clean
+
 # ==============================================================================
 # = Environment Variables
 
@@ -40,7 +43,11 @@ cmkabe_parse_target = $(eval include $(CMKABE_HOME)/mk/rules.mk)
 
 # cmkabe_update_toolchain()
 #    Apply settings to the toolchain of the current target.
-cmkabe_update_toolchain = $(eval include $(_X_DOT_ENVIRON_MK))
+cmkabe_update_toolchain = $(eval $(if $(filter $(CMKABE_IS_CLEANING),OFF),,-)include $(_X_DOT_ENVIRON_MK))
+
+# cmkabe_depend_on(<targets>)
+#    Set the given targets to be depended on by the settings files.
+cmkabe_depend_on = $(eval $(_X_DOT_SETTINGS_MK) : $(1))
 
 # If `$(TARGET_IS_NATIVE)` is true, return `native`; otherwise, return `$(TARGET)`.
 CMKABE_TARGET = $(call bsel,$(TARGET_IS_NATIVE),native,$(TARGET))
@@ -199,7 +206,7 @@ ifeq ($(HOST_SYSTEM),Windows)
     TOUCH    = $(SHLUTIL) touch
     WHICH    = where.exe
 
-    WINREG   = $(SHLUTIL) winreg.exe
+    WINREG   = $(SHLUTIL) winreg
 endif
 
 # export CMKABE_COMPLETED_PORJECTS which is from command line.
