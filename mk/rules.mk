@@ -24,6 +24,17 @@ ifndef WORKSPACE_DIR
     $(error WORKSPACE_DIR is not defined)
 endif
 
+CMKABE_CLEAN_GOALS += cmake-clean-all cmake-clean cmake-distclean cmake-clean-output
+CMKABE_CLEAN_GOALS += zig-patch zig-clean-cache
+
+CMKABE_IS_CLEANING := $(if $(filter $(CMKABE_CLEAN_GOALS),$(MAKECMDGOALS)),ON,OFF)
+ifeq ($(CMKABE_IS_CLEANING),ON)
+    ifneq ($(filter-out $(CMKABE_CLEAN_GOALS),$(MAKECMDGOALS)),)
+        $(warning Cannot execute `clean` and other goals at the same time!)
+        $(error Please run `make $(filter $(CMKABE_CLEAN_GOALS),$(MAKECMDGOALS))` first, then run `make ...`)
+    endif
+endif
+
 _x_saved_default_goal := $(.DEFAULT_GOAL)
 
 # ==============================================================================
@@ -84,21 +95,23 @@ cmake_build_target_deps = $(SHLUTIL) build-target-deps \
     TARGET_CC=$(TARGET_CC) \
     CARGO_TARGET=$(CARGO_TARGET) \
     ZIG_TARGET=$(ZIG_TARGET)
-ifneq ($(filter clean,$(MAKECMDGOALS)),)
-    cmake_build_target_deps += MAKE_CLEAN=ON
-endif
 
 _X_DOT_HOST_MK = $(TARGET_CMAKE_DIR)/$(HOST_SYSTEM)/.host.mk
-_X_BUILD_DEPS_RUN = OFF
+_X_BUILD_DEPS_DONE = OFF
 
-# Phase 1: Build host info if missing or cmake-init is requested
-ifneq ($(filter cmake-init,$(if $(wildcard $(_X_DOT_HOST_MK)),,cmake-init) $(MAKECMDGOALS)),)
-    ifneq ($(shell $(cmake_build_target_deps) >$(NULL) || echo 1),)
-        $(error Failed to build target: $(TARGET))
+# Phase 1: Build host info if it is missing or `cmake-init` is requested
+ifeq ($(CMKABE_IS_CLEANING),OFF)
+    ifneq ($(filter cmake-init,$(if $(wildcard $(_X_DOT_HOST_MK)),,cmake-init) $(MAKECMDGOALS)),)
+        ifneq ($(shell $(cmake_build_target_deps) >$(NULL) || echo 1),)
+            $(error Failed to build target: $(TARGET))
+        endif
+        _X_BUILD_DEPS_DONE = ON
     endif
-    _X_BUILD_DEPS_RUN = ON
+    include $(_X_DOT_HOST_MK)
+else
+    _X_BUILD_DEPS_DONE = ON
+    -include $(_X_DOT_HOST_MK)
 endif
-include $(_X_DOT_HOST_MK)
 
 # Define target paths (HOST_SYSTEM might have been overridden by .host.mk)
 _X_DOT_TARGET_DIR := $(TARGET_CMAKE_DIR)/$(HOST_SYSTEM)/$(if $(filter-out native,$(TARGET)),$(TARGET),native)
@@ -106,20 +119,36 @@ _X_DOT_SETTINGS_MK = $(_X_DOT_TARGET_DIR)/.settings.mk
 _X_DOT_ENVIRON_MK = $(_X_DOT_TARGET_DIR)/.environ.mk
 
 # Phase 2: Build target settings if missing and we didn't build them in Phase 1
-ifneq ($(_X_BUILD_DEPS_RUN),ON)
-    ifeq ($(wildcard $(_X_DOT_SETTINGS_MK)),)
-        ifneq ($(shell $(cmake_build_target_deps) >$(NULL) || echo 1),)
-            $(error Failed to build target: $(TARGET))
+ifeq ($(CMKABE_IS_CLEANING),OFF)
+    ifneq ($(_X_BUILD_DEPS_DONE),ON)
+        ifeq ($(wildcard $(_X_DOT_SETTINGS_MK)),)
+            ifneq ($(shell $(cmake_build_target_deps) >$(NULL) || echo 1),)
+                $(error Failed to build target: $(TARGET))
+            endif
         endif
     endif
+    include $(_X_DOT_SETTINGS_MK)
+else
+    -include $(_X_DOT_SETTINGS_MK)
 endif
-include $(_X_DOT_SETTINGS_MK)
+
+ifeq ($(CMAKE_TARGET_DIR),)
+    ifeq ($(CMKABE_IS_CLEANING),OFF)
+        $(error Can not parse target: $(TARGET))
+    else
+        override CMAKE_TARGET_DIR = $(TARGET_CMAKE_DIR)/$(HOST_SYSTEM)/$(TARGET)
+        override CMAKE_BUILD_DIR = $(CMAKE_TARGET_DIR)/$(CMAKE_BUILD_TYPE)
+    endif
+endif
 
 # Auto rebuild dependencies.
-$(_X_DOT_SETTINGS_MK): $(addprefix $(CMKABE_HOME)/,shlutil.py zig-wrapper/main.zig) $(filter-out $(subst \,/,$(TARGET_CMAKE_DIR))/%,$(subst \,/,$(MAKEFILE_LIST)))
-	@$(cmake_build_target_deps)
-ifeq ($(CMAKE_TARGET_DIR),)
-    $(error Can not parse target: $(TARGET))
+ifeq ($(CMKABE_IS_CLEANING),OFF)
+    _X_DOT_SETTINGS_DEPS = $(wildcard $(CMKABE_HOME)/pylib/*.py)
+    _X_DOT_SETTINGS_DEPS += $(wildcard $(CMKABE_HOME)/zig-wrapper/*.zig)
+    _X_DOT_SETTINGS_DEPS += $(filter-out $(subst \,/,$(TARGET_CMAKE_DIR))/%,$(subst \,/,$(MAKEFILE_LIST)))
+    $(_X_DOT_SETTINGS_MK): $(_X_DOT_SETTINGS_DEPS)
+		@$(cmake_build_target_deps)
+    $(_X_DOT_HOST_MK) $(_X_DOT_ENVIRON_MK): $(_X_DOT_SETTINGS_MK) ;
 endif
 
 # ==============================================================================
@@ -149,6 +178,7 @@ CMAKE_COMPONENTS +=
 CMAKE_TARGETS +=
 #! CMake output directories to be cleaned.
 CMAKE_OUTPUT_DIRS +=
+CMAKE_OUTPUT_FILES +=
 #! CMake output file patterns to be cleaned.
 CMAKE_OUTPUT_FILE_PATTERNS +=
 #! CMake definitions, such as `FOO=bar`
@@ -275,8 +305,7 @@ cmake: cmake-build
 
 # Do something before building
 .PHONY: cmake-before-build
-cmake-before-build:
-
+cmake-before-build: ;
 
 # Initialize the cmake build directory.
 .PHONY: cmake-init
@@ -297,6 +326,11 @@ cmake-rebuild: cmake-clean cmake-build
 cmake-install: $(CMAKE_BUILD_DEPS)
 	@$(call cmake_install)
 
+# Clean the CMake root directory of all targets.
+.PHONY: cmake-clean-all
+cmake-clean-all: $(CMAKE_CLEAN_DEPS)
+	@$(RM) -rf "$(TARGET_CMAKE_DIR)" "$(TARGET_DIR)/.zig" || $(OK)
+
 # Clean the target.
 .PHONY: cmake-clean
 cmake-clean: $(CMAKE_CLEAN_DEPS)
@@ -306,11 +340,6 @@ cmake-clean: $(CMAKE_CLEAN_DEPS)
 .PHONY: cmake-distclean
 cmake-distclean: $(CMAKE_CLEAN_DEPS)
 	@$(RM) -rf "$(CMAKE_BUILD_DIR)" || $(OK)
-
-# Clean the root directory of all targets.
-.PHONY: cmake-clean-root
-cmake-clean-root: $(CMAKE_CLEAN_DEPS)
-	@$(RM) -rf "$(TARGET_CMAKE_DIR)" "$(TARGET_DIR)/.zig" || $(OK)
 
 # Clean extra output files.
 .PHONY: cmake-clean-output
@@ -435,10 +464,9 @@ define _x_cmkabe_cargo_rules_tpl
     .PHONY: lib
     lib: cargo-lib
 
-    .PHONY: clean clean-cmake
+    .PHONY: clean
     cargo-clean: $$(CMAKE_CLEAN_DEPS)
     clean: cargo-clean
-    clean-cmake: cmake-clean-root
 
     .PHONY: help
     help:
@@ -487,37 +515,39 @@ endef
 
 # Download external libraries for CMake.
 # cmkabe_update_libs(
-# NAME=<make_target_name:str>
+# <make_target_name:str>
 #    Target name, defaults (an empty string) to "update-libs".
-# URL=<git_repo_url:str>
+# <local_destination_dir:str>
+#    The destination directory in the local workspace.
+# --url <git_repo_url:str>
 #    Either a URL to the remote source repository or a local path.
-# LOCAL_REPO=<local_repo_dir:str>
+# --local-repo <local_repo_dir:str>
 #    Path to the local source repository which is used to rebuild the libraries,
 #    defaults (an empty string) to "../$(notdir $(basename $(git_repo_url)))".
-# FILES=<git_source_files:list<str>>
+# --files <git_source_files:list<str>>
 #    Files (and directories) to be copyed from the source repository to the destination directory.
-# DEST_DIR=<local_destination_dir:str>
-#    The destination directory in the local workspace.
-# TARGET_FILE=<local_target_file:str>
+# --target-file=<local_target_file:str>
 #    The local target file or directory for make, defaults (an empty string) to `<DEST_DIR>`.
-# TMP_DIR=<tmp_dir:str>
+# --tmp-dir=<tmp_dir:str>
 #    The temporary directory, defaults to `.libs`
-# REBUILD=<rebuild_var_name:str>
-#    The Make variable name to determine whether to rebuild the libraries in 
-#    the local source repository `<LOCAL_REPO>`, leave it empty if you don't want to rebuild.
+# --rebuild=<rebuild_target_name:str>
+#    The Make target name used to rebuild the libraries in the local source repository `<LOCAL_REPO>`.
 # )
-cmkabe_update_libs = $(eval $(call _x_cmkabe_update_libs_tpl,$(if $(3),$(3),update-libs),$(1),$(2)))
+cmkabe_update_libs = $(eval $(call _x_cmkabe_update_libs_tpl,$(if $(1),$(1),update-libs),$(2),$(3)))
 define _x_cmkabe_update_libs_tpl
     _x_saved_default_goal := $(.DEFAULT_GOAL)
 
-    $(1)_x_target := $(1)
-    $(1)_x_local_file := $(2)
+ifeq ($$(CMKABE_IS_CLEANING),OFF)
+    .PHONY: $(1)
+    $(1): $$(CMAKE_CLEAN_DEPS) $(2)/.dirstamp
+    $(1) $(2)/.dirstamp:
+		@$$(SHLUTIL) update-libs --dest-dir "$(2)" $(3)
+		@$(TOUCH) "$(2)/.dirstamp"
+		@$(cmake_build_target_deps)
 
-    cmake-before-build: $$($(1)_x_local_file)
-    .PHONY: $$($(1)_x_target)
-    $$($(1)_x_target): $$(CMAKE_CLEAN_DEPS)
-    $$($(1)_x_target) $$($(1)_x_local_file):
-		@$$(SHLUTIL) update-libs --dest-dir "$$($(1)_x_local_file)" $(3)
+    cmake-before-build: $(2)/.dirstamp
+    $$(call cmkabe_depend_on,$(2)/.dirstamp)
+endif
 
     .DEFAULT_GOAL := $(_x_saved_default_goal)
     undefine _x_saved_default_goal

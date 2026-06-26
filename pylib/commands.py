@@ -804,7 +804,7 @@ class ShellCmd:
         local_repo: str = '',
         files: str = '',
         tmp_dir: str = '.libs',
-        rebuild: bool = False,
+        rebuild: Optional[str] = None,
     ) -> int:
         """Download or rebuild external libraries and copy files."""
         import shutil
@@ -829,9 +829,9 @@ class ShellCmd:
         src_dir = None
         need_cleanup = False
 
-        if rebuild:
+        if rebuild is not None:
             print(f"Rebuilding in local repository '{local_repo}'...")
-            ret = subprocess.call('make DEBUG=0', shell=True, cwd=local_repo)
+            ret = subprocess.call(f'make {rebuild} DEBUG=0', shell=True, cwd=local_repo)
             if ret != 0:
                 print(
                     f"Error: rebuild in '{local_repo}' failed with exit code {ret}",
@@ -1211,7 +1211,11 @@ class ShellCmd:
                 '--tmp-dir', default='.libs', help='Temporary directory path'
             )
             update_libs_parser.add_argument(
-                '--rebuild', action='store_true', help='Flag to trigger rebuilding'
+                '--rebuild',
+                nargs='?',
+                default=None,
+                const='',
+                help='Target name (may be empty) to trigger rebuilding',
             )
 
             # 27. elf-path-fixer subparser
