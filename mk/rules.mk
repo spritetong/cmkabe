@@ -96,20 +96,16 @@ cmake_build_target_deps = $(SHLUTIL) build-target-deps \
     CARGO_TARGET=$(CARGO_TARGET) \
     ZIG_TARGET=$(ZIG_TARGET)
 
-_X_DOT_HOST_MK = $(TARGET_CMAKE_DIR)/$(HOST_SYSTEM)/.host.mk
-_X_BUILD_DEPS_DONE = OFF
-
 # Phase 1: Build host info if it is missing or `cmake-init` is requested
+_X_DOT_HOST_MK = $(TARGET_CMAKE_DIR)/$(HOST_SYSTEM)/.host.mk
 ifeq ($(CMKABE_IS_CLEANING),OFF)
     ifneq ($(filter cmake-init,$(if $(wildcard $(_X_DOT_HOST_MK)),,cmake-init) $(MAKECMDGOALS)),)
         ifneq ($(shell $(cmake_build_target_deps) >$(NULL) || echo 1),)
             $(error Failed to build target: $(TARGET))
         endif
-        _X_BUILD_DEPS_DONE = ON
     endif
     include $(_X_DOT_HOST_MK)
 else
-    _X_BUILD_DEPS_DONE = ON
     -include $(_X_DOT_HOST_MK)
 endif
 
@@ -120,13 +116,6 @@ _X_DOT_ENVIRON_MK = $(_X_DOT_TARGET_DIR)/.environ.mk
 
 # Phase 2: Build target settings if missing and we didn't build them in Phase 1
 ifeq ($(CMKABE_IS_CLEANING),OFF)
-    ifneq ($(_X_BUILD_DEPS_DONE),ON)
-        ifeq ($(wildcard $(_X_DOT_SETTINGS_MK)),)
-            ifneq ($(shell $(cmake_build_target_deps) >$(NULL) || echo 1),)
-                $(error Failed to build target: $(TARGET))
-            endif
-        endif
-    endif
     include $(_X_DOT_SETTINGS_MK)
 else
     -include $(_X_DOT_SETTINGS_MK)
@@ -143,12 +132,12 @@ endif
 
 # Auto rebuild dependencies.
 ifeq ($(CMKABE_IS_CLEANING),OFF)
-    _X_DOT_SETTINGS_DEPS = $(wildcard $(CMKABE_HOME)/pylib/*.py)
+    _X_DOT_SETTINGS_DEPS += $(wildcard $(CMKABE_HOME)/pylib/*.py)
     _X_DOT_SETTINGS_DEPS += $(wildcard $(CMKABE_HOME)/zig-wrapper/*.zig)
     _X_DOT_SETTINGS_DEPS += $(filter-out $(subst \,/,$(TARGET_CMAKE_DIR))/%,$(subst \,/,$(MAKEFILE_LIST)))
     $(_X_DOT_SETTINGS_MK): $(_X_DOT_SETTINGS_DEPS)
 		@$(cmake_build_target_deps)
-    $(_X_DOT_HOST_MK) $(_X_DOT_ENVIRON_MK): $(_X_DOT_SETTINGS_MK) ;
+    $(_X_DOT_ENVIRON_MK): $(_X_DOT_SETTINGS_MK) ;
 endif
 
 # ==============================================================================
@@ -399,7 +388,6 @@ zig-patch:
 zig-clean-cache:
 	@$(SHLUTIL) zig-clean-cache -v "$(ZIG_ROOT)" || $(OK)
 	@$(RM) -rf "$(TARGET_DIR)/.zig" || $(OK)
-	@$(cmake_build_target_deps)
 
 # Execute a shell command
 .PHONY: shell
@@ -505,44 +493,6 @@ define _x_cargo_build_lib_tpl
     .PHONY: $(2)
     $(2): cmake-before-build
 		@$$(call cargo_build_lib,-p $(2))
-endef
-
-# Download external libraries for CMake.
-# cmkabe_clone_libs(
-# <local_destination_dir:str>
-#    The destination directory in the local workspace.
-# --url <git_repo_url:str>
-#    Either a URL to the remote source repository or a local path.
-# --local-repo <local_repo_dir:str>
-#    Path to the local source repository which is used to rebuild the libraries,
-#    defaults (an empty string) to "../$(notdir $(basename $(git_repo_url)))".
-# --files <git_source_files:list<str>>
-#    Files (and directories) to be copyed from the source repository to the destination directory.
-# --target-file=<local_target_file:str>
-#    The local target file or directory for make, defaults (an empty string) to `<DEST_DIR>`.
-# --tmp-dir=<tmp_dir:str>
-#    The temporary directory, defaults to `.libs`
-# --rebuild=<rebuild_target_name:str>
-#    The Make target name used to rebuild the libraries in the local source repository `<LOCAL_REPO>`.
-# )
-cmkabe_clone_libs = $(eval $(call _x_cmkabe_clone_libs_tpl,$(1),$(2)))
-define _x_cmkabe_clone_libs_tpl
-    _x_saved_default_goal := $(.DEFAULT_GOAL)
-
-ifeq ($$(CMKABE_IS_CLEANING),OFF)
-    $(1)/.dirstamp:
-		@$$(RM) -rf "$(1)" || $$(OK)
-		@$$(SHLUTIL) clone-libs --dest-dir "$(1)" $(2)
-		@$(TOUCH) "$(1)/.dirstamp"
-		@$(cmake_build_target_deps)
-
-    cmake-before-build: $(1)/.dirstamp
-    $$(call cmkabe_depend_on,$(1)/.dirstamp)
-endif
-    CMAKE_OUTPUT_DIRS += $(1)
-
-    .DEFAULT_GOAL := $(_x_saved_default_goal)
-    undefine _x_saved_default_goal
 endef
 
 endif # __RULES_MK__

@@ -5,7 +5,7 @@ import glob
 import os
 import shutil
 import subprocess
-from typing import Any, Generator, List, Optional
+from typing import Generator, List, Optional
 
 from .sys_utils import (
     ANDROID_ABI_MAP,
@@ -44,9 +44,9 @@ class TargetParser:
         cargo_target: str = '',
         zig_target: str = '',
         #
-        debug: str = 'OFF', # unused
-        minsize: str = 'OFF', # unused
-        dbginfo: str = 'OFF', # unused
+        debug: str = 'OFF',  # unused
+        minsize: str = 'OFF',  # unused
+        dbginfo: str = 'OFF',  # unused
     ) -> None:
         self.host: HostTargetInfo = host_target_info()
 

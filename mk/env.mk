@@ -19,6 +19,9 @@ CMKABE_VERSION = 0.9.0
 
 # all clean goal names
 CMKABE_CLEAN_GOALS = clean distclean cargo-clean
+CMAKE_OUTPUT_DIRS =
+# internal variable
+_X_DOT_SETTINGS_DEPS =
 
 # ==============================================================================
 # = Environment Variables
@@ -37,6 +40,48 @@ define _x_cmkabe_version_check
     endif
 endef
 
+# Download external libraries for CMake.
+# cmkabe_clone_libs(
+# <local_destination_dir:str>
+#    The destination directory in the local workspace.
+# --url <git_repo_url:str>
+#    Either a URL to the remote source repository or a local path.
+# --local-repo <local_repo_dir:str>
+#    Path to the local source repository which is used to rebuild the libraries,
+#    defaults (an empty string) to "../$(notdir $(basename $(git_repo_url)))".
+# --files <git_source_files:list<str>>
+#    Files (and directories) to be copyed from the source repository to the destination directory.
+# --target-file=<local_target_file:str>
+#    The local target file or directory for make, defaults (an empty string) to `<DEST_DIR>`.
+# --tmp-dir=<tmp_dir:str>
+#    The temporary directory, defaults to `.libs`
+# --rebuild=<rebuild_target_name:str>
+#    The Make target name used to rebuild the libraries in the local source repository `<LOCAL_REPO>`.
+# )
+cmkabe_clone_libs = $(eval $(call _x_cmkabe_clone_libs_tpl,$(1),$(2),$(3)))
+define _x_cmkabe_clone_libs_tpl
+    _x_saved_default_goal := $$(.DEFAULT_GOAL)
+    ifneq ($$(__RULES_MK__),)
+        $$(error Error: `cmkabe_clone_libs` should not be called before `cmkabe_parse_target`)
+    endif
+
+    ifeq ($(2),)
+        $$(error dest-dir is empty)
+    endif
+    CMKABE_CLEAN_GOALS += $(1)
+    CMAKE_OUTPUT_DIRS += $(2)
+    $$(call cmkabe_reinit_on,$(2)/.dirstamp)
+
+    .PHONY: $(1)
+    $(1) $(2)/.dirstamp:
+		@$$(RM) -rf "$(2)" || $$(OK)
+		@$$(SHLUTIL) clone-libs --dest-dir "$(2)" $(3)
+		@$(TOUCH) "$(2)/.dirstamp"
+
+    .DEFAULT_GOAL := $$(_x_saved_default_goal)
+    undefine _x_saved_default_goal
+endef
+
 # cmkabe_parse_target()
 #    Parse the target triplet, compiler and apply to the toolchain.
 cmkabe_parse_target = $(eval include $(CMKABE_HOME)/mk/rules.mk)
@@ -45,9 +90,9 @@ cmkabe_parse_target = $(eval include $(CMKABE_HOME)/mk/rules.mk)
 #    Apply settings to the toolchain of the current target.
 cmkabe_update_toolchain = $(eval $(if $(filter $(CMKABE_IS_CLEANING),OFF),,-)include $(_X_DOT_ENVIRON_MK))
 
-# cmkabe_depend_on(<targets>)
-#    Set the given targets to be depended on by the settings files.
-cmkabe_depend_on = $(eval $(_X_DOT_SETTINGS_MK) : $(1))
+# cmkabe_reinit_on(<targets>)
+#    Set the given targets to be depended on by the generated settings files.
+cmkabe_reinit_on = $(eval $(if $(_X_DOT_SETTINGS_MK),$(_X_DOT_SETTINGS_MK): $(1),_X_DOT_SETTINGS_DEPS += $(1)))
 
 # If `$(TARGET_IS_NATIVE)` is true, return `native`; otherwise, return `$(TARGET)`.
 CMKABE_TARGET = $(call bsel,$(TARGET_IS_NATIVE),native,$(TARGET))
