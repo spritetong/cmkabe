@@ -70,7 +70,7 @@ define _x_cmkabe_clone_libs_tpl
     endif
     CMKABE_CLEAN_GOALS += $(1)
     CMAKE_OUTPUT_DIRS += $(2)
-    $$(call cmkabe_reinit_on,$(2)/.dirstamp)
+    $$(call cmkabe_reg_reinit_deps,$(2)/.dirstamp)
 
     .PHONY: $(1)
     $(1) $(2)/.dirstamp:
@@ -90,9 +90,9 @@ cmkabe_parse_target = $(eval include $(CMKABE_HOME)/mk/rules.mk)
 #    Apply settings to the toolchain of the current target.
 cmkabe_update_toolchain = $(eval $(if $(filter $(CMKABE_IS_CLEANING),OFF),,-)include $(_X_DOT_ENVIRON_MK))
 
-# cmkabe_reinit_on(<targets>)
-#    Set the given targets to be depended on by the generated settings files.
-cmkabe_reinit_on = $(eval $(if $(_X_DOT_SETTINGS_MK),$(_X_DOT_SETTINGS_MK): $(1),_X_DOT_SETTINGS_DEPS += $(1)))
+# cmkabe_reg_reinit_deps(<targets>)
+#    Register the targets as dependencies of the settings files reinitialization.
+cmkabe_reg_reinit_deps = $(eval $(if $(_X_DOT_SETTINGS_MK),$(_X_DOT_SETTINGS_MK): $(1),_X_DOT_SETTINGS_DEPS += $(1)))
 
 # If `$(TARGET_IS_NATIVE)` is true, return `native`; otherwise, return `$(TARGET)`.
 CMKABE_TARGET = $(call bsel,$(TARGET_IS_NATIVE),native,$(TARGET))
