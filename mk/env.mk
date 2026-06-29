@@ -42,6 +42,8 @@ endef
 
 # Download external libraries for CMake.
 # cmkabe_clone_libs(
+# <target_name:str>
+#    The Make target name used to clone/download the libraries.
 # <local_destination_dir:str>
 #    The destination directory in the local workspace.
 # --url <git_repo_url:str>
@@ -65,8 +67,8 @@ define _x_cmkabe_clone_libs_tpl
         $$(error Error: `cmkabe_clone_libs` should not be called before `cmkabe_parse_target`)
     endif
 
-    ifeq ($(2),)
-        $$(error dest-dir is empty)
+    ifeq ($(1),)
+        $$(error Error: `cmkabe_clone_libs` requires a target name as the first argument)
     endif
     CMKABE_CLEAN_GOALS += $(1)
     CMAKE_OUTPUT_DIRS += $(2)
