@@ -190,19 +190,13 @@ function(cmkabe_set_target_output_directory)
     if(NOT target)
         message(fatal_error "<target> is missing.")
     endif()
-    cmake_parse_arguments(args "NONE;DEFAULT;REDIRECT" "DIRECTORY" "" ${ARGN})
+    cmake_parse_arguments(args "NONE;DEFAULT" "DIRECTORY" "" ${ARGN})
 
     if(args_DIRECTORY)
         set_target_properties(${target} PROPERTIES
             ARCHIVE_OUTPUT_DIRECTORY "${output_dir}$<LOWER_CASE:>"
             LIBRARY_OUTPUT_DIRECTORY "${output_dir}$<LOWER_CASE:>"
             RUNTIME_OUTPUT_DIRECTORY "${output_dir}$<LOWER_CASE:>"
-        )
-    elseif(args_REDIRECT)
-        set_target_properties(${target} PROPERTIES
-            ARCHIVE_OUTPUT_DIRECTORY "${TARGET_LIB_DIR}$<LOWER_CASE:>"
-            LIBRARY_OUTPUT_DIRECTORY "${TARGET_LIB_DIR}$<LOWER_CASE:>"
-            RUNTIME_OUTPUT_DIRECTORY "${TARGET_BIN_DIR}$<LOWER_CASE:>"
         )
     elseif(args_DEFAULT)
         set_target_properties(${target} PROPERTIES
@@ -321,7 +315,7 @@ function(cmkabe_make_options result)
         TARGET=${CMKABE_TARGET}
         TARGET_DIR=${TARGET_DIR}
         TARGET_CMAKE_DIR=${TARGET_CMAKE_DIR}
-        CMAKE_TARGET_PREFIX=${TARGET_PREFIX}
+        CMAKE_DEPENDENCY_PREFIXES=${TARGET_PREFIX}
         TARGET_CC=${TARGET_CC}
         CARGO_TARGET=${CARGO_TARGET}
         ZIG_TARGET=${ZIG_TARGET}
@@ -372,7 +366,7 @@ function(cmkabe_add_make_target)
     list(APPEND argv ${make_options})
     if(args_DEPENDENCIES)
         list(JOIN args_DEPENDENCIES "," dependencies)
-        list(APPEND argv "CMKABE_COMPLETED_PORJECTS=${dependencies}")
+        list(APPEND argv "CMKABE_COMPLETED_PROJECTS=${dependencies}")
     endif()
 
     add_custom_target(${name} ${argv})
@@ -440,19 +434,15 @@ function(_cmkabe_apply_extra_flags)
         set(L "-L ")
     endif()
 
-    if(TARGET_INCLUDE_DIR)
-        string(APPEND CMAKE_C_FLAGS " ${I}\"${TARGET_INCLUDE_DIR}\"")
-        string(APPEND CMAKE_CXX_FLAGS " ${I}\"${TARGET_INCLUDE_DIR}\"")
-    endif()
     foreach(dir IN LISTS TARGET_PREFIX_INCLUDES)
-        if((NOT dir STREQUAL "${TARGET_INCLUDE_DIR}") AND (IS_DIRECTORY "${dir}"))
+        if(IS_DIRECTORY "${dir}")
             string(APPEND CMAKE_C_FLAGS " ${I}\"${dir}\"")
             string(APPEND CMAKE_CXX_FLAGS " ${I}\"${dir}\"")
         endif()
     endforeach()
 
     set(path)
-    foreach(dir IN ITEMS "${CARGO_OUT_DIR}" "${CMAKE_BINARY_DIR}" "${TARGET_LIB_DIR}")
+    foreach(dir IN ITEMS "${CARGO_OUT_DIR}" "${CMAKE_BINARY_DIR}")
         if((NOT dir STREQUAL "") AND (NOT "${dir}" IN_LIST path))
             list(APPEND path "${dir}")
             string(APPEND CMAKE_EXE_LINKER_FLAGS " ${L}\"${dir}\"")

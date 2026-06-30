@@ -20,17 +20,6 @@ if(NOT DEFINED _cmkabe_options_initialized)
         include("${CMAKE_CURRENT_LIST_DIR}/toolchain.cmake")
     endif()
 
-    if(NOT DEFINED TARGET_PREFIX_DIR)
-        message(fatal_error "`TARGET_PREFIX_DIR` is not defined.")
-    endif()
-
-    set(TARGET_INCLUDE_DIR "${TARGET_PREFIX_DIR}/include"
-        CACHE STRING "Target include directory.")
-    set(TARGET_LIB_DIR "${TARGET_PREFIX_DIR}/lib"
-        CACHE STRING "Target library output directory while `TARGET_OUTPUT_MODE` is `REDIRECT`.")
-    set(TARGET_BIN_DIR "${TARGET_PREFIX_DIR}/bin"
-        CACHE STRING "Target binary output directory while `TARGET_OUTPUT_MODE` is `REDIRECT`.")
-
     set(TARGET_OUTPUT_MODE "DEFAULT"
         CACHE STRING "Mode to set the target output directory: `NONE`, `DEFAULT` OR `REDIRECT`.")
 
@@ -102,11 +91,7 @@ if(ZIG AND (CMAKE_IMPORT_LIBRARY_SUFFIX STREQUAL ".dll.a"))
 endif()
 
 # Redirect the output directories to the target directories.
-if(TARGET_OUTPUT_MODE MATCHES "^[Rr][Ee][Dd][Ii][Rr][Ee][Cc][Tt]$")
-    set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${TARGET_LIB_DIR}$<LOWER_CASE:>")
-    set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${TARGET_LIB_DIR}$<LOWER_CASE:>")
-    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${TARGET_BIN_DIR}$<LOWER_CASE:>")
-elseif(TARGET_OUTPUT_MODE MATCHES "^[Dd][Ee][Ff][Aa][Uu][Ll][Tt]$")
+if(TARGET_OUTPUT_MODE MATCHES "^[Dd][Ee][Ff][Aa][Uu][Ll][Tt]$")
     set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}$<LOWER_CASE:>")
     set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}$<LOWER_CASE:>")
     set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}$<LOWER_CASE:>")

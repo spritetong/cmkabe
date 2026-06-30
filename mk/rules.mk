@@ -91,7 +91,8 @@ cmake_build_target_deps = $(SHLUTIL) build-target-deps \
     TARGET=$(CMKABE_TARGET) \
     TARGET_DIR=$(TARGET_DIR) \
     TARGET_CMAKE_DIR=$(TARGET_CMAKE_DIR) \
-    CMAKE_TARGET_PREFIX=$(CMAKE_TARGET_PREFIX) \
+    CMAKE_DEPENDENCY_PREFIXES="$(subst $(SPACE),;,$(strip $(CMAKE_DEPENDENCY_PREFIXES)))" \
+    CMAKE_INSTALL_TARGET_PREFIX="$(CMAKE_INSTALL_TARGET_PREFIX)" \
     TARGET_CC=$(TARGET_CC) \
     CARGO_TARGET=$(CARGO_TARGET) \
     ZIG_TARGET=$(ZIG_TARGET)
@@ -123,7 +124,9 @@ endif
 
 ifeq ($(CMAKE_TARGET_DIR),)
     ifeq ($(CMKABE_IS_CLEANING),OFF)
-        $(error Can not parse target: $(TARGET))
+        ifneq ($(wildcard $(_X_DOT_SETTINGS_MK)),)
+            $(error Can not parse target: $(TARGET))
+        endif
     else
         override CMAKE_TARGET_DIR = $(TARGET_CMAKE_DIR)/$(HOST_SYSTEM)/$(TARGET)
         override CMAKE_BUILD_DIR = $(CMAKE_TARGET_DIR)/$(CMAKE_BUILD_TYPE)
@@ -132,6 +135,8 @@ endif
 
 # Auto rebuild dependencies.
 ifeq ($(CMKABE_IS_CLEANING),OFF)
+    _X_DOT_SETTINGS_DEPS += $(wildcard $(CMKABE_HOME)/cmake/*.cmake)
+    _X_DOT_SETTINGS_DEPS += $(wildcard $(CMKABE_HOME)/mk/*.mk)
     _X_DOT_SETTINGS_DEPS += $(wildcard $(CMKABE_HOME)/pylib/*.py)
     _X_DOT_SETTINGS_DEPS += $(wildcard $(CMKABE_HOME)/zig-wrapper/*.zig)
     _X_DOT_SETTINGS_DEPS += $(filter-out $(subst \,/,$(TARGET_CMAKE_DIR))/%,$(subst \,/,$(MAKEFILE_LIST)))
@@ -150,17 +155,15 @@ TARGET_DIR ?=
 #! CC compiler for the target
 TARGET_CC ?=
 
-# The CMake output directory include the tailing triple.
-CMAKE_PREFIX_DIR ?= $(CMAKE_TARGET_PREFIX)/$(TARGET)
-CMAKE_PREFIX_SUBDIRS ?= $(CMAKE_PREFIX_DIR)
-CMAKE_INSTALL_TARGET_PREFIX ?= $(CMAKE_TARGET_PREFIX)
+#! The CMake output directory exclude the tailing triple.
+CMAKE_DEPENDENCY_PREFIXES +=
+#! The CMake installation directory exclude the tailing triple.
+CMAKE_INSTALL_TARGET_PREFIX ?= $(WORKSPACE_DIR)/installed
 # The CMake build directory for the current configuration.
 CMAKE_BUILD_DIR ?= $(CMAKE_TARGET_DIR)/$(CMAKE_BUILD_TYPE)
 
 #! The CMake system version
 CMAKE_SYSTEM_VERSION ?=
-#! The CMake output directory exclude the tailing triple.
-CMAKE_TARGET_PREFIX ?= $(WORKSPACE_DIR)/installed
 #! The CMake components to be installed.
 CMAKE_COMPONENTS +=
 #! The CMake targets (libraries and executables) to be built.
@@ -183,7 +186,7 @@ _X_CMAKE_INIT += -D "WORKSPACE_DIR:FILEPATH=$(WORKSPACE_DIR)"
 _X_CMAKE_INIT += -D "TARGET:STRING=$(CMKABE_TARGET)"
 _X_CMAKE_INIT += -D "TARGET_DIR:FILEPATH=$(TARGET_DIR)"
 _X_CMAKE_INIT += -D "TARGET_CMAKE_DIR:FILEPATH=$(TARGET_CMAKE_DIR)"
-# _X_CMAKE_INIT += -D "TARGET_PREFIX:FILEPATH=$(CMAKE_TARGET_PREFIX)"
+# _X_CMAKE_INIT += -D "CMAKE_DEPENDENCY_PREFIXES:STRING=$(subst $(SPACE),;,$(strip $(CMAKE_DEPENDENCY_PREFIXES)))"
 # _X_CMAKE_INIT += -D "TARGET_CC:STRING=$(TARGET_CC)"
 # _X_CMAKE_INIT += -D "CARGO_TARGET:STRING=$(CARGO_TARGET)"
 # _X_CMAKE_INIT += -D "ZIG_TARGET:STRING=$(ZIG_TARGET)"
@@ -410,8 +413,7 @@ target:
 	@echo "TARGET_CMAKE_DIR:            $(TARGET_CMAKE_DIR)"
 	@echo "CMAKE_BUILD_DIR:             $(CMAKE_BUILD_DIR)"
 	@echo "CMAKE_INSTALL_TARGET_PREFIX: $(CMAKE_INSTALL_TARGET_PREFIX)"
-	@echo "CMAKE_TARGET_PREFIX:         $(CMAKE_TARGET_PREFIX)"
-	@echo "CMAKE_PREFIX_DIR:            $(CMAKE_PREFIX_DIR)"
+	@echo "CMAKE_DEPENDENCY_PREFIXES:   $(CMAKE_DEPENDENCY_PREFIXES)"
 	@echo "CARGO_OUT_DIR:               $(CARGO_OUT_DIR)"
 
 
