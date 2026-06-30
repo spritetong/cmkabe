@@ -850,7 +850,7 @@ class TargetParser:
         lines.append(f'set(TARGET_DIR "{self.target_dir}")')
         lines.append(f'set(TARGET_CMAKE_DIR "{self.target_cmake_dir}")')
         lines.append(f'set(TARGET_LOCK_FILE "{self.cmake_lock_file}")')
-        lines.append(f'set(TARGET_PREFIX {" ".join(f'"{p}"' for p in self.cmake_dependency_prefixes)})')
+        lines.append(f'set(TARGET_PREFIX "{";".join(self.cmake_dependency_prefixes)}")')
         lines.append(f'set(TARGET_PREFIX_DIR "{self.target_prefix_dir}")')
         lines.append(
             f'set(TARGET_PREFIX_SUBDIRS {" ".join(f'"{p}"' for p in self.cmake_prefix_subdirs)})'
@@ -1124,7 +1124,7 @@ class TargetParser:
         lines.append(f'export CMKABE_TARGET = {self.cmkabe_target}')
         lines.append(f'export CMKABE_TARGET_DIR = {self.target_dir}')
         lines.append(f'export CMKABE_TARGET_CMAKE_DIR = {self.target_cmake_dir}')
-        lines.append(f'export CMKABE_DEPENDENCY_PREFIXES = {" ".join(self.cmake_dependency_prefixes)}')
+        lines.append(f'export CMKABE_DEPENDENCY_PREFIXES = {";".join(self.cmake_dependency_prefixes)}')
         lines.append(f'export CMKABE_TARGET_CC = {self.target_cc}')
         lines.append(f'export CMKABE_CARGO_TARGET = {self.cargo_target}')
         lines.append(f'export CMKABE_ZIG_TARGET = {self.zig_target}')
