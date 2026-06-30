@@ -35,6 +35,15 @@ ifeq ($(CMKABE_IS_CLEANING),ON)
     endif
 endif
 
+# Set a sentinel goal to force CMake initialization when `cmake-init` is specified.
+ifneq ($(filter cmake-init,$(MAKECMDGOALS)),)
+    _X_CMAKE_FORCE_INIT = _x_cmake_force_init_goal
+    .PHONY: _x_cmake_force_init_goal
+    _x_cmake_force_init_goal: ;
+else
+    _X_CMAKE_FORCE_INIT =
+endif
+
 _x_saved_default_goal := $(.DEFAULT_GOAL)
 
 # ==============================================================================
@@ -91,16 +100,16 @@ cmake_build_target_deps = $(SHLUTIL) build-target-deps \
     TARGET=$(CMKABE_TARGET) \
     TARGET_DIR=$(TARGET_DIR) \
     TARGET_CMAKE_DIR=$(TARGET_CMAKE_DIR) \
-    CMAKE_DEPENDENCY_PREFIXES="$(subst $(SPACE),;,$(strip $(CMAKE_DEPENDENCY_PREFIXES)))" \
     CMAKE_INSTALL_TARGET_PREFIX="$(CMAKE_INSTALL_TARGET_PREFIX)" \
+    CMAKE_DEPENDENCY_PREFIXES="$(subst $(SPACE),;,$(strip $(CMAKE_DEPENDENCY_PREFIXES)))" \
     TARGET_CC=$(TARGET_CC) \
     CARGO_TARGET=$(CARGO_TARGET) \
     ZIG_TARGET=$(ZIG_TARGET)
 
-# Phase 1: Build host info if it is missing or `cmake-init` is requested
+# Phase 1: Build host info if it is missing
 _X_DOT_HOST_MK = $(TARGET_CMAKE_DIR)/$(HOST_SYSTEM)/.host.mk
 ifeq ($(CMKABE_IS_CLEANING),OFF)
-    ifneq ($(filter cmake-init,$(if $(wildcard $(_X_DOT_HOST_MK)),,cmake-init) $(MAKECMDGOALS)),)
+    ifeq ($(wildcard $(_X_DOT_HOST_MK)),)
         ifneq ($(shell $(cmake_build_target_deps) >$(NULL) || echo 1),)
             $(error Failed to build target: $(TARGET))
         endif
@@ -140,9 +149,9 @@ ifeq ($(CMKABE_IS_CLEANING),OFF)
     _X_DOT_SETTINGS_DEPS += $(wildcard $(CMKABE_HOME)/pylib/*.py)
     _X_DOT_SETTINGS_DEPS += $(wildcard $(CMKABE_HOME)/zig-wrapper/*.zig)
     _X_DOT_SETTINGS_DEPS += $(filter-out $(subst \,/,$(TARGET_CMAKE_DIR))/%,$(subst \,/,$(MAKEFILE_LIST)))
-    $(_X_DOT_SETTINGS_MK): $(_X_DOT_SETTINGS_DEPS)
-		@$(cmake_build_target_deps)
     $(_X_DOT_ENVIRON_MK): $(_X_DOT_SETTINGS_MK) ;
+    $(_X_DOT_SETTINGS_MK): $(_X_DOT_SETTINGS_DEPS) $(_X_CMAKE_FORCE_INIT)
+		@$(cmake_build_target_deps)
 endif
 
 # ==============================================================================
@@ -202,7 +211,7 @@ ifeq ($(TARGET_IS_ANDROID),ON)
 endif
 _X_CMAKE_INIT += $(addprefix -D,$(CMAKE_DEFS))
 
-CMAKE_BUILD_DEPS += $(CMAKE_BUILD_DIR)
+CMAKE_BUILD_DEPS += $(CMAKE_BUILD_DIR)/.dirstamp
 CMAKE_CLEAN_DEPS += cmake-clean-output
 
 # cmake_init()
@@ -295,8 +304,10 @@ cmake-before-build: ;
 
 # Initialize the cmake build directory.
 .PHONY: cmake-init
-cmake-init $(CMAKE_BUILD_DIR): cmake-before-build
+cmake-init: $(CMAKE_BUILD_DIR)/.dirstamp cmake-before-build
+$(CMAKE_BUILD_DIR)/.dirstamp: $(_X_DOT_HOST_MK) $(_X_DOT_ENVIRON_MK) $(_X_DOT_SETTINGS_MK)
 	@$(call cmake_init)
+	@$(TOUCH) "$(CMAKE_BUILD_DIR)/.dirstamp"
 
 # Build the target
 .PHONY: cmake-build
