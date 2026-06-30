@@ -411,7 +411,7 @@ class TargetParser:
             pass
 
     def _cmake_init(self) -> None:
-        self.cmake_target_dir = f'{self.target_cmake_dir}/{self.host.host_system}/{"native" if self.target_is_native else self.target}'
+        self.cmake_target_dir = f'{self.target_cmake_dir}/{self.host.host_system}/{self.cmkabe_target}'
         os.makedirs(self.cmake_target_dir, exist_ok=True)
 
     def _zig_init(self) -> None:
@@ -472,12 +472,18 @@ class TargetParser:
                 dst = os.path.join(directory, 'zig-' + name + EXE_EXT)
                 if os.path.lexists(dst):
                     os.unlink(dst)
-                os.symlink(os.path.basename(exe), dst)
+                try:
+                    os.symlink(os.path.basename(exe), dst)
+                except OSError:
+                    shutil.copy2(exe, dst)
             for name in ['dlltool', 'windres']:
                 dst = os.path.join(directory, name + EXE_EXT)
                 if os.path.lexists(dst):
                     os.unlink(dst)
-                os.symlink(os.path.basename(exe), dst)
+                try:
+                    os.symlink(os.path.basename(exe), dst)
+                except OSError:
+                    shutil.copy2(exe, dst)
 
         # Override the target CC for Zig.
         self.target_cc = normpath(self.zig_cc_dir + '/zig-cc' + EXE_EXT)

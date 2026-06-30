@@ -123,7 +123,9 @@ endif
 
 ifeq ($(CMAKE_TARGET_DIR),)
     ifeq ($(CMKABE_IS_CLEANING),OFF)
-        $(error Can not parse target: $(TARGET))
+        ifneq ($(wildcard $(_X_DOT_SETTINGS_MK)),)
+            $(error Can not parse target: $(TARGET))
+        endif
     else
         override CMAKE_TARGET_DIR = $(TARGET_CMAKE_DIR)/$(HOST_SYSTEM)/$(TARGET)
         override CMAKE_BUILD_DIR = $(CMAKE_TARGET_DIR)/$(CMAKE_BUILD_TYPE)
