@@ -315,7 +315,8 @@ function(cmkabe_make_options result)
         TARGET=${CMKABE_TARGET}
         TARGET_DIR=${TARGET_DIR}
         TARGET_CMAKE_DIR=${TARGET_CMAKE_DIR}
-        CMAKE_DEPENDENCY_PREFIXES=${TARGET_PREFIX}
+        TARGET_INSTALL_PREFIX=${TARGET_INSTALL_PREFIX}
+        TARGET_DEPENDENCY_PREFIXES=${TARGET_DEPENDENCY_PREFIXES}
         TARGET_CC=${TARGET_CC}
         CARGO_TARGET=${CARGO_TARGET}
         ZIG_TARGET=${ZIG_TARGET}
@@ -434,7 +435,7 @@ function(_cmkabe_apply_extra_flags)
         set(L "-L ")
     endif()
 
-    foreach(dir IN LISTS TARGET_PREFIX_INCLUDES)
+    foreach(dir IN LISTS TARGET_INCLUDE_DIRS)
         if(IS_DIRECTORY "${dir}")
             string(APPEND CMAKE_C_FLAGS " ${I}\"${dir}\"")
             string(APPEND CMAKE_CXX_FLAGS " ${I}\"${dir}\"")
@@ -449,7 +450,7 @@ function(_cmkabe_apply_extra_flags)
             string(APPEND CMAKE_SHARED_LINKER_FLAGS " ${L}\"${dir}\"")
         endif()
     endforeach()
-    foreach(dir IN LISTS TARGET_PREFIX_LIBS)
+    foreach(dir IN LISTS TARGET_LIB_DIRS)
         if((NOT "${dir}" IN_LIST path) AND (IS_DIRECTORY "${dir}"))
             string(APPEND CMAKE_EXE_LINKER_FLAGS " ${L}\"${dir}\"")
             string(APPEND CMAKE_SHARED_LINKER_FLAGS " ${L}\"${dir}\"")

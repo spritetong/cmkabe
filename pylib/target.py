@@ -39,8 +39,8 @@ class TargetParser:
         target: str = '',
         target_dir: str = '',
         target_cmake_dir: str = '',
-        cmake_dependency_prefixes: str = '',
-        cmake_install_target_prefix: str = '',
+        target_install_prefix: str = '',
+        target_dependency_prefixes: str = '',
         target_cc: str = '',
         cargo_target: str = '',
         zig_target: str = '',
@@ -70,21 +70,19 @@ class TargetParser:
         self.cmake_lock_file: str = normpath(
             os.path.join(self.target_cmake_dir, self.host.host_system, '.cmake.lock')
         )
-        self.cmake_install_target_prefix: str = normpath(
-            os.path.abspath(cmake_install_target_prefix or (self.workspace_dir + '/installed'))
+        self.target_install_prefix: str = normpath(
+            os.path.abspath(target_install_prefix or (self.workspace_dir + '/installed'))
         )
-        self.cmake_dependency_prefixes: List[str] = [
+        self.target_dependency_prefixes: List[str] = [
             normpath(os.path.abspath(p.strip()))
-            for p in (cmake_dependency_prefixes or '').replace(';', ' ').split()
+            for p in (target_dependency_prefixes or '').replace(';', ' ').split()
             if p.strip()
         ]
-        if not self.cmake_dependency_prefixes:
-            self.cmake_dependency_prefixes = [self.cmake_install_target_prefix]
 
-        self.cmake_prefix_subdirs: List[str] = []
         self.cargo_target: str = cargo_target
         self.zig_target: str = zig_target
         self.target_cc: str = target_cc
+        self.target_prefix_subdirs: List[str] = []
 
         # Parsed triple
         self.arch: str = ''
@@ -192,11 +190,6 @@ class TargetParser:
         """Get the cmkabe target string."""
         return 'native' if self.target_is_native else self.target
 
-    @property
-    def target_prefix_dir(self) -> str:
-        """Get the target install prefix directory path."""
-        return normpath(self.cmake_install_target_prefix + '/' + self.cmkabe_target)
-
     def cargo_out_dir(self, make: bool = False, cmake: bool = False) -> str:
         """Get the cargo output binary directory path."""
         if self.cargo_target == self.host.cargo_triple:
@@ -233,7 +226,7 @@ class TargetParser:
                     '${CMAKE_BINARY_DIR}',
                 ]:
                     res.append(f'"{directory}"' if quotes else directory)
-        for directory in self.cmake_prefix_subdirs:
+        for directory in self.target_prefix_subdirs:
             item = f'{directory}{"/" if subdir else ""}{subdir}'
             if os.path.isdir(item):
                 res.append(f'"{item}"' if quotes else item)
@@ -374,9 +367,9 @@ class TargetParser:
             yield join_triple('any', '', self.os, 'any')
             yield 'any'
 
-        self.cmake_prefix_subdirs = [
+        self.target_prefix_subdirs = [
             normpath(f'{prefix}/{x}')
-            for prefix in self.cmake_dependency_prefixes
+            for prefix in self.target_dependency_prefixes
             for x in _any_prefix_subdirs()
         ]
         return self
@@ -745,10 +738,10 @@ class TargetParser:
         lines.append(f'override TARGET_CMAKE_DIR = {self.target_cmake_dir}')
         lines.append(f'override CMAKE_LOCK_FILE = {self.cmake_lock_file}')
         lines.append(
-            f'override CMAKE_DEPENDENCY_PREFIXES = {" ".join(self.cmake_dependency_prefixes)}',
+            f'override TARGET_INSTALL_PREFIX = {self.target_install_prefix}',
         )
         lines.append(
-            f'override CMAKE_INSTALL_TARGET_PREFIX = {self.cmake_install_target_prefix}',
+            f'override TARGET_DEPENDENCY_PREFIXES = {" ".join(self.target_dependency_prefixes)}',
         )
         lines.append('')
 
@@ -850,19 +843,21 @@ class TargetParser:
         lines.append(f'set(TARGET_DIR "{self.target_dir}")')
         lines.append(f'set(TARGET_CMAKE_DIR "{self.target_cmake_dir}")')
         lines.append(f'set(TARGET_LOCK_FILE "{self.cmake_lock_file}")')
-        lines.append(f'set(TARGET_PREFIX "{";".join(self.cmake_dependency_prefixes)}")')
-        lines.append(f'set(TARGET_PREFIX_DIR "{self.target_prefix_dir}")')
+        lines.append(f'set(TARGET_INSTALL_PREFIX "{self.target_install_prefix}")')
         lines.append(
-            f'set(TARGET_PREFIX_SUBDIRS {" ".join(f'"{p}"' for p in self.cmake_prefix_subdirs)})'
+            f'''set(TARGET_DEPENDENCY_PREFIXES {" ".join(f'"{p}"' for p in self.target_dependency_prefixes)})'''
         )
         lines.append(
-            f'set(TARGET_PREFIX_BINS {" ".join(self.enum_prefix_subdirs_of("bin", quotes=True, cmake=True))})'
+            f'''set(TARGET_PREFIX_SUBDIRS {" ".join(f'"{p}"' for p in self.target_prefix_subdirs)})'''
         )
         lines.append(
-            f'set(TARGET_PREFIX_LIBS {" ".join(self.enum_prefix_subdirs_of("lib", quotes=True, cmake=True))})'
+            f'set(TARGET_BIN_DIRS {" ".join(self.enum_prefix_subdirs_of("bin", quotes=True, cmake=True))})'
         )
         lines.append(
-            f'set(TARGET_PREFIX_INCLUDES {" ".join(self.enum_prefix_subdirs_of("include", quotes=True, cmake=True))})'
+            f'set(TARGET_LIB_DIRS {" ".join(self.enum_prefix_subdirs_of("lib", quotes=True, cmake=True))})'
+        )
+        lines.append(
+            f'set(TARGET_INCLUDE_DIRS {" ".join(self.enum_prefix_subdirs_of("include", quotes=True, cmake=True))})'
         )
         lines.append('')
 
@@ -1110,7 +1105,8 @@ class TargetParser:
             'TARGET',
             'TARGET_DIR',
             'TARGET_CMAKE_DIR',
-            'CMAKE_DEPENDENCY_PREFIXES',
+            'TARGET_INSTALL_PREFIX',
+            'TARGET_DEPENDENCY_PREFIXES',
             'TARGET_CC',
             'CARGO_TARGET',
             'ZIG_TARGET',
@@ -1124,7 +1120,8 @@ class TargetParser:
         lines.append(f'export CMKABE_TARGET = {self.cmkabe_target}')
         lines.append(f'export CMKABE_TARGET_DIR = {self.target_dir}')
         lines.append(f'export CMKABE_TARGET_CMAKE_DIR = {self.target_cmake_dir}')
-        lines.append(f'export CMKABE_DEPENDENCY_PREFIXES = {";".join(self.cmake_dependency_prefixes)}')
+        lines.append(f'export CMKABE_TARGET_INSTALL_PREFIX = {self.target_install_prefix}')
+        lines.append(f'export CMKABE_TARGET_DEPENDENCY_PREFIXES = {";".join(self.target_dependency_prefixes)}')
         lines.append(f'export CMKABE_TARGET_CC = {self.target_cc}')
         lines.append(f'export CMKABE_CARGO_TARGET = {self.cargo_target}')
         lines.append(f'export CMKABE_ZIG_TARGET = {self.zig_target}')
@@ -1136,7 +1133,13 @@ class TargetParser:
         lines.append(f'export CMKABE_CARGO_OUT_DIR := {self.cargo_out_dir(make=True)}')
         lines.append(f'export CMKABE_MAKE_BUILD_VARS = {";".join(_make_build_vars)}')
         lines.append(
-            f'export CMKABE_LINK_DIRS := {os.path.pathsep.join(self.enum_prefix_subdirs_of("lib", make=True))}'
+            f'export CMKABE_PREFIX_SUBDIRS := {os.path.pathsep.join(self.target_prefix_subdirs)}'
+        )
+        lines.append(
+            f'export CMKABE_BIN_DIRS := {os.path.pathsep.join(self.enum_prefix_subdirs_of("bin", make=True))}'
+        )
+        lines.append(
+            f'export CMKABE_LIB_DIRS := {os.path.pathsep.join(self.enum_prefix_subdirs_of("lib", make=True))}'
         )
         lines.append(
             f'export CMKABE_INCLUDE_DIRS = {os.path.pathsep.join(self.enum_prefix_subdirs_of("include", make=True))}'
@@ -1184,7 +1187,8 @@ class TargetParser:
         lines.append(f'set(ENV{{CMKABE_TARGET}} "{self.cmkabe_target}")')
         lines.append(f'set(ENV{{CMKABE_TARGET_DIR}} "{self.target_dir}")')
         lines.append(f'set(ENV{{CMKABE_TARGET_CMAKE_DIR}} "{self.target_cmake_dir}")')
-        lines.append(f'set(ENV{{CMKABE_DEPENDENCY_PREFIXES}} "{";".join(self.cmake_dependency_prefixes)}")')
+        lines.append(f'set(ENV{{CMKABE_TARGET_INSTALL_PREFIX}} "{self.target_install_prefix}")')
+        lines.append(f'set(ENV{{CMKABE_TARGET_DEPENDENCY_PREFIXES}} "{";".join(self.target_dependency_prefixes)}")')
         lines.append(f'set(ENV{{CMKABE_TARGET_CC}} "{self.target_cc}")')
         lines.append(f'set(ENV{{CMKABE_CARGO_TARGET}} "{self.cargo_target}")')
         lines.append(f'set(ENV{{CMKABE_ZIG_TARGET}} "{self.zig_target}")')
@@ -1214,7 +1218,13 @@ class TargetParser:
             f'set(ENV{{CMKABE_MAKE_BUILD_VARS}} "{";".join(_make_build_vars)}")'
         )
         lines.append(
-            f'set(ENV{{CMKABE_LINK_DIRS}} "{os.path.pathsep.join(self.enum_prefix_subdirs_of("lib", cmake=True))}")'
+            f'set(ENV{{CMKABE_PREFIX_SUBDIRS}} "{os.path.pathsep.join(self.target_prefix_subdirs)}")'
+        )
+        lines.append(
+            f'set(ENV{{CMKABE_BIN_DIRS}} "{os.path.pathsep.join(self.enum_prefix_subdirs_of("bin", cmake=True))}")'
+        )
+        lines.append(
+            f'set(ENV{{CMKABE_LIB_DIRS}} "{os.path.pathsep.join(self.enum_prefix_subdirs_of("lib", cmake=True))}")'
         )
         lines.append(
             f'set(ENV{{CMKABE_INCLUDE_DIRS}} "{os.path.pathsep.join(self.enum_prefix_subdirs_of("include", cmake=True))}")'

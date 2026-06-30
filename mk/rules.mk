@@ -100,8 +100,8 @@ cmake_build_target_deps = $(SHLUTIL) build-target-deps \
     TARGET=$(CMKABE_TARGET) \
     TARGET_DIR=$(TARGET_DIR) \
     TARGET_CMAKE_DIR=$(TARGET_CMAKE_DIR) \
-    CMAKE_INSTALL_TARGET_PREFIX="$(CMAKE_INSTALL_TARGET_PREFIX)" \
-    CMAKE_DEPENDENCY_PREFIXES="$(subst $(SPACE),;,$(strip $(CMAKE_DEPENDENCY_PREFIXES)))" \
+    TARGET_INSTALL_PREFIX="$(TARGET_INSTALL_PREFIX)" \
+    TARGET_DEPENDENCY_PREFIXES="$(subst $(SPACE),;,$(strip $(TARGET_DEPENDENCY_PREFIXES)))" \
     TARGET_CC=$(TARGET_CC) \
     CARGO_TARGET=$(CARGO_TARGET) \
     ZIG_TARGET=$(ZIG_TARGET)
@@ -161,16 +161,15 @@ endif
 ZIG_TARGET ?=
 #! `<workspace directory>/target`
 TARGET_DIR ?=
+#! The CMake installation directory exclude the tailing triple.
+TARGET_INSTALL_PREFIX ?= $(WORKSPACE_DIR)/installed
+#! The CMake output directory exclude the tailing triple.
+TARGET_DEPENDENCY_PREFIXES +=
 #! CC compiler for the target
 TARGET_CC ?=
 
-#! The CMake output directory exclude the tailing triple.
-CMAKE_DEPENDENCY_PREFIXES +=
-#! The CMake installation directory exclude the tailing triple.
-CMAKE_INSTALL_TARGET_PREFIX ?= $(WORKSPACE_DIR)/installed
 # The CMake build directory for the current configuration.
 CMAKE_BUILD_DIR ?= $(CMAKE_TARGET_DIR)/$(CMAKE_BUILD_TYPE)
-
 #! The CMake system version
 CMAKE_SYSTEM_VERSION ?=
 #! The CMake components to be installed.
@@ -194,8 +193,9 @@ _X_CMAKE_INIT += $(if $(CMAKE_GENERATOR),-G "$(CMAKE_GENERATOR)",)
 _X_CMAKE_INIT += -D "WORKSPACE_DIR:FILEPATH=$(WORKSPACE_DIR)"
 _X_CMAKE_INIT += -D "TARGET:STRING=$(CMKABE_TARGET)"
 _X_CMAKE_INIT += -D "TARGET_DIR:FILEPATH=$(TARGET_DIR)"
+_X_CMAKE_INIT += -D "TARGET_INSTALL_PREFIX:FILEPATH=$(TARGET_INSTALL_PREFIX)"
 _X_CMAKE_INIT += -D "TARGET_CMAKE_DIR:FILEPATH=$(TARGET_CMAKE_DIR)"
-# _X_CMAKE_INIT += -D "CMAKE_DEPENDENCY_PREFIXES:STRING=$(subst $(SPACE),;,$(strip $(CMAKE_DEPENDENCY_PREFIXES)))"
+# _X_CMAKE_INIT += -D "TARGET_DEPENDENCY_PREFIXES:STRING=$(subst $(SPACE),;,$(strip $(TARGET_DEPENDENCY_PREFIXES)))"
 # _X_CMAKE_INIT += -D "TARGET_CC:STRING=$(TARGET_CC)"
 # _X_CMAKE_INIT += -D "CARGO_TARGET:STRING=$(CARGO_TARGET)"
 # _X_CMAKE_INIT += -D "ZIG_TARGET:STRING=$(ZIG_TARGET)"
@@ -222,11 +222,11 @@ cmake_build = cmake --build "$(CMAKE_BUILD_DIR)" \
     $(addprefix --target ,$(if $(1),$(1),$(subst ;,$(SPACE),$(CMAKE_TARGETS)))) \
     --config $(CMAKE_BUILD_TYPE) --parallel $(CMAKE_OPTS)
 
-# cmake_install(<components:list<str>>,<install_target_prefix:str>)
+# cmake_install(<components:list<str>>,<target_install_prefix:str>)
 cmake_install = cmake --install "$(CMAKE_BUILD_DIR)" \
     $(addprefix --component ,$(if $(1),$(1),$(subst ;,$(SPACE),$(CMAKE_COMPONENTS)))) \
     --config $(CMAKE_BUILD_TYPE) \
-    --prefix "$(if $(2),$(2),$(CMAKE_INSTALL_TARGET_PREFIX))/$(TARGET)" $(CMAKE_OPTS)
+    --prefix "$(if $(2),$(2),$(TARGET_INSTALL_PREFIX))/$(TARGET)" $(CMAKE_OPTS)
 
 # cmake_clean()
 cmake_clean = $(call cmake_build) --target clean
@@ -422,9 +422,9 @@ target:
 	@echo "WORKSPACE_DIR:               $(WORKSPACE_DIR)"
 	@echo "TARGET_DIR:                  $(TARGET_DIR)"
 	@echo "TARGET_CMAKE_DIR:            $(TARGET_CMAKE_DIR)"
+	@echo "TARGET_INSTALL_PREFIX:       $(TARGET_INSTALL_PREFIX)"
+	@echo "TARGET_DEPENDENCY_PREFIXES:  $(TARGET_DEPENDENCY_PREFIXES)"
 	@echo "CMAKE_BUILD_DIR:             $(CMAKE_BUILD_DIR)"
-	@echo "CMAKE_INSTALL_TARGET_PREFIX: $(CMAKE_INSTALL_TARGET_PREFIX)"
-	@echo "CMAKE_DEPENDENCY_PREFIXES:   $(CMAKE_DEPENDENCY_PREFIXES)"
 	@echo "CARGO_OUT_DIR:               $(CARGO_OUT_DIR)"
 
 

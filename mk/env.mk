@@ -20,7 +20,7 @@ CMKABE_VERSION = 0.9.0
 # all clean goal names
 CMKABE_CLEAN_GOALS = clean distclean cargo-clean
 CMAKE_OUTPUT_DIRS =
-CMAKE_DEPENDENCY_PREFIXES =
+TARGET_DEPENDENCY_PREFIXES =
 # internal variable
 _X_DOT_SETTINGS_DEPS =
 
@@ -73,7 +73,7 @@ define _x_cmkabe_clone_libs_tpl
     endif
     CMKABE_CLEAN_GOALS += $(1)
     CMAKE_OUTPUT_DIRS += $(2)
-    CMAKE_DEPENDENCY_PREFIXES += $(2)
+    TARGET_DEPENDENCY_PREFIXES += $(2)
     $$(call cmkabe_reg_reinit_deps,$(2)/.dirstamp)
 
     .PHONY: $(1)
