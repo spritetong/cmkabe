@@ -4,10 +4,6 @@ This file tracks outstanding tasks, cleanup items, and future optimization ideas
 
 ## High Priority / Short Term
 
-- [ ] **Fix Typo Variable**: `CMKABE_COMPLETED_PORJECTS` -> `CMKABE_COMPLETED_PROJECTS`
-  - Need to update:
-    - [mk/env.mk](file:///d:/githome/sound-ocean/sound-ocean-se/cmk/env.mk#L205-L210)
-    - [cmake/env.cmake](file:///d:/githome/sound-ocean/sound-ocean-se/cmk/cmake/env.cmake#L375)
 - [ ] **Modernize Root Python Scripts**:
   - Convert remaining `.format()` calls to f-strings in:
     - [shlutil.py](file:///d:/githome/sound-ocean/sound-ocean-se/cmk/shlutil.py#L27)
