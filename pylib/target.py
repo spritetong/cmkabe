@@ -39,7 +39,6 @@ class TargetParser:
         target: str = '',
         target_dir: str = '',
         target_cmake_dir: str = '',
-        target_install_prefix: str = '',
         target_dependency_prefixes: str = '',
         target_cc: str = '',
         cargo_target: str = '',
@@ -69,9 +68,6 @@ class TargetParser:
         )
         self.cmake_lock_file: str = normpath(
             os.path.join(self.target_cmake_dir, self.host.host_system, '.cmake.lock')
-        )
-        self.target_install_prefix: str = normpath(
-            os.path.abspath(target_install_prefix or (self.workspace_dir + '/installed'))
         )
         self.target_dependency_prefixes: List[str] = [
             normpath(os.path.abspath(p.strip()))
@@ -738,9 +734,6 @@ class TargetParser:
         lines.append(f'override TARGET_CMAKE_DIR = {self.target_cmake_dir}')
         lines.append(f'override CMAKE_LOCK_FILE = {self.cmake_lock_file}')
         lines.append(
-            f'override TARGET_INSTALL_PREFIX = {self.target_install_prefix}',
-        )
-        lines.append(
             f'override TARGET_DEPENDENCY_PREFIXES = {" ".join(self.target_dependency_prefixes)}',
         )
         lines.append('')
@@ -843,7 +836,6 @@ class TargetParser:
         lines.append(f'set(TARGET_DIR "{self.target_dir}")')
         lines.append(f'set(TARGET_CMAKE_DIR "{self.target_cmake_dir}")')
         lines.append(f'set(TARGET_LOCK_FILE "{self.cmake_lock_file}")')
-        lines.append(f'set(TARGET_INSTALL_PREFIX "{self.target_install_prefix}")')
         lines.append(
             f'''set(TARGET_DEPENDENCY_PREFIXES {" ".join(f'"{p}"' for p in self.target_dependency_prefixes)})'''
         )
@@ -1105,7 +1097,6 @@ class TargetParser:
             'TARGET',
             'TARGET_DIR',
             'TARGET_CMAKE_DIR',
-            'TARGET_INSTALL_PREFIX',
             'TARGET_DEPENDENCY_PREFIXES',
             'TARGET_CC',
             'CARGO_TARGET',
@@ -1120,7 +1111,6 @@ class TargetParser:
         lines.append(f'export CMKABE_TARGET = {self.cmkabe_target}')
         lines.append(f'export CMKABE_TARGET_DIR = {self.target_dir}')
         lines.append(f'export CMKABE_TARGET_CMAKE_DIR = {self.target_cmake_dir}')
-        lines.append(f'export CMKABE_TARGET_INSTALL_PREFIX = {self.target_install_prefix}')
         lines.append(f'export CMKABE_TARGET_DEPENDENCY_PREFIXES = {";".join(self.target_dependency_prefixes)}')
         lines.append(f'export CMKABE_TARGET_CC = {self.target_cc}')
         lines.append(f'export CMKABE_CARGO_TARGET = {self.cargo_target}')
@@ -1187,7 +1177,6 @@ class TargetParser:
         lines.append(f'set(ENV{{CMKABE_TARGET}} "{self.cmkabe_target}")')
         lines.append(f'set(ENV{{CMKABE_TARGET_DIR}} "{self.target_dir}")')
         lines.append(f'set(ENV{{CMKABE_TARGET_CMAKE_DIR}} "{self.target_cmake_dir}")')
-        lines.append(f'set(ENV{{CMKABE_TARGET_INSTALL_PREFIX}} "{self.target_install_prefix}")')
         lines.append(f'set(ENV{{CMKABE_TARGET_DEPENDENCY_PREFIXES}} "{";".join(self.target_dependency_prefixes)}")')
         lines.append(f'set(ENV{{CMKABE_TARGET_CC}} "{self.target_cc}")')
         lines.append(f'set(ENV{{CMKABE_CARGO_TARGET}} "{self.cargo_target}")')
