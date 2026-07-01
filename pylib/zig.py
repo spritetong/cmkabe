@@ -653,7 +653,19 @@ def zig_patch(zig_root: Optional[str] = None) -> None:
                     if func(file_path):
                         lib_src_patched = True
 
-    # 4. <sys/sysctl.h> is required by ffmpeg 6.0
+    # 4. Patch "lib/libcxx"
+    libcxx_include = os.path.join(zig_root, 'lib', 'libcxx', 'include')
+    for file, insert_after in [
+        ('__config', '#define _LIBCPP___CONFIG'),
+    ]:
+        if patch_file(
+            os.path.join(libcxx_include, file),
+            insert_after.encode(),
+            b'\n\n/* XPATCH: suppress C++ warnings. */\n#pragma clang diagnostic ignored "-Wnullability-completeness"',
+        ):
+            lib_src_patched = True
+
+    # 5. <sys/sysctl.h> is required by ffmpeg 6.0
     sys_ctl_h = os.path.join(any_linux_any, 'sys', 'sysctl.h')
     sys_ctl_h_src = os.path.join(any_linux_any, 'linux', 'sysctl.h')
     if not os.path.exists(sys_ctl_h) and os.path.isfile(sys_ctl_h_src):

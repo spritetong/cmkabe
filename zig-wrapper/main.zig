@@ -833,6 +833,22 @@ pub const ZigWrapper = struct {
                 try utils.allocPrintAndAppend(&args, self.allocator, "-l{s}", .{parser.value});
                 continue;
             } else if (parser.parseNamed(&.{"-L"}, true)) {
+                // Add the absolute path directly as a fallback/alternative to handle CWD mismatches
+                const abs_path = try self.allocator.dupe(u8, parser.value);
+                errdefer self.allocator.free(abs_path);
+                _ = std.mem.replace(u8, abs_path, "\\", "/", abs_path);
+                for (self.skipped_lib_paths.keys()) |pattern| {
+                    if (utils.strMatch(pattern, abs_path)) {
+                        self.allocator.free(abs_path);
+                        continue :outer;
+                    }
+                }
+                if (!path_set.contains(abs_path)) {
+                    try path_set.put(self.allocator, abs_path, {});
+                } else {
+                    self.allocator.free(abs_path);
+                }
+
                 // normalize path
                 if (std.fs.path.relative(
                     self.allocator,
