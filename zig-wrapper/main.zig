@@ -900,10 +900,11 @@ pub const ZigWrapper = struct {
             }
 
             if (is_path) {
-                // normalize path
+                const cwd = try std.process.currentPathAlloc(self.io, self.allocator);
+                defer self.allocator.free(cwd);
                 if (std.fs.path.relative(
                     self.allocator,
-                    ".",
+                    cwd,
                     self.environ_map,
                     ".",
                     path_val,
