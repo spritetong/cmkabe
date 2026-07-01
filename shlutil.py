@@ -13,10 +13,10 @@ if __name__ == '__main__':
     import os
     import sys
 
-    # Insert the parent directory of cmk to sys.path
-    cmk_parent = os.path.dirname(os.path.realpath(__file__))
-    if cmk_parent not in sys.path:
-        sys.path.insert(0, cmk_parent)
+    # Insert the home directory of `cmkabe` to sys.path
+    cmkabe_home = os.path.dirname(os.path.realpath(__file__))
+    if cmkabe_home not in sys.path:
+        sys.path.insert(0, cmkabe_home)
     from pylib.commands import ShellCmd
 
     try:

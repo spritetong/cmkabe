@@ -150,6 +150,10 @@ ZIG_OS_MAP: Dict[str, str] = {
 }
 
 
+def cmkabe_home() -> str:
+    return os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+
+
 def normpath(path: str) -> str:
     """Normalize path using forward slashes for cross-platform consistency."""
     return os.path.normpath(path).replace('\\', '/')

@@ -17,6 +17,7 @@ from .sys_utils import (
     ZIG_ARCH_MAP,
     ZIG_OS_MAP,
     HostTargetInfo,
+    cmkabe_home,
     copy_env_for_cc,
     join_triple,
     lock_file,
@@ -46,10 +47,7 @@ class TargetParser:
         dbginfo: str = 'OFF',  # unused
     ) -> None:
         self.host: HostTargetInfo = HostTargetInfo.host()
-
-        self.cmkabe_dir: str = normpath(
-            os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
-        )
+        self.cmkabe_dir: str = normpath(cmkabe_home())
 
         # Paths
         self.workspace_dir: str = normpath(

@@ -9,6 +9,7 @@ from typing import Any, Generator, List, Optional
 
 from .sys_utils import (
     HostTargetInfo,
+    cmkabe_home,
     ndk_root,
     win2wsl_path,
     wsl2win_path,
@@ -344,8 +345,8 @@ class ShellCmd:
         return 0
 
     def mydir(self) -> int:
-        """Print the directory of CMK utility in Unix format (forward slashes)."""
-        path = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+        """Print the directory of `cmkabe` utility in Unix format (forward slashes)."""
+        path = cmkabe_home()
         if os.path.isdir(path):
             path = os.path.realpath(path)
         else:
@@ -675,11 +676,7 @@ class ShellCmd:
         static_crt: bool = False,
         static_lib: bool = False,
     ) -> int:
-        xpatch_dir = (
-            os.path.join(vcpkg_root, 'xpatch')
-            if vcpkg_root
-            else os.path.dirname(os.path.dirname(__file__))
-        )
+        xpatch_dir = os.path.join(vcpkg_root, 'xpatch') if vcpkg_root else cmkabe_home()
         cache_dir = triplet_cache_dir or os.path.join(xpatch_dir, '.cache', 'triplets')
         found_any = False
         for triplet in triplets or [HostTargetInfo.vcpkg_host_triplet()]:
@@ -726,7 +723,10 @@ class ShellCmd:
                     found_any = True
                     break
             if not found_triplet and triplets:
-                print(f"Warning: Triplet file '{triplet_cmake}' not found.", file=sys.stderr)
+                print(
+                    f"Warning: Triplet file '{triplet_cmake}' not found.",
+                    file=sys.stderr,
+                )
         return 0 if found_any else self.ENOENT
 
     def _detect_win_shell(self) -> str:
@@ -1399,10 +1399,14 @@ class ShellCmd:
                 '--vcpkg-root', default=None, help='vcpkg root directory'
             )
             create_cache_parser.add_argument(
-                '--triplet-cache-dir', default=None, help='Directory to store triplet cache'
+                '--triplet-cache-dir',
+                default=None,
+                help='Directory to store triplet cache',
             )
             create_cache_parser.add_argument(
-                '--debug', action='store_true', help='Enable debug mode (unset VCPKG_BUILD_TYPE)'
+                '--debug',
+                action='store_true',
+                help='Enable debug mode (unset VCPKG_BUILD_TYPE)',
             )
             create_cache_parser.add_argument(
                 '--static-crt', action='store_true', help='Use static CRT linkage'
@@ -1411,10 +1415,7 @@ class ShellCmd:
                 '--static-lib', action='store_true', help='Use static library linkage'
             )
             create_cache_parser.add_argument(
-                '--triplet',
-                action='append',
-                dest='triplets',
-                help='Triplet names (can be specified multiple times)',
+                'triplets', nargs='*', help='Triplet names'
             )
 
             namespace = parser.parse_args(args)

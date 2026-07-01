@@ -4,12 +4,12 @@ import tempfile
 import time
 import unittest
 
-# Setup sys.path to find cmk package
-cmk_parent = os.path.dirname(
+# Setup sys.path to find `cmkabe` package
+cmkabe_dir = os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 )
-if cmk_parent not in sys.path:
-    sys.path.insert(0, cmk_parent)
+if cmkabe_dir not in sys.path:
+    sys.path.insert(0, cmkabe_dir)
 
 from .. import sys_utils
 from .. import ShellCmd
@@ -481,13 +481,7 @@ class TestElfPathFixer(unittest.TestCase):
             with open(elf_file, 'wb') as f:
                 f.write(mock_elf)
 
-            script_path = os.path.join(
-                os.path.dirname(
-                    os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
-                ),
-                'shlutil.py',
-            )
-
+            script_path = os.path.join(sys_utils.cmkabe_home(), 'shlutil.py')
             res = subprocess.run(
                 [
                     sys.executable,

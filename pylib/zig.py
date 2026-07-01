@@ -71,7 +71,13 @@ import subprocess
 import sys
 from typing import Callable, Dict, List, Optional, Set
 
-from .sys_utils import EXE_EXT, HostTargetInfo, copy_env_for_cc, need_update
+from .sys_utils import (
+    EXE_EXT,
+    HostTargetInfo,
+    cmkabe_home,
+    copy_env_for_cc,
+    need_update,
+)
 
 EFAIL: int = 1
 
@@ -91,8 +97,7 @@ def zig_build_wrapper(
     else:
         zig_path = f'{zig_root}/zig{EXE_EXT}'
 
-    cmkabe_home = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
-    src = os.path.join(cmkabe_home, 'zig-wrapper', 'main.zig')
+    src = os.path.join(cmkabe_home(), 'zig-wrapper', 'main.zig')
 
     if not zig_cc_dir:
         if vcpkg_root:
