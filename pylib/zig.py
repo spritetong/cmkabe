@@ -71,9 +71,108 @@ import subprocess
 import sys
 from typing import Callable, Dict, List, Optional, Set
 
-from .sys_utils import EXE_EXT
+from .sys_utils import EXE_EXT, HostTargetInfo, copy_env_for_cc, need_update
 
 EFAIL: int = 1
+
+
+def zig_build_wrapper(
+    zig_root: Optional[str] = None,
+    zig_cc_dir: Optional[str] = None,
+    prefix: str = 'zig',
+    force: bool = False,
+    vcpkg_root: Optional[str] = None,
+):
+    # Zig root path
+    if not zig_root:
+        zig_path = shutil.which(f'zig{EXE_EXT}')
+        if not zig_path:
+            raise FileNotFoundError('`zig` is not found')
+    else:
+        zig_path = f'{zig_root}/zig{EXE_EXT}'
+
+    cmkabe_home = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
+    src = os.path.join(cmkabe_home, 'zig-wrapper', 'main.zig')
+
+    if not zig_cc_dir:
+        if vcpkg_root:
+            zig_cc_dir = os.path.join(
+                vcpkg_root,
+                'xpatch',
+                '.cache',
+                'zig',
+                HostTargetInfo.vcpkg_host_triplet(),
+            )
+        else:
+            raise ValueError('`zig_cc_dir` is not set')
+    os.makedirs(zig_cc_dir, exist_ok=True)
+
+    exe = os.path.join(zig_cc_dir, f'zig-wrapper{EXE_EXT}')
+
+    need_rebuild = force or any(
+        need_update(zf, exe)
+        for zf in glob.glob(
+            os.path.join(os.path.dirname(src), '**/*.zig'), recursive=True
+        )
+    )
+    if need_rebuild:
+        if vcpkg_root:
+            if os.path.exists(exe):
+                os.unlink(exe)
+            for file in glob.glob(os.path.join(zig_cc_dir, f'{prefix}-*')):
+                if os.path.exists(file):
+                    os.unlink(file)
+        else:
+            for file in glob.glob(os.path.join(zig_cc_dir, '*')):
+                if not os.path.isdir(file):
+                    os.unlink(file)
+
+        # Compile wrapper using zig build-exe with quoted -femit-bin
+        subprocess.run(
+            [
+                f'zig{EXE_EXT}',
+                'build-exe',
+                '-O',
+                'ReleaseSmall',
+                '-fstrip',
+                f'-femit-bin={exe}',
+                src,
+            ],
+            env=copy_env_for_cc(),
+            check=True,
+        )
+        os.chmod(exe, 0o755)
+        for file in glob.glob(os.path.join(zig_cc_dir, exe + '.*')):
+            os.unlink(file)
+
+        for name in [
+            'ar',
+            'gcc' if vcpkg_root else 'cc',
+            'g++' if vcpkg_root else 'c++',
+            'dlltool',
+            'lib',
+            'link',
+            'ranlib',
+            'objcopy',
+            'rc',
+            'windres',
+        ]:
+            dst = os.path.join(zig_cc_dir, f'{prefix}-{name}{EXE_EXT}')
+            if os.path.lexists(dst):
+                os.unlink(dst)
+            try:
+                os.symlink(os.path.basename(exe), dst)
+            except OSError:
+                shutil.copy2(exe, dst)
+        for name in ['dlltool', 'windres']:
+            dst = os.path.join(zig_cc_dir, f'{name}{EXE_EXT}')
+            if os.path.lexists(dst):
+                os.unlink(dst)
+            try:
+                os.symlink(os.path.basename(exe), dst)
+            except OSError:
+                shutil.copy2(exe, dst)
+    return 0
 
 
 def zig_clean_cache(zig_root: Optional[str] = None, verbose: bool = False) -> None:
@@ -81,9 +180,9 @@ def zig_clean_cache(zig_root: Optional[str] = None, verbose: bool = False) -> No
     import ast
 
     zig_exe = (
-        os.path.join(zig_root, 'zig' + EXE_EXT)
+        os.path.join(zig_root, f'zig{EXE_EXT}')
         if zig_root and os.path.isdir(zig_root)
-        else 'zig' + EXE_EXT
+        else f'zig{EXE_EXT}'
     )
     try:
         res = subprocess.run(
@@ -111,8 +210,8 @@ def zig_clean_cache(zig_root: Optional[str] = None, verbose: bool = False) -> No
                 global_cache = match.group(1).strip('"')
 
     if verbose and global_cache:
-        clean_cache_path = global_cache.replace("\\", "/")
-        print(f"Removing {clean_cache_path}")
+        clean_cache_path = global_cache.replace('\\', '/')
+        print(f'Removing {clean_cache_path}')
 
     if global_cache and os.path.isdir(global_cache):
         shutil.rmtree(global_cache, ignore_errors=True)
@@ -469,7 +568,7 @@ def patch_visibility_mingw_S(filename: str) -> bool:
 def zig_patch(zig_root: Optional[str] = None) -> None:
     """Patch Zig source libraries to hide internal exports (such as libunwind, mingw32)."""
     if not zig_root:
-        zig_path = shutil.which('zig' + EXE_EXT)
+        zig_path = shutil.which(f'zig{EXE_EXT}')
         if not zig_path:
             return
         zig_root = os.path.realpath(os.path.dirname(zig_path))
@@ -636,7 +735,7 @@ def zig_dll2lib(
 
     subprocess.run(
         [
-            'zig' + EXE_EXT,
+            f'zig{EXE_EXT}',
             'dlltool',
             '-m',
             machine,

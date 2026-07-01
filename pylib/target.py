@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """Parse build target triples and generate configuration files for Make/CMake."""
 
-import glob
 import os
 import shutil
 import subprocess
@@ -19,11 +18,9 @@ from .sys_utils import (
     ZIG_OS_MAP,
     HostTargetInfo,
     copy_env_for_cc,
-    host_target_info,
     join_triple,
     lock_file,
     ndk_root,
-    need_update,
     normpath,
     parse_triple,
 )
@@ -48,7 +45,7 @@ class TargetParser:
         minsize: str = 'OFF',  # unused
         dbginfo: str = 'OFF',  # unused
     ) -> None:
-        self.host: HostTargetInfo = host_target_info()
+        self.host: HostTargetInfo = HostTargetInfo.host()
 
         self.cmkabe_dir: str = normpath(
             os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
@@ -311,7 +308,7 @@ class TargetParser:
             'zig',
             'zig-cc',
         )
-        zig = shutil.which('zig' + EXE_EXT) if self.zig else None
+        zig = shutil.which(f'zig{EXE_EXT}') if self.zig else None
         if (
             not self.target_is_native
             and not self.android
@@ -319,8 +316,8 @@ class TargetParser:
             and (not self.target_cc or not shutil.which(self.target_cc))
             and self.is_cross_compiling
         ):
-            target_cc = shutil.which(self.target + '-gcc' + EXE_EXT) or shutil.which(
-                self.target + '-cc' + EXE_EXT
+            target_cc = shutil.which(f'{self.target}-gcc{EXE_EXT}') or shutil.which(
+                f'{self.target}-cc{EXE_EXT}'
             )
             if target_cc:
                 self.target_cc = normpath(target_cc)
@@ -331,7 +328,7 @@ class TargetParser:
                 or self.env != self.host.env
             ) or (self.host_is_linux and self.os == 'linux'):
                 if zig is None:
-                    zig = shutil.which('zig' + EXE_EXT)
+                    zig = shutil.which(f'zig{EXE_EXT}')
                 if zig:
                     self.zig = True
 
@@ -341,7 +338,7 @@ class TargetParser:
         if not self.cmake_generator and (
             self.host_is_unix or self.zig or self.target_cc
         ):
-            if self.host_is_windows or shutil.which('ninja' + EXE_EXT):
+            if self.host_is_windows or shutil.which(f'ninja{EXE_EXT}'):
                 self.cmake_generator = 'Ninja'
             elif self.host_is_unix:
                 self.cmake_generator = 'Unix Makefiles'
@@ -414,12 +411,16 @@ class TargetParser:
             pass
 
     def _cmake_init(self) -> None:
-        self.cmake_target_dir = f'{self.target_cmake_dir}/{self.host.host_system}/{self.cmkabe_target}'
+        self.cmake_target_dir = (
+            f'{self.target_cmake_dir}/{self.host.host_system}/{self.cmkabe_target}'
+        )
         os.makedirs(self.cmake_target_dir, exist_ok=True)
 
     def _zig_init(self) -> None:
+        from .zig import zig_build_wrapper
+
         # Zig root path and include directories.
-        zig_path = shutil.which('zig' + EXE_EXT)
+        zig_path = shutil.which(f'zig{EXE_EXT}')
         if not zig_path:
             raise FileNotFoundError('`zig` is not found')
         self.zig_root = normpath(os.path.realpath(os.path.dirname(zig_path)))
@@ -427,69 +428,10 @@ class TargetParser:
         self.zig_cc_dir = normpath(
             os.path.join(self.target_dir, '.zig', self.host.host_system)
         )
-        src = self.cmkabe_dir + '/zig-wrapper/main.zig'
-        exe = self.zig_cc_dir + '/zig-wrapper' + EXE_EXT
-        directory = self.zig_cc_dir
-
-        os.makedirs(directory, exist_ok=True)
-
-        need_rebuild = any(
-            need_update(zf, exe)
-            for zf in glob.glob(
-                os.path.join(os.path.dirname(src), '**/*.zig'), recursive=True
-            )
-        )
-        if need_rebuild:
-            for file in glob.glob(os.path.join(directory, '*')):
-                if not os.path.isdir(file):
-                    os.unlink(file)
-            # Compile wrapper using zig build-exe with quoted -femit-bin
-            subprocess.run(
-                [
-                    'zig' + EXE_EXT,
-                    'build-exe',
-                    '-O',
-                    'ReleaseSmall',
-                    '-fstrip',
-                    f'-femit-bin={exe}',
-                    src,
-                ],
-                env=copy_env_for_cc(),
-                check=True,
-            )
-            os.chmod(exe, 0o755)
-            for file in glob.glob(os.path.join(directory, exe + '.*')):
-                os.unlink(file)
-            for name in [
-                'ar',
-                'cc',
-                'c++',
-                'dlltool',
-                'lib',
-                'link',
-                'ranlib',
-                'objcopy',
-                'rc',
-                'windres',
-            ]:
-                dst = os.path.join(directory, 'zig-' + name + EXE_EXT)
-                if os.path.lexists(dst):
-                    os.unlink(dst)
-                try:
-                    os.symlink(os.path.basename(exe), dst)
-                except OSError:
-                    shutil.copy2(exe, dst)
-            for name in ['dlltool', 'windres']:
-                dst = os.path.join(directory, name + EXE_EXT)
-                if os.path.lexists(dst):
-                    os.unlink(dst)
-                try:
-                    os.symlink(os.path.basename(exe), dst)
-                except OSError:
-                    shutil.copy2(exe, dst)
+        zig_build_wrapper(zig_root=self.zig_root, zig_cc_dir=self.zig_cc_dir)
 
         # Override the target CC for Zig.
-        self.target_cc = normpath(self.zig_cc_dir + '/zig-cc' + EXE_EXT)
+        self.target_cc = normpath(f'{self.zig_cc_dir}/zig-cc{EXE_EXT}')
 
         # Get include paths.
         def cc_cmd_args(cc_tool: str) -> List[str]:
@@ -837,10 +779,10 @@ class TargetParser:
         lines.append(f'set(TARGET_CMAKE_DIR "{self.target_cmake_dir}")')
         lines.append(f'set(TARGET_LOCK_FILE "{self.cmake_lock_file}")')
         lines.append(
-            f'''set(TARGET_DEPENDENCY_PREFIXES {" ".join(f'"{p}"' for p in self.target_dependency_prefixes)})'''
+            f"""set(TARGET_DEPENDENCY_PREFIXES {' '.join(f'"{p}"' for p in self.target_dependency_prefixes)})"""
         )
         lines.append(
-            f'''set(TARGET_PREFIX_SUBDIRS {" ".join(f'"{p}"' for p in self.target_prefix_subdirs)})'''
+            f"""set(TARGET_PREFIX_SUBDIRS {' '.join(f'"{p}"' for p in self.target_prefix_subdirs)})"""
         )
         lines.append(
             f'set(TARGET_BIN_DIRS {" ".join(self.enum_prefix_subdirs_of("bin", quotes=True, cmake=True))})'
@@ -1111,7 +1053,9 @@ class TargetParser:
         lines.append(f'export CMKABE_TARGET = {self.cmkabe_target}')
         lines.append(f'export CMKABE_TARGET_DIR = {self.target_dir}')
         lines.append(f'export CMKABE_TARGET_CMAKE_DIR = {self.target_cmake_dir}')
-        lines.append(f'export CMKABE_TARGET_DEPENDENCY_PREFIXES = {";".join(self.target_dependency_prefixes)}')
+        lines.append(
+            f'export CMKABE_TARGET_DEPENDENCY_PREFIXES = {";".join(self.target_dependency_prefixes)}'
+        )
         lines.append(f'export CMKABE_TARGET_CC = {self.target_cc}')
         lines.append(f'export CMKABE_CARGO_TARGET = {self.cargo_target}')
         lines.append(f'export CMKABE_ZIG_TARGET = {self.zig_target}')
@@ -1177,7 +1121,9 @@ class TargetParser:
         lines.append(f'set(ENV{{CMKABE_TARGET}} "{self.cmkabe_target}")')
         lines.append(f'set(ENV{{CMKABE_TARGET_DIR}} "{self.target_dir}")')
         lines.append(f'set(ENV{{CMKABE_TARGET_CMAKE_DIR}} "{self.target_cmake_dir}")')
-        lines.append(f'set(ENV{{CMKABE_TARGET_DEPENDENCY_PREFIXES}} "{";".join(self.target_dependency_prefixes)}")')
+        lines.append(
+            f'set(ENV{{CMKABE_TARGET_DEPENDENCY_PREFIXES}} "{";".join(self.target_dependency_prefixes)}")'
+        )
         lines.append(f'set(ENV{{CMKABE_TARGET_CC}} "{self.target_cc}")')
         lines.append(f'set(ENV{{CMKABE_CARGO_TARGET}} "{self.cargo_target}")')
         lines.append(f'set(ENV{{CMKABE_ZIG_TARGET}} "{self.zig_target}")')

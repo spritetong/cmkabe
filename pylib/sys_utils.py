@@ -286,94 +286,112 @@ class HostTargetInfo:
     triple: str
     cargo_triple: str
 
+    @staticmethod
+    def host() -> 'HostTargetInfo':
+        """Retrieve details about the host target system."""
+        # (compatible with Make & CMake) Windows, Linux, Darwin
+        host_system: str = 'Windows' if os.name == 'nt' else platform.uname()[0]
+        # (not for Cargo) windows, linux, macos, mingw, cygwin
+        target_system: str = ''
+        # windows, unix, wasm
+        target_family: str = ''
+        # windows, linux, macos, android, ios ..., none
+        target_os: str = ''
+        # i686(i586, ???x86), x86_64, arm, aarch64, ...
+        target_arch: str = ''
+        # pc, apple, fortanix, unknown
+        target_vendor: str = ''
+        cargo_target_vendor: str = ''
+        # msvc, gnu, musl, sgx, ...
+        target_env: str = ''
+        target_pointer_width: int = 64
+        target_endian: str = sys.byteorder
+        target_feature: str = ''
 
-def host_target_info() -> HostTargetInfo:
-    """Retrieve details about the host target system."""
-    # (compatible with Make & CMake) Windows, Linux, Darwin
-    host_system: str = 'Windows' if os.name == 'nt' else platform.uname()[0]
-    # (not for Cargo) windows, linux, macos, mingw, cygwin
-    target_system: str = ''
-    # windows, unix, wasm
-    target_family: str = ''
-    # windows, linux, macos, android, ios ..., none
-    target_os: str = ''
-    # i686(i586, ???x86), x86_64, arm, aarch64, ...
-    target_arch: str = ''
-    # pc, apple, fortanix, unknown
-    target_vendor: str = ''
-    cargo_target_vendor: str = ''
-    # msvc, gnu, musl, sgx, ...
-    target_env: str = ''
-    target_pointer_width: int = 64
-    target_endian: str = sys.byteorder
-    target_feature: str = ''
+        # target_system <- platform.system()
+        if os.environ.get('MSYSTEM') in ('MSYS', 'MINGW32', 'MINGW64'):
+            target_system = 'mingw'
+        else:
+            target_system = platform.system().lower()
+            for k, v in HOST_SYSTEM_MAP:
+                if target_system.startswith(k):
+                    target_system = v
+                    break
 
-    # target_system <- platform.system()
-    if os.environ.get('MSYSTEM') in ('MSYS', 'MINGW32', 'MINGW64'):
-        target_system = 'mingw'
-    else:
-        target_system = platform.system().lower()
-        for k, v in HOST_SYSTEM_MAP:
-            if target_system.startswith(k):
-                target_system = v
-                break
+        # target_family, target_os
+        if target_system in ('windows', 'cygwin', 'mingw'):
+            target_family = 'windows'
+            target_os = 'windows'
+        else:
+            target_family = 'unix'
+            target_os = target_system
 
-    # target_family, target_os
-    if target_system in ('windows', 'cygwin', 'mingw'):
-        target_family = 'windows'
-        target_os = 'windows'
-    else:
-        target_family = 'unix'
-        target_os = target_system
+        # target_pointer_width, target_arch
+        machine = platform.machine()
+        if '64' not in machine:
+            target_pointer_width = 32
+        target_arch = HOST_ARCH_MAP.get(machine.lower(), '')
+        if not target_arch:
+            raise RuntimeError(f'Not supported machine architecture: {machine}')
 
-    # target_pointer_width, target_arch
-    machine = platform.machine()
-    if '64' not in machine:
-        target_pointer_width = 32
-    target_arch = HOST_ARCH_MAP.get(machine.lower(), '')
-    if not target_arch:
-        raise RuntimeError(f'Not supported machine architecture: {machine}')
+        # target_vendor
+        if target_os == 'windows':
+            target_vendor = 'pc'
+        elif target_system == 'macos':
+            target_vendor = 'apple'
+        elif target_os == 'linux':
+            target_vendor = 'pc'
+            cargo_target_vendor = 'unknown'
+        else:
+            target_vendor = 'unknown'
 
-    # target_vendor
-    if target_os == 'windows':
-        target_vendor = 'pc'
-    elif target_system == 'macos':
-        target_vendor = 'apple'
-    elif target_os == 'linux':
-        target_vendor = 'pc'
-        cargo_target_vendor = 'unknown'
-    else:
-        target_vendor = 'unknown'
+        if not cargo_target_vendor:
+            cargo_target_vendor = target_vendor
 
-    if not cargo_target_vendor:
-        cargo_target_vendor = target_vendor
+        # target_env
+        if target_os == 'windows':
+            target_env = 'msvc'
+        elif target_system in ('linux', 'cygwin', 'mingw'):
+            target_env = 'gnu'
 
-    # target_env
-    if target_os == 'windows':
-        target_env = 'msvc'
-    elif target_system in ('linux', 'cygwin', 'mingw'):
-        target_env = 'gnu'
+        # target_triple
+        target_triple = join_triple(target_arch, target_vendor, target_os, target_env)
+        cargo_target_triple = join_triple(
+            target_arch, cargo_target_vendor, target_os, target_env
+        )
 
-    # target_triple
-    target_triple = join_triple(target_arch, target_vendor, target_os, target_env)
-    cargo_target_triple = join_triple(
-        target_arch, cargo_target_vendor, target_os, target_env
-    )
+        return HostTargetInfo(
+            host_system=host_system,
+            system=target_system,
+            family=target_family,
+            os=target_os,
+            arch=target_arch,
+            vendor=target_vendor,
+            env=target_env,
+            pointer_width=target_pointer_width,
+            endian=target_endian,
+            feature=target_feature,
+            triple=target_triple,
+            cargo_triple=cargo_target_triple,
+        )
 
-    return HostTargetInfo(
-        host_system=host_system,
-        system=target_system,
-        family=target_family,
-        os=target_os,
-        arch=target_arch,
-        vendor=target_vendor,
-        env=target_env,
-        pointer_width=target_pointer_width,
-        endian=target_endian,
-        feature=target_feature,
-        triple=target_triple,
-        cargo_triple=cargo_target_triple,
-    )
+    @staticmethod
+    def vcpkg_host_triplet() -> str:
+        import platform
+
+        system = platform.system().lower()
+        machine = platform.machine().lower()
+        host_os = {
+            'macosx': 'osx',
+        }.get(system, system)
+        host_arch = {
+            'i586': 'x86',
+            'i686': 'x86',
+            'x86_64': 'x64',
+            'amd64': 'x64',
+            'aarch64': 'arm64',
+        }.get(machine, machine)
+        return f'{host_arch}-{host_os}'
 
 
 def win2wsl_path(path: str) -> str:

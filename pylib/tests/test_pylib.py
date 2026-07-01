@@ -23,7 +23,9 @@ class TestSysUtils(unittest.TestCase):
 
     def test_triple_parsing(self) -> None:
         triple = 'x86_64-unknown-linux-gnu'
-        arch, vendor, os_name, env, version, version_sep = sys_utils.parse_triple(triple)
+        arch, vendor, os_name, env, version, version_sep = sys_utils.parse_triple(
+            triple
+        )
         self.assertEqual(arch, 'x86_64')
         self.assertEqual(vendor, 'unknown')
         self.assertEqual(os_name, 'linux')
@@ -510,7 +512,7 @@ class TestTargetParser(unittest.TestCase):
         )
         self.assertEqual(parser.target, 'x86_64-pc-windows-msvc')
         self.assertEqual(
-            parser.host.host_system, sys_utils.host_target_info().host_system
+            parser.host.host_system, sys_utils.HostTargetInfo.host().host_system
         )
 
     def test_riscv_and_wasm_targets(self) -> None:

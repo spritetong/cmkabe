@@ -8,11 +8,12 @@ import time
 from typing import Any, Generator, List, Optional
 
 from .sys_utils import (
+    HostTargetInfo,
     ndk_root,
     win2wsl_path,
     wsl2win_path,
 )
-from .zig import zig_clean_cache, zig_dll2lib, zig_patch
+from .zig import zig_build_wrapper, zig_clean_cache, zig_dll2lib, zig_patch
 
 
 class ShellCmd:
@@ -154,6 +155,7 @@ class ShellCmd:
                 # If path is a directory, keep the original logic of "downward recursion" to
                 # clean up empty subdirectories.
                 if os.path.isdir(path):
+
                     def remove_parents_recur(p: str) -> None:
                         try:
                             for item in os.listdir(p):
@@ -164,11 +166,12 @@ class ShellCmd:
                                         os.rmdir(directory)
                         except OSError:
                             pass
+
                     remove_parents_recur(path)
 
                 curr: str = os.path.normpath(path)
                 while curr:
-                    # Once the source is traced back to the current directory '.' or 
+                    # Once the source is traced back to the current directory '.' or
                     # the root directory '/', immediately cut it off and never delete it.
                     if curr in ('.', '..', '/'):
                         break
@@ -643,6 +646,89 @@ class ShellCmd:
         zig_clean_cache(zig_root, verbose=verbose)
         return 0
 
+    def zig_build_wrapper(
+        self,
+        zig_root: Optional[str] = None,
+        zig_cc_dir: Optional[str] = None,
+        prefix: str = 'zig',
+        force: bool = False,
+        vcpkg_root: Optional[str] = None,
+    ) -> int:
+        return zig_build_wrapper(
+            zig_root=zig_root,
+            zig_cc_dir=zig_cc_dir,
+            prefix=prefix,
+            force=force,
+            vcpkg_root=vcpkg_root,
+        )
+
+    def vcpkg_host_triplet(self) -> int:
+        print(HostTargetInfo.vcpkg_host_triplet(), end='')
+        return 0
+
+    def vcpkg_create_triplet_cache(
+        self,
+        vcpkg_root: Optional[str] = None,
+        triplet_cache_dir: Optional[str] = None,
+        triplets: Optional[List[str]] = None,
+        debug: bool = False,
+        static_crt: bool = False,
+        static_lib: bool = False,
+    ) -> int:
+        xpatch_dir = (
+            os.path.join(vcpkg_root, 'xpatch')
+            if vcpkg_root
+            else os.path.dirname(os.path.dirname(__file__))
+        )
+        cache_dir = triplet_cache_dir or os.path.join(xpatch_dir, '.cache', 'triplets')
+        found_any = False
+        for triplet in triplets or [HostTargetInfo.vcpkg_host_triplet()]:
+            triplet_cmake = triplet + '.cmake'
+            found_triplet = False
+            for dir in ['triplets', '../triplets', '../triplets/community']:
+                path = os.path.join(xpatch_dir, dir, triplet_cmake)
+                if os.path.isfile(path):
+                    with open(path) as f:
+                        lines = [x.rstrip() for x in f.readlines()]
+                    lines.append('# XPATCH: {{{')
+                    if debug:
+                        lines.append('unset(VCPKG_BUILD_TYPE)')
+                    else:
+                        lines.append('set(VCPKG_BUILD_TYPE release)')
+                    lines.append(
+                        'set(VCPKG_CRT_LINKAGE {})'.format(
+                            'static' if static_crt else 'dynamic'
+                        )
+                    )
+                    lines.append(
+                        'set(VCPKG_LIBRARY_LINKAGE {})'.format(
+                            'static' if static_lib else 'dynamic'
+                        )
+                    )
+                    lines.append('include("${VCPKG_ROOT_DIR}/xpatch/.triplet.cmake")')
+                    lines.append('# }}}')
+                    content = '\n'.join(lines).encode('utf-8')
+
+                    cache_path = os.path.join(cache_dir, triplet_cmake)
+                    try:
+                        with open(cache_path, 'rb') as f:
+                            existent = f.read()
+                    except OSError:
+                        existent = b''
+                    if content != existent:
+                        try:
+                            os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+                            with open(cache_path, 'wb') as f:
+                                f.write(content)
+                        except OSError:
+                            return self.EFAIL
+                    found_triplet = True
+                    found_any = True
+                    break
+            if not found_triplet and triplets:
+                print(f"Warning: Triplet file '{triplet_cmake}' not found.", file=sys.stderr)
+        return 0 if found_any else self.ENOENT
+
     def _detect_win_shell(self) -> str:
         """Detect the parent/ancestor shell on Windows."""
         import ctypes
@@ -841,7 +927,11 @@ class ShellCmd:
 
         if rebuild is not None:
             print(f"Rebuilding in local repository '{local_repo}'...")
-            ret = subprocess.call(f'make {rebuild} DEBUG=0', shell=True, cwd=local_repo)
+            ret = subprocess.call(
+                ' '.join(filter(None, ['make', rebuild, 'DEBUG=0'])),
+                shell=True,
+                cwd=local_repo,
+            )
             if ret != 0:
                 print(
                     f"Error: rebuild in '{local_repo}' failed with exit code {ret}",
@@ -1273,6 +1363,57 @@ class ShellCmd:
                 help='Suppress all output except errors',
             )
 
+            # 28. zig-build-wrapper subparser
+            zig_build_wrapper_parser = subparsers.add_parser(
+                'zig-build-wrapper',
+                help='Build compiler wrapper using zig build-exe',
+            )
+            zig_build_wrapper_parser.add_argument(
+                'zig_root', nargs='?', default=None, help='Zig installation root'
+            )
+            zig_build_wrapper_parser.add_argument(
+                '--zig-cc-dir', default=None, help='Destination directory for wrapper'
+            )
+            zig_build_wrapper_parser.add_argument(
+                '--prefix', default='zig', help='Prefix for symlinks'
+            )
+            zig_build_wrapper_parser.add_argument(
+                '-f', '--force', action='store_true', help='Force rebuild'
+            )
+            zig_build_wrapper_parser.add_argument(
+                '--vcpkg-root', default=None, help='vcpkg root directory'
+            )
+
+            # 29. vcpkg-host-triplet subparser
+            subparsers.add_parser(
+                'vcpkg-host-triplet',
+                help='Print vcpkg host triplet name',
+            )
+
+            # 30. vcpkg-create-triplet-cache subparser
+            create_cache_parser = subparsers.add_parser(
+                'vcpkg-create-triplet-cache',
+                help='Create vcpkg triplet cmake files cache with custom settings',
+            )
+            create_cache_parser.add_argument(
+                '--vcpkg-root', default=None, help='vcpkg root directory'
+            )
+            create_cache_parser.add_argument(
+                '--triplet-cache-dir', default=None, help='Directory to store triplet cache'
+            )
+            create_cache_parser.add_argument(
+                '--debug', action='store_true', help='Enable debug mode (unset VCPKG_BUILD_TYPE)'
+            )
+            create_cache_parser.add_argument(
+                '--static-crt', action='store_true', help='Use static CRT linkage'
+            )
+            create_cache_parser.add_argument(
+                '--static-lib', action='store_true', help='Use static library linkage'
+            )
+            create_cache_parser.add_argument(
+                'triplets', nargs='*', default=None, help='Triplet names'
+            )
+
             namespace = parser.parse_args(args)
 
             if not namespace.command:
@@ -1413,6 +1554,25 @@ class ShellCmd:
                     create_backup=namespace.create_backup,
                     verbose=namespace.verbose,
                     quiet=namespace.quiet,
+                )
+            elif cmd == 'zig-build-wrapper':
+                return inst.zig_build_wrapper(
+                    zig_root=namespace.zig_root,
+                    zig_cc_dir=namespace.zig_cc_dir,
+                    prefix=namespace.prefix,
+                    force=namespace.force,
+                    vcpkg_root=namespace.vcpkg_root,
+                )
+            elif cmd == 'vcpkg-host-triplet':
+                return inst.vcpkg_host_triplet()
+            elif cmd == 'vcpkg-create-triplet-cache':
+                return inst.vcpkg_create_triplet_cache(
+                    vcpkg_root=namespace.vcpkg_root,
+                    triplet_cache_dir=namespace.triplet_cache_dir,
+                    triplets=namespace.triplets,
+                    debug=namespace.debug,
+                    static_crt=namespace.static_crt,
+                    static_lib=namespace.static_lib,
                 )
 
             print(f'Unrecognized command "{cmd}"', file=sys.stderr)
