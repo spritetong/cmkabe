@@ -1411,7 +1411,10 @@ class ShellCmd:
                 '--static-lib', action='store_true', help='Use static library linkage'
             )
             create_cache_parser.add_argument(
-                'triplets', nargs='*', default=None, help='Triplet names'
+                '--triplet',
+                action='append',
+                dest='triplets',
+                help='Triplet names (can be specified multiple times)',
             )
 
             namespace = parser.parse_args(args)
