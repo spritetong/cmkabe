@@ -1,6 +1,13 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
+/// Take the string slice value, leaving `null` in its place.
+pub inline fn strTake(ptr: *?[]const u8) ?[]const u8 {
+    const old = ptr.*;
+    if (old != null) ptr.* = null;
+    return old;
+}
+
 /// Check if `a` and `b` are equal.
 pub inline fn strEql(a: []const u8, b: []const u8) bool {
     return std.mem.eql(u8, a, b);

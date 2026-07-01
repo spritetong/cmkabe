@@ -119,6 +119,7 @@ pub const ZigWrapper = struct {
             if (utils.strStartsWith(arg, "@")) {
                 // Parse the flags file.
                 if (self.parseFileFlags(arg[1..], &argv, 0)) |_| {
+                    if (utils.strTake(&self.at_file_opt)) |v| self.allocator.free(v);
                     self.at_file_opt = try self.allocator.dupe(u8, arg);
                     continue;
                 } else |_| {
@@ -581,14 +582,10 @@ pub const ZigWrapper = struct {
                     }
                 }
             } else if (parser.parseNamed(&.{"--zig"}, true)) {
-                if (self.zig_exe) |v| {
-                    self.allocator.free(v);
-                }
+                if (utils.strTake(&self.zig_exe)) |v| self.allocator.free(v);
                 self.zig_exe = try self.allocator.dupe(u8, parser.value);
             } else if (parser.parseNamed(&.{"--clang-target"}, true)) {
-                if (self.clang_target) |v| {
-                    self.allocator.free(v);
-                }
+                if (utils.strTake(&self.clang_target)) |v| self.allocator.free(v);
                 self.clang_target = try self.allocator.dupe(u8, parser.value);
             } else if (parser.parseNamed(&.{"--skip-lib"}, true)) {
                 var parts = std.mem.splitAny(u8, parser.value, ",;");
@@ -626,6 +623,7 @@ pub const ZigWrapper = struct {
             } else if (parser.parseNamed(&.{"-o"}, true)) {
                 // Save the output file path for post-processing.
                 if (parser.consumed.len == 2) {
+                    if (utils.strTake(&self.cc_output)) |v| self.allocator.free(v);
                     self.cc_output = try self.allocator.dupe(u8, parser.value);
                 }
                 // Autoconfig uses `zig-cc` to compile DLL, wrongly builds out `.dll.a` instead of `.dll`.
@@ -649,7 +647,9 @@ pub const ZigWrapper = struct {
                     try utils.dupeAndAppend(u8, dest, self.allocator, "-o");
                     try utils.dupeAndAppend(u8, dest, self.allocator, dll);
                     try dest.append(lib_opt);
+                    if (utils.strTake(&self.cc_dll_a)) |v| self.allocator.free(v);
                     self.cc_dll_a = try self.allocator.dupe(u8, dll_a);
+                    if (utils.strTake(&self.cc_dll_lib)) |v| self.allocator.free(v);
                     self.cc_dll_lib = try self.allocator.dupe(u8, dll_lib);
                 } else {
                     // Do no consume the argument.
@@ -948,8 +948,10 @@ pub const ZigWrapper = struct {
                         self.windres_output = try self.allocator.dupe(u8, arg);
                     }
                 } else if (parser.parseNamed(&.{ "-i", "--input" }, true)) {
+                    if (utils.strTake(&self.windres_input)) |v| self.allocator.free(v);
                     self.windres_input = try self.allocator.dupe(u8, parser.value);
                 } else if (parser.parseNamed(&.{ "-o", "--output" }, true)) {
+                    if (self.windres_output) |v| self.allocator.free(v);
                     self.windres_output = try self.allocator.dupe(u8, parser.value);
                 } else if (parser.parseNamed(&.{ "-J", "--input-format" }, true)) {
                     // skip
@@ -963,10 +965,10 @@ pub const ZigWrapper = struct {
                 } else if (parser.parseNamed(&.{"--preprocessor"}, true)) {
                     // skip
                 } else if (parser.parseNamed(&.{"--preprocessor-arg"}, true)) {
-                    if (self.windres_preprocessor_arg) |pre_arg| {
-                        self.allocator.free(pre_arg);
-                        self.windres_preprocessor_arg = null;
+                    if (utils.strTake(&self.windres_preprocessor_arg)) |pre_arg| {
+                        defer self.allocator.free(pre_arg);
                         if (utils.strEql(pre_arg, "-MF")) {
+                            if (utils.strTake(&self.windres_depfile)) |old_dep| self.allocator.free(old_dep);
                             self.windres_depfile = try self.allocator.dupe(u8, parser.value);
                         }
                     } else if (utils.strEql(parser.value, "-MD")) {
