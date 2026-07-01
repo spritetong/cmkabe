@@ -832,8 +832,10 @@ pub const ZigWrapper = struct {
             }
         }
 
-        var parser = SimpleOptionParser{ .args = self.args.items };
+        const cwd = try std.process.currentPathAlloc(self.io, self.allocator);
+        defer self.allocator.free(cwd);
 
+        var parser = SimpleOptionParser{ .args = self.args.items };
         outer: while (parser.hasArgument()) {
             if (parser.parseNamed(&.{"-l"}, true)) {
                 var lib = self.libFromFileName(parser.value);
@@ -900,8 +902,6 @@ pub const ZigWrapper = struct {
             }
 
             if (is_path) {
-                const cwd = try std.process.currentPathAlloc(self.io, self.allocator);
-                defer self.allocator.free(cwd);
                 if (std.fs.path.relative(
                     self.allocator,
                     cwd,
@@ -958,9 +958,9 @@ pub const ZigWrapper = struct {
 
         // Add "." to the library paths.
         if (!path_set.contains(".")) {
-            const cwd = try self.allocator.dupe(u8, ".");
-            errdefer self.allocator.free(cwd);
-            try path_set.put(self.allocator, cwd, {});
+            const dot = try self.allocator.dupe(u8, ".");
+            errdefer self.allocator.free(dot);
+            try path_set.put(self.allocator, dot, {});
         }
 
         // Find the library paths and fix link options.
