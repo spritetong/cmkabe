@@ -968,7 +968,7 @@ pub const ZigWrapper = struct {
                     if (utils.strTake(&self.windres_preprocessor_arg)) |pre_arg| {
                         defer self.allocator.free(pre_arg);
                         if (utils.strEql(pre_arg, "-MF")) {
-                            if (utils.strTake(&self.windres_depfile)) |old_dep| self.allocator.free(old_dep);
+                            if (utils.strTake(&self.windres_depfile)) |v| self.allocator.free(v);
                             self.windres_depfile = try self.allocator.dupe(u8, parser.value);
                         }
                     } else if (utils.strEql(parser.value, "-MD")) {
