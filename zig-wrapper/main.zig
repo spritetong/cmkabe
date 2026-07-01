@@ -715,19 +715,31 @@ pub const ZigWrapper = struct {
         const linux_exts = [_][]const u8{ ".so", ".a" };
         const apple_exts = [_][]const u8{ ".dylib", ".a" };
 
-        var exts: []const []const u8 = undefined;
         if (self.target_is_windows) {
-            exts = &windows_exts;
+            return switch (kind) {
+                .none => &windows_exts,
+                .dynamic => windows_exts[0..3],
+                .static => windows_exts[3..],
+            };
         } else if (self.target_is_apple) {
-            exts = &apple_exts;
+            return switch (kind) {
+                .none => &apple_exts,
+                .dynamic => apple_exts[0..1],
+                .static => apple_exts[1..],
+            };
         } else {
-            exts = &linux_exts;
+            return switch (kind) {
+                .none => &linux_exts,
+                .dynamic => linux_exts[0..1],
+                .static => linux_exts[1..],
+            };
         }
+    }
 
-        return switch (kind) {
-            .none => exts,
-            .dynamic => exts[0..1],
-            .static => exts[1..],
+    fn getlibExtsForMode(self: Self, mode: LinkMode) []const []const u8 {
+        return switch (mode) {
+            .dynamic => self.getlibExts(.none),
+            .static => self.getlibExts(.static),
         };
     }
 
@@ -756,6 +768,33 @@ pub const ZigWrapper = struct {
         return LinkerLib{ .kind = kind, .name = name };
     }
 
+    /// Fixes library linkage parameters by resolving library references (`-l<name>`)
+    /// into absolute paths (for static libraries) or normalized library flags (for dynamic libraries).
+    ///
+    /// ### Strategy and Implementation Details:
+    ///
+    /// 1. **Active Link Mode Tracking**:
+    ///    The method maintains a state variable (`active_mode`) representing the active linker mode
+    ///    (`.dynamic` or `.static`), which is toggled when switches like `-static`, `-Bstatic`,
+    ///    `-Bdynamic`, `-Wl,-Bstatic`, or `-Wl,-Bdynamic` are encountered.
+    ///
+    /// 2. **Library and Path Parsing**:
+    ///    - Library references (`-l<name>`) are parsed and bound to the active link mode.
+    ///    - Library search paths (`-L<path>` and `-Wl,-L<path>`) are normalized and registered to `path_set`.
+    ///
+    /// 3. **Library Deduplication & Version Sorting**:
+    ///    The method deduplicates referenced libraries. If the same library is requested multiple times,
+    ///    it retains only the latest/highest version found (using a semantic version comparison).
+    ///
+    /// 4. **Flexible Two-Pass Search and Fallback**:
+    ///    For each resolved library:
+    ///    - **Pass 1 (Preferred Mode)**: The wrapper first searches the path set using the active link mode's
+    ///      extensions (e.g. static `.lib`/`.a` under `-Bstatic`, or dynamic `.dll`/`.dll.a`/`.dll.lib` under `-Bdynamic`).
+    ///    - **Pass 2 (Alternative Mode Fallback)**: If the library is not found in the preferred mode, it falls
+    ///      back to searching with the alternative link mode's extensions. This prevents link failures when build
+    ///      tools mix dynamic and static dependencies without adhering strictly to linkage flags.
+    ///    - **Pass-through**: If the library cannot be resolved in either mode (e.g., standard runtime libraries
+    ///      like `compiler-rt` or `libc`), the wrapper preserves the original linker flag as-is to let the backend compiler/linker handle it.
     fn fixLinkLibs(self: *Self) !void {
         const INVALID_PTR: [*]const u8 = "~~INVALIDPTR~~";
 
@@ -770,7 +809,7 @@ pub const ZigWrapper = struct {
             args.deinit();
         }
 
-        // lib_map: key - string reference, value - owned list<tring reference>
+        // lib_map: key - string reference, value - owned list<LinkerLib>
         var lib_map = std.array_hash_map.String(std.array_list.Managed(LinkerLib)){};
         // path_set: key - owned string
         var path_set = std.array_hash_map.String(void){};
@@ -785,12 +824,21 @@ pub const ZigWrapper = struct {
             path_set.deinit(self.allocator);
         }
 
+        var active_mode = LinkMode.dynamic;
+        for (self.args.items) |arg| {
+            if (utils.strEql(arg, "-static")) {
+                active_mode = .static;
+                break;
+            }
+        }
+
         var parser = SimpleOptionParser{ .args = self.args.items };
 
         outer: while (parser.hasArgument()) {
             if (parser.parseNamed(&.{"-l"}, true)) {
                 var lib = self.libFromFileName(parser.value);
                 lib.index = args.items.len;
+                lib.mode = active_mode;
 
                 if (self.skipped_libs.contains(lib.name)) {
                     continue;
@@ -818,8 +866,10 @@ pub const ZigWrapper = struct {
                             const tmp = entry.*;
                             entry.name = lib.name;
                             entry.kind = lib.kind;
+                            entry.mode = lib.mode;
                             lib.name = tmp.name;
                             lib.kind = tmp.kind;
+                            lib.mode = tmp.mode;
                             lib_ver = entry_ver;
                         }
                     }
@@ -830,11 +880,28 @@ pub const ZigWrapper = struct {
                     try libs.append(lib);
                     try lib_map.put(self.allocator, lib_ver[0], libs);
                 }
-                try utils.allocPrintAndAppend(&args, self.allocator, "-l{s}", .{parser.value});
+                for (parser.consumed) |arg| {
+                    try utils.dupeAndAppend(u8, &args, self.allocator, arg);
+                }
                 continue;
-            } else if (parser.parseNamed(&.{"-L"}, true)) {
+            }
+
+            var is_path = false;
+            var path_val: []const u8 = undefined;
+            if (parser.parseNamed(&.{"-L"}, true)) {
+                is_path = true;
+                path_val = parser.value;
+            } else if (parser.first()) |arg| {
+                if (utils.strStartsWith(arg, "-Wl,-L")) {
+                    is_path = true;
+                    path_val = arg[6..];
+                    parser.advance(1);
+                }
+            }
+
+            if (is_path) {
                 // Add the absolute path directly as a fallback/alternative to handle CWD mismatches
-                const abs_path = try self.allocator.dupe(u8, parser.value);
+                const abs_path = try self.allocator.dupe(u8, path_val);
                 errdefer self.allocator.free(abs_path);
                 _ = std.mem.replace(u8, abs_path, "\\", "/", abs_path);
                 for (self.skipped_lib_paths.keys()) |pattern| {
@@ -855,7 +922,7 @@ pub const ZigWrapper = struct {
                     ".",
                     self.environ_map,
                     ".",
-                    parser.value,
+                    path_val,
                 )) |path| {
                     var ok = false;
                     defer if (!ok) self.allocator.free(path);
@@ -875,9 +942,30 @@ pub const ZigWrapper = struct {
                 } else |err| {
                     if (err == error.OutOfMemory) return err;
                 }
-            } else {
-                parser.advance(1);
+                for (parser.consumed) |arg| {
+                    try utils.dupeAndAppend(u8, &args, self.allocator, arg);
+                }
+                continue;
             }
+
+            if (parser.first()) |arg| {
+                if (utils.strEql(arg, "-static") or
+                    utils.strEql(arg, "-Bstatic") or
+                    utils.strEql(arg, "-Wl,-Bstatic") or
+                    utils.strEql(arg, "-Wl,-dn") or
+                    utils.strEql(arg, "-Wl,-non_shared") or
+                    utils.strEql(arg, "-Wl,-static"))
+                {
+                    active_mode = .static;
+                } else if (utils.strEql(arg, "-Bdynamic") or
+                    utils.strEql(arg, "-Wl,-Bdynamic") or
+                    utils.strEql(arg, "-Wl,-dy") or
+                    utils.strEql(arg, "-Wl,-call_shared"))
+                {
+                    active_mode = .dynamic;
+                }
+            }
+            parser.advance(1);
             for (parser.consumed) |arg| {
                 try utils.dupeAndAppend(u8, &args, self.allocator, arg);
             }
@@ -893,30 +981,33 @@ pub const ZigWrapper = struct {
         // Find the library paths and fix link options.
         var buf = std.array_list.Managed(u8).init(self.allocator);
         defer buf.deinit();
-        const lib_exts = self.getlibExts(.none);
         for (lib_map.values()) |libs| {
             next_lib: for (libs.items) |lib| {
-                for (path_set.keys()) |path| {
-                    for ([_][]const u8{ "lib", "" }) |prefix| {
-                        for (lib_exts) |file_ext| {
-                            buf.clearRetainingCapacity();
-                            try buf.appendSlice(path);
-                            try buf.append('/');
-                            try buf.appendSlice(prefix);
-                            try buf.appendSlice(lib.name);
-                            try buf.appendSlice(file_ext);
-                            if (std.Io.Dir.cwd().access(self.io, buf.items, .{})) |_| {
-                                const file_lib = self.libFromFileName(buf.items);
-                                if (lib.kind == .none or lib.kind == file_lib.kind) {
-                                    const lib_opt = if (file_lib.kind == .dynamic)
-                                        try std.fmt.allocPrint(self.allocator, "-l{s}", .{file_lib.name})
-                                    else
-                                        try self.allocator.dupe(u8, buf.items);
-                                    self.allocator.free(args.items[lib.index]);
-                                    args.items[lib.index] = lib_opt;
-                                    continue :next_lib;
-                                }
-                            } else |_| {}
+                const modes = [_]LinkMode{ lib.mode, if (lib.mode == .dynamic) .static else .dynamic };
+                for (modes) |search_mode| {
+                    const lib_exts = self.getlibExtsForMode(search_mode);
+                    for (path_set.keys()) |path| {
+                        for ([_][]const u8{ "lib", "" }) |prefix| {
+                            for (lib_exts) |file_ext| {
+                                buf.clearRetainingCapacity();
+                                try buf.appendSlice(path);
+                                try buf.append('/');
+                                try buf.appendSlice(prefix);
+                                try buf.appendSlice(lib.name);
+                                try buf.appendSlice(file_ext);
+                                if (std.Io.Dir.cwd().access(self.io, buf.items, .{})) |_| {
+                                    const file_lib = self.libFromFileName(buf.items);
+                                    if (lib.kind == .none or lib.kind == file_lib.kind) {
+                                        const lib_opt = if (file_lib.kind == .dynamic)
+                                            try std.fmt.allocPrint(self.allocator, "-l{s}", .{file_lib.name})
+                                        else
+                                            try self.allocator.dupe(u8, buf.items);
+                                        self.allocator.free(args.items[lib.index]);
+                                        args.items[lib.index] = lib_opt;
+                                        continue :next_lib;
+                                    }
+                                } else |_| {}
+                            }
                         }
                     }
                 }
@@ -1173,12 +1264,15 @@ pub const ZigWrapper = struct {
     }
 };
 
+pub const LinkMode = enum { dynamic, static };
+
 pub const LinkerLibKind = enum { none, static, dynamic };
 
 pub const LinkerLib = struct {
     kind: LinkerLibKind = .none,
     name: []const u8 = "",
     index: usize = 0,
+    mode: LinkMode = .dynamic,
 };
 
 pub fn main(proc_init: std.process.Init) u8 {
