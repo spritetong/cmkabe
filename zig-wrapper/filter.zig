@@ -6,9 +6,11 @@ const main_mod = @import("main.zig");
 const ZigWrapper = main_mod.ZigWrapper;
 
 const StringArray = std.array_list.Managed([]const u8);
+const ZigArgFilterArray = std.array_list.Managed(ZigArgFilter);
 
 pub const ZigArgFilter = struct {
     const Self = @This();
+    _container: *ZigArgFilterArray,
     matchers: std.array_list.Managed(Matcher),
     replacers: std.array_list.Managed(Replacer),
 
@@ -50,11 +52,11 @@ pub const ZigArgFilter = struct {
     pub fn initFilterMap(ctx: *ZigWrapper, map: *ZigArgFilterMap) void {
         if (ctx.command == .cc or ctx.command == .cxx) {
             // Linux system include paths
-            map.initFilters("-I", 2).allowPartialOpt()
+            map.initFilter("-I").allowPartialOpt()
                 .match("/usr/include").replaceWith(&.{"-idirafter"}).replaceWithOptValue().eof()
                 .match("/usr/local/include").replaceWith(&.{"-idirafter"}).replaceWithOptValue().done();
             // MSVC
-            map.initFilters("-Xlinker", 3)
+            map.initFilter("-Xlinker")
                 .match("/MANIFEST:EMBED").eof()
                 .match("/version:0.0").eof()
                 // CMake
@@ -68,7 +70,7 @@ pub const ZigArgFilter = struct {
             // -verbose
             map.initFilter("-verbose").replaceWith(&.{"-v"}).done();
             // -Wl,[...]
-            map.initFilters("-Wl,", 2)
+            map.initFilter("-Wl,")
                 .match("-v").eof()
                 .match("-x").replaceWith(&.{"-Wl,--strip-all"}).done();
             // OpenMP
@@ -78,7 +80,7 @@ pub const ZigArgFilter = struct {
             map.initFilter("-link").done();
             map.initFilter("-dll").replaceWith(&.{"-shared"}).done();
             // Invalid CPU types
-            map.initFilters("-march", 3)
+            map.initFilter("-march")
                 .target("x86_64*").match("i386").eof()
                 .target("x86_64*").match("i586").eof()
                 .target("x86_64*").match("i686").done();
@@ -86,11 +88,11 @@ pub const ZigArgFilter = struct {
             // Windows GNU
             if (ctx.target_is_windows and !ctx.target_is_msvc) {
                 // -Wl,[...]
-                map.initFilters("-Wl,", 3)
+                map.initFilter("-Wl,")
                     .match("--disable-auto-image-base").eof()
                     .match("--enable-auto-image-base").eof()
                     .match("--add-stdcall-alias").done();
-                map.initFilters("-l", 4).allowPartialOpt()
+                map.initFilter("-l").allowPartialOpt()
                     .match("mingw32").eof()
                     .match("mingw64").eof()
                     .match("mingwex").eof()
@@ -118,10 +120,11 @@ pub const ZigArgFilter = struct {
         return false;
     }
 
-    pub fn init(allocator: std.mem.Allocator) Self {
+    pub fn init(container: *ZigArgFilterArray) Self {
         return .{
-            .matchers = std.array_list.Managed(Matcher).init(allocator),
-            .replacers = std.array_list.Managed(Replacer).init(allocator),
+            ._container = container,
+            .matchers = std.array_list.Managed(Matcher).init(container.allocator),
+            .replacers = std.array_list.Managed(Replacer).init(container.allocator),
         };
     }
 
@@ -136,8 +139,9 @@ pub const ZigArgFilter = struct {
 
     /// Set the end of the current filter, and return the next one.
     pub inline fn eof(self: *Self) *Self {
-        const p: [*]Self = @ptrCast(self);
-        return &p[1];
+        const container = self._container;
+        container.append(ZigArgFilter.init(container)) catch unreachable;
+        return &container.items.ptr[container.items.len - 1];
     }
 
     pub fn allowPartialOpt(self: *Self) *Self {
@@ -208,7 +212,7 @@ pub const ZigArgFilter = struct {
 pub const ZigArgFilterMap = struct {
     const Self = @This();
     allocator: std.mem.Allocator,
-    map: std.array_hash_map.String(std.array_list.Managed(ZigArgFilter)),
+    map: std.array_hash_map.String(ZigArgFilterArray),
 
     pub fn init(allocator: std.mem.Allocator) Self {
         return .{
@@ -227,26 +231,21 @@ pub const ZigArgFilterMap = struct {
         self.map.deinit(self.allocator);
     }
 
-    pub inline fn initFilter(self: *Self, option: []const u8) *ZigArgFilter {
-        return self.initFilters(option, 1);
-    }
-
-    pub fn initFilters(self: *Self, option: []const u8, count: usize) *ZigArgFilter {
+    pub fn initFilter(self: *Self, option: []const u8) *ZigArgFilter {
         const entry = self.map.getPtr(option) orelse blk: {
             self.map.put(
                 self.allocator,
                 option,
-                std.array_list.Managed(ZigArgFilter).init(self.allocator),
+                ZigArgFilterArray.init(self.allocator),
             ) catch unreachable;
             break :blk self.map.getPtr(option).?;
         };
 
-        const start = entry.items.len;
-        entry.ensureUnusedCapacity(count) catch unreachable;
-        for (0..count) |_| {
-            entry.appendAssumeCapacity(ZigArgFilter.init(self.allocator));
+        if (entry.items.len == 0) {
+            entry.ensureUnusedCapacity(8) catch unreachable;
         }
-        return &entry.items.ptr[start];
+        entry.append(ZigArgFilter.init(entry)) catch unreachable;
+        return &entry.items.ptr[entry.items.len - 1];
     }
 
     pub fn next(self: *Self, ctx: *ZigWrapper, input: *SimpleOptionParser, output: *StringArray) !?void {

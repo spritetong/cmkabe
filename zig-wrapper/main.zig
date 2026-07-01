@@ -900,22 +900,6 @@ pub const ZigWrapper = struct {
             }
 
             if (is_path) {
-                // Add the absolute path directly as a fallback/alternative to handle CWD mismatches
-                const abs_path = try self.allocator.dupe(u8, path_val);
-                errdefer self.allocator.free(abs_path);
-                _ = std.mem.replace(u8, abs_path, "\\", "/", abs_path);
-                for (self.skipped_lib_paths.keys()) |pattern| {
-                    if (utils.strMatch(pattern, abs_path)) {
-                        self.allocator.free(abs_path);
-                        continue :outer;
-                    }
-                }
-                if (!path_set.contains(abs_path)) {
-                    try path_set.put(self.allocator, abs_path, {});
-                } else {
-                    self.allocator.free(abs_path);
-                }
-
                 // normalize path
                 if (std.fs.path.relative(
                     self.allocator,
@@ -998,7 +982,7 @@ pub const ZigWrapper = struct {
                                 if (std.Io.Dir.cwd().access(self.io, buf.items, .{})) |_| {
                                     const file_lib = self.libFromFileName(buf.items);
                                     if (lib.kind == .none or lib.kind == file_lib.kind) {
-                                        const lib_opt = if (file_lib.kind == .dynamic)
+                                        const lib_opt = if (file_lib.kind == .dynamic and !self.target_is_windows)
                                             try std.fmt.allocPrint(self.allocator, "-l{s}", .{file_lib.name})
                                         else
                                             try self.allocator.dupe(u8, buf.items);
