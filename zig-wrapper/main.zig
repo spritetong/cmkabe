@@ -528,7 +528,10 @@ pub const ZigWrapper = struct {
                 for (parser.consumed) |arg| {
                     try utils.dupeAndAppend(u8, dest, self.allocator, arg);
                 }
-            } else if (parser.parseNamed(ZigArgFilter.query_version_opts, false)) {
+            } else if (parser.parseNamed(ZigArgFilter.query_version_opts, false) or
+                (self.command.isCompiler() and
+                    parser.parseNamed(ZigArgFilter.compiler_query_version_opts, false)))
+            {
                 self.is_quering_version = true;
                 self.is_linker = false;
                 // Do no consume the argument.

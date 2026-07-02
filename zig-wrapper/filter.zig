@@ -31,7 +31,18 @@ pub const ZigArgFilter = struct {
     };
 
     /// Options to query the compiler version only.
-    pub const query_version_opts: []const []const u8 = &.{ "--help", "--version", "-version", "-qversion", "-V", "-v" };
+    pub const query_version_opts: []const []const u8 = &.{
+        "--help",
+        "--version",
+        "-version",
+        "-qversion",
+    };
+    pub const compiler_query_version_opts: []const []const u8 = &.{
+        "-V",
+        "-v",
+        "-verbose",
+        "--verbose",
+    };
 
     /// Options to compile source files only and not to run the linker.
     pub const compile_only_opts: []const []const u8 = &.{ "-c", "-E", "-S" };
@@ -67,15 +78,17 @@ pub const ZigArgFilter = struct {
             map.initFilter("-Werror").replaceWithArg(0).replaceWith(&.{"-Wno-error=date-time"}).done();
             // -m <target>, unknown Clang option: '-m'
             map.initFilter("-m").match("*").done();
-            // -verbose
+            // -verbose / -version
+            map.initFilter("-qversion").replaceWith(&.{"-version"}).done();
+            map.initFilter("-V").replaceWith(&.{"-version"}).done();
+            map.initFilter("-v")
+                .linker(true).eof()
+                .replaceWith(&.{"-version"}).done();
             map.initFilter("-verbose").replaceWith(&.{"-version"}).done();
             // -Wl,[...]
             map.initFilter("-Wl,")
                 .match("-v").eof()
                 .match("-x").replaceWith(&.{"-Wl,--strip-all"}).done();
-            map.initFilter("-v").replaceWith(&.{"-version"}).done();
-            map.initFilter("-V").replaceWith(&.{"-version"}).done();
-            map.initFilter("-qversion").replaceWith(&.{"-version"}).done();
             map.initFilter("-fopenmp=libomp").linker(true).replaceWithArg(0).replaceWith(&.{"-lomp"}).done();
             // Autoconfig
             map.initFilter("-link").done();
