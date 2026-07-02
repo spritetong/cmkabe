@@ -44,6 +44,12 @@ pub const ZigArgFilter = struct {
         "--verbose",
     };
 
+    /// Options to search directories
+    pub const search_dir_opts: []const []const u8 = &.{
+        "-print-search-dirs",
+        "-print-multi-os-directory",
+    };
+
     /// Options to compile source files only and not to run the linker.
     pub const compile_only_opts: []const []const u8 = &.{ "-c", "-E", "-S" };
 

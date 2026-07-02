@@ -36,7 +36,7 @@ pub const ZigLog = struct {
         }
     }
 
-    pub fn enabled(self: *Self) bool {
+    pub inline fn enabled(self: *Self) bool {
         return self.file != null;
     }
 
@@ -53,6 +53,18 @@ pub const ZigLog = struct {
             const s = std.fmt.bufPrint(&large_buf, fmt, args) catch return;
             file.writePositionalAll(self.io, s, self.pos) catch {};
             self.pos += s.len;
+        }
+    }
+
+    pub fn printExecResult(self: *Self, exit_code: u8, stdout: []const u8, stderr: []const u8) void {
+        if (self.enabled()) {
+            self.print("    --> exit code: {d}\n", .{exit_code});
+            self.write("    --> stdout: ");
+            self.write(stdout);
+            self.write("\n");
+            self.write("    --> stderr: ");
+            self.write(stderr);
+            self.write("\n");
         }
     }
 };
