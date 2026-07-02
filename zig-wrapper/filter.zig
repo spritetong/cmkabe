@@ -12,13 +12,14 @@ const ZigArgFilterArray = std.array_list.Managed(ZigArgFilter);
 
 pub const ZigArgFilter = struct {
     const Self = @This();
+    pub const max_commands = 8;
     _container: ?*ZigArgFilterArray,
     matchers: std.array_list.Managed(Matcher),
     replacers: std.array_list.Managed(Replacer),
 
     pub const Matcher = union(enum) {
         allow_partial_opt: void,
-        command: [8]?ZigCommand,
+        command: [max_commands]?ZigCommand,
         linker: bool,
         target: []const u8,
         match: []const u8,
@@ -184,9 +185,9 @@ pub const ZigArgFilter = struct {
     }
 
     pub fn command(self: *Self, cmds: []const ZigCommand) *Self {
-        var arr = [8]?ZigCommand{ null, null, null, null, null, null, null, null };
+        var arr = [_]?ZigCommand{null} ** max_commands;
         for (cmds, 0..) |cmd, i| {
-            if (i >= 8) break;
+            if (i >= max_commands) break;
             arr[i] = cmd;
         }
         self.matchers.append(.{ .command = arr }) catch unreachable;
@@ -289,11 +290,11 @@ pub const ZigArgFilterMap = struct {
                 if (std.mem.eql(u8, token, "partial")) {
                     _ = filter.allowPartialOpt();
                 } else if (std.mem.startsWith(u8, token, "command:")) {
-                    var cmds_buf: [8]ZigCommand = undefined;
+                    var cmds_buf: [ZigArgFilter.max_commands]ZigCommand = undefined;
                     var cmds_count: usize = 0;
                     var it = std.mem.splitScalar(u8, token[8..], ',');
                     while (it.next()) |cmd_str| {
-                        if (cmds_count >= 8) break;
+                        if (cmds_count >= ZigArgFilter.max_commands) break;
                         if (ZigCommand.fromStr(cmd_str)) |cmd| {
                             cmds_buf[cmds_count] = cmd;
                             cmds_count += 1;
