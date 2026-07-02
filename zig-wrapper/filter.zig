@@ -4,6 +4,8 @@ const parser_mod = @import("parser.zig");
 const SimpleOptionParser = parser_mod.SimpleOptionParser;
 const main_mod = @import("main.zig");
 const ZigWrapper = main_mod.ZigWrapper;
+const command_mod = @import("command.zig");
+const ZigCommand = command_mod.ZigCommand;
 
 const StringArray = std.array_list.Managed([]const u8);
 const ZigArgFilterArray = std.array_list.Managed(ZigArgFilter);
@@ -16,7 +18,7 @@ pub const ZigArgFilter = struct {
 
     pub const Matcher = union(enum) {
         allow_partial_opt: void,
-        command: []const u8,
+        command: [8]?ZigCommand,
         linker: bool,
         target: []const u8,
         match: []const u8,
@@ -80,7 +82,7 @@ pub const ZigArgFilter = struct {
                 // CMake
                 .next().match("--dependency-file=*").done();
             // CC
-            map.initFilter("-std").command("cc").replaceWithSubString(0, "++", "").done();
+            map.initFilter("-std").command(&.{.cc}).replaceWithSubString(0, "++", "").done();
             // GCC / Clang
             map.initFilter("-Werror").replaceWithArg(0).replaceWith(&.{"-Wno-error=date-time"}).done();
             // -m <target>, unknown Clang option: '-m'
@@ -181,8 +183,13 @@ pub const ZigArgFilter = struct {
         return self;
     }
 
-    pub fn command(self: *Self, pattern: []const u8) *Self {
-        self.matchers.append(.{ .command = pattern }) catch unreachable;
+    pub fn command(self: *Self, cmds: []const ZigCommand) *Self {
+        var arr = [8]?ZigCommand{ null, null, null, null, null, null, null, null };
+        for (cmds, 0..) |cmd, i| {
+            if (i >= 8) break;
+            arr[i] = cmd;
+        }
+        self.matchers.append(.{ .command = arr }) catch unreachable;
         return self;
     }
 
@@ -282,8 +289,17 @@ pub const ZigArgFilterMap = struct {
                 if (std.mem.eql(u8, token, "partial")) {
                     _ = filter.allowPartialOpt();
                 } else if (std.mem.startsWith(u8, token, "command:")) {
-                    const pattern = try self.allocator.dupe(u8, token[8..]);
-                    _ = filter.command(pattern);
+                    var cmds_buf: [8]ZigCommand = undefined;
+                    var cmds_count: usize = 0;
+                    var it = std.mem.splitScalar(u8, token[8..], ',');
+                    while (it.next()) |cmd_str| {
+                        if (cmds_count >= 8) break;
+                        if (ZigCommand.fromStr(cmd_str)) |cmd| {
+                            cmds_buf[cmds_count] = cmd;
+                            cmds_count += 1;
+                        }
+                    }
+                    _ = filter.command(cmds_buf[0..cmds_count]);
                 } else if (std.mem.startsWith(u8, token, "linker:")) {
                     const is_linker = std.mem.eql(u8, token[7..], "true");
                     _ = filter.linker(is_linker);
@@ -405,8 +421,17 @@ pub const ZigArgFilterMap = struct {
                             .allow_partial_opt => {
                                 allow_partial_opt = true;
                             },
-                            .command => |pattern| {
-                                if (!Matcher.call(pattern, @tagName(ctx.command))) {
+                            .command => |cmds| {
+                                var matched = false;
+                                for (cmds) |cmd| {
+                                    if (cmd) |c| {
+                                        if (c == ctx.command) {
+                                            matched = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                                if (!matched) {
                                     continue :filter;
                                 }
                             },

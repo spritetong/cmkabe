@@ -36,6 +36,7 @@ pub const ZigCommand = enum {
             .{ "ar", .ar },
             .{ "cc", .cc },
             .{ "c++", .cxx },
+            .{ "cxx", .cxx },
             .{ "dlltool", .dlltool },
             .{ "ld", .ld },
             .{ "lib", .lib },
