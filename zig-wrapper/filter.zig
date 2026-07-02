@@ -127,6 +127,11 @@ pub const ZigArgFilter = struct {
             map.initFilter("--help").replaceWith(&.{"-help"}).done();
             map.initFilter("-v").replaceWith(&.{"--version"}).done();
         }
+        if (utils.getEnvVar(ctx.environ_map, "ZIG_WRAPPER_FILTERS")) |env_filters| {
+            map.parseAndApplyEnvFilters(ctx, env_filters) catch |err| {
+                std.debug.print("Failed to parse ZIG_WRAPPER_FILTERS: {}\n", .{err});
+            };
+        }
     }
 
     pub fn isWeakLib(ctx: *ZigWrapper, lib: []const u8) bool {
@@ -251,6 +256,73 @@ pub const ZigArgFilterMap = struct {
             filters.deinit();
         }
         self.map.deinit(self.allocator);
+    }
+
+    pub fn parseAndApplyEnvFilters(self: *Self, _: *ZigWrapper, env_val: []const u8) !void {
+        var rule_it = std.mem.tokenizeSequence(u8, env_val, ";");
+        while (rule_it.next()) |rule| {
+            const rule_trimmed = std.mem.trim(u8, rule, " \t\r\n");
+            if (rule_trimmed.len == 0) continue;
+
+            var left: []const u8 = rule_trimmed;
+            var right: []const u8 = "";
+            if (std.mem.indexOf(u8, rule_trimmed, "->")) |idx| {
+                left = std.mem.trim(u8, rule_trimmed[0..idx], " \t\r\n");
+                right = std.mem.trim(u8, rule_trimmed[idx + 2 ..], " \t\r\n");
+            }
+
+            var left_it = std.mem.tokenizeAny(u8, left, " \t");
+            const option_token = left_it.next() orelse continue;
+            const duped_option_key = try self.allocator.dupe(u8, option_token);
+
+            const filter = self.initFilter(duped_option_key);
+            errdefer filter.done();
+
+            while (left_it.next()) |token| {
+                if (std.mem.eql(u8, token, "partial")) {
+                    _ = filter.allowPartialOpt();
+                } else if (std.mem.startsWith(u8, token, "command:")) {
+                    const pattern = try self.allocator.dupe(u8, token[8..]);
+                    _ = filter.command(pattern);
+                } else if (std.mem.startsWith(u8, token, "linker:")) {
+                    const is_linker = std.mem.eql(u8, token[7..], "true");
+                    _ = filter.linker(is_linker);
+                } else if (std.mem.startsWith(u8, token, "target:")) {
+                    const pattern = try self.allocator.dupe(u8, token[7..]);
+                    _ = filter.target(pattern);
+                } else if (std.mem.startsWith(u8, token, "match:")) {
+                    const pattern = try self.allocator.dupe(u8, token[6..]);
+                    _ = filter.match(pattern);
+                } else if (std.mem.eql(u8, token, "next")) {
+                    _ = filter.next();
+                }
+            }
+
+            var right_it = std.mem.tokenizeAny(u8, right, " \t");
+            while (right_it.next()) |token| {
+                if (std.mem.eql(u8, token, "opt_val")) {
+                    _ = filter.replaceWithOptValue();
+                } else if (std.mem.startsWith(u8, token, "replace_arg:")) {
+                    const idx = try std.fmt.parseInt(usize, token[12..], 10);
+                    _ = filter.replaceWithArg(idx);
+                } else if (std.mem.startsWith(u8, token, "replace_sub:")) {
+                    var sub_it = std.mem.splitScalar(u8, token[12..], ':');
+                    const idx_str = sub_it.next() orelse return error.InvalidSubst;
+                    const needle = sub_it.next() orelse return error.InvalidSubst;
+                    const replacement = sub_it.next() orelse return error.InvalidSubst;
+                    const idx = try std.fmt.parseInt(usize, idx_str, 10);
+                    _ = filter.replaceWithSubString(
+                        idx,
+                        try self.allocator.dupe(u8, needle),
+                        try self.allocator.dupe(u8, replacement),
+                    );
+                } else {
+                    const duped_token = try self.allocator.dupe(u8, token);
+                    try filter.replacers.append(.{ .string = duped_token });
+                }
+            }
+            filter.done();
+        }
     }
 
     pub fn initFilter(self: *Self, option: []const u8) *ZigArgFilter {
