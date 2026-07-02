@@ -203,7 +203,7 @@ pub const ZigWrapper = struct {
             );
         }
         if (self.clang_target == null) {
-            self.clang_target = try self.allocator.dupe(u8, self.zig_target.?);
+            self.clang_target = try self.allocator.dupe(u8, utils.extractPureTriple(self.zig_target.?));
         }
 
         self.target_is_windows = std.mem.indexOf(u8, self.clang_target.?, "-windows") != null;
@@ -214,9 +214,12 @@ pub const ZigWrapper = struct {
             std.mem.indexOf(u8, self.clang_target.?, "-darwin") != null;
         self.target_is_wasm = utils.strStartsWith(self.clang_target.?, "wasm") or
             utils.strEndsWith(self.clang_target.?, "-emscripten");
-        self.target_is_msvc = utils.strEndsWith(self.clang_target.?, "-msvc");
-        self.target_is_musl = utils.strEndsWith(self.clang_target.?, "-musl");
-        self.target_is_gnu = utils.strEndsWith(self.clang_target.?, "-gnu");
+        self.target_is_msvc = utils.reFindString("-msvc$", self.clang_target.?) != null or
+            utils.reFindString("-msvc[-.]", self.clang_target.?) != null;
+        self.target_is_musl = utils.reFindString("-musl$", self.clang_target.?) != null or
+            utils.reFindString("-musl[-.]", self.clang_target.?) != null;
+        self.target_is_gnu = utils.reFindString("-gnu$", self.clang_target.?) != null or
+            utils.reFindString("-gnu[-.]", self.clang_target.?) != null;
 
         ZigArgFilter.initFilterMap(&self, &self.arg_filter);
         return self;
