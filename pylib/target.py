@@ -426,7 +426,7 @@ class TargetParser:
         self.zig_cc_dir = normpath(
             os.path.join(self.target_dir, '.zig', self.host.host_system)
         )
-        zig_build_wrapper(zig_root=self.zig_root, zig_cc_dir=self.zig_cc_dir)
+        zig_build_wrapper(zig_root=self.zig_root, out_dir=self.zig_cc_dir)
 
         # Override the target CC for Zig.
         self.target_cc = normpath(f'{self.zig_cc_dir}/zig-cc{EXE_EXT}')

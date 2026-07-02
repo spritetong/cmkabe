@@ -69,11 +69,10 @@ import re
 import shutil
 import subprocess
 import sys
-from typing import Callable, Dict, List, Optional, Set
+from typing import Callable, Dict, List, Optional, Set, Tuple
 
 from .sys_utils import (
     EXE_EXT,
-    HostTargetInfo,
     cmkabe_home,
     copy_env_for_cc,
     need_update,
@@ -84,10 +83,10 @@ EFAIL: int = 1
 
 def zig_build_wrapper(
     zig_root: Optional[str] = None,
-    zig_cc_dir: Optional[str] = None,
+    out_dir: Optional[str] = None,
     prefix: str = 'zig',
     force: bool = False,
-    vcpkg_root: Optional[str] = None,
+    vcpkg: bool = False,
 ):
     # Zig root path
     if not zig_root:
@@ -99,20 +98,11 @@ def zig_build_wrapper(
 
     src = os.path.join(cmkabe_home(), 'zig-wrapper', 'main.zig')
 
-    if not zig_cc_dir:
-        if vcpkg_root:
-            zig_cc_dir = os.path.join(
-                vcpkg_root,
-                'xpatch',
-                '.cache',
-                'zig',
-                HostTargetInfo.vcpkg_host_triplet(),
-            )
-        else:
-            raise ValueError('`zig_cc_dir` is not set')
-    os.makedirs(zig_cc_dir, exist_ok=True)
+    if not out_dir:
+        raise ValueError('`out_dir` is not set')
+    os.makedirs(out_dir, exist_ok=True)
 
-    exe = os.path.join(zig_cc_dir, f'zig-wrapper{EXE_EXT}')
+    exe = os.path.join(out_dir, f'zig-wrapper{EXE_EXT}')
 
     need_rebuild = force or any(
         need_update(zf, exe)
@@ -121,14 +111,14 @@ def zig_build_wrapper(
         )
     )
     if need_rebuild:
-        if vcpkg_root:
-            if os.path.exists(exe):
+        if vcpkg:
+            if os.path.lexists(exe):
                 os.unlink(exe)
-            for file in glob.glob(os.path.join(zig_cc_dir, f'{prefix}-*')):
-                if os.path.exists(file):
+            for file in glob.glob(os.path.join(out_dir, f'{prefix}-*')):
+                if os.path.lexists(file):
                     os.unlink(file)
         else:
-            for file in glob.glob(os.path.join(zig_cc_dir, '*')):
+            for file in glob.glob(os.path.join(out_dir, '*')):
                 if not os.path.isdir(file):
                     os.unlink(file)
 
@@ -147,36 +137,35 @@ def zig_build_wrapper(
             check=True,
         )
         os.chmod(exe, 0o755)
-        for file in glob.glob(os.path.join(zig_cc_dir, exe + '.*')):
+        for file in glob.glob(os.path.join(out_dir, exe + '.*')):
             os.unlink(file)
 
-        for name in [
-            'ar',
-            'gcc' if vcpkg_root else 'cc',
-            'g++' if vcpkg_root else 'c++',
-            'dlltool',
-            'lib',
-            'link',
-            'ranlib',
-            'objcopy',
-            'rc',
-            'windres',
-        ]:
-            dst = os.path.join(zig_cc_dir, f'{prefix}-{name}{EXE_EXT}')
-            if os.path.lexists(dst):
-                os.unlink(dst)
-            try:
-                os.symlink(os.path.basename(exe), dst)
-            except OSError:
-                shutil.copy2(exe, dst)
-        for name in ['dlltool', 'windres']:
-            dst = os.path.join(zig_cc_dir, f'{name}{EXE_EXT}')
-            if os.path.lexists(dst):
-                os.unlink(dst)
-            try:
-                os.symlink(os.path.basename(exe), dst)
-            except OSError:
-                shutil.copy2(exe, dst)
+    links: List[Tuple[str, str]] = []
+    for name in [
+        'ar',
+        'gcc' if vcpkg else 'cc',
+        'g++' if vcpkg else 'c++',
+        'dlltool',
+        'lib',
+        'link',
+        'ranlib',
+        'objcopy',
+        'rc',
+        'windres',
+    ]:
+        links.append((exe, os.path.join(out_dir, f'{prefix}-{name}{EXE_EXT}')))
+    for name in ['dlltool', 'windres']:
+        links.append((exe, os.path.join(out_dir, f'{name}{EXE_EXT}')))
+
+    for src, dst in links:
+        if not need_rebuild and os.path.islink(dst) and os.path.exists(dst):
+            continue
+        if os.path.lexists(dst):
+            os.unlink(dst)
+        try:
+            os.symlink(os.path.basename(src), dst)
+        except OSError:
+            shutil.copy2(src, dst)
     return 0
 
 

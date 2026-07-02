@@ -650,17 +650,17 @@ class ShellCmd:
     def zig_build_wrapper(
         self,
         zig_root: Optional[str] = None,
-        zig_cc_dir: Optional[str] = None,
+        out_dir: Optional[str] = None,
         prefix: str = 'zig',
         force: bool = False,
-        vcpkg_root: Optional[str] = None,
+        vcpkg: bool = False,
     ) -> int:
         return zig_build_wrapper(
             zig_root=zig_root,
-            zig_cc_dir=zig_cc_dir,
+            out_dir=out_dir,
             prefix=prefix,
             force=force,
-            vcpkg_root=vcpkg_root,
+            vcpkg=vcpkg,
         )
 
     def vcpkg_host_triplet(self) -> int:
@@ -1369,10 +1369,10 @@ class ShellCmd:
                 help='Build compiler wrapper using zig build-exe',
             )
             zig_build_wrapper_parser.add_argument(
-                'zig_root', nargs='?', default=None, help='Zig installation root'
+                '--zig_root', default=None, help='Zig installation root'
             )
             zig_build_wrapper_parser.add_argument(
-                '--zig-cc-dir', default=None, help='Destination directory for wrapper'
+                '--out-dir', default=None, help='Destination directory for wrapper'
             )
             zig_build_wrapper_parser.add_argument(
                 '--prefix', default='zig', help='Prefix for symlinks'
@@ -1381,7 +1381,7 @@ class ShellCmd:
                 '-f', '--force', action='store_true', help='Force rebuild'
             )
             zig_build_wrapper_parser.add_argument(
-                '--vcpkg-root', default=None, help='vcpkg root directory'
+                '--vcpkg', action='store_true', help='Vcpkg mode'
             )
 
             # 29. vcpkg-host-triplet subparser
@@ -1562,10 +1562,10 @@ class ShellCmd:
             elif cmd == 'zig-build-wrapper':
                 return inst.zig_build_wrapper(
                     zig_root=namespace.zig_root,
-                    zig_cc_dir=namespace.zig_cc_dir,
+                    out_dir=namespace.out_dir,
                     prefix=namespace.prefix,
                     force=namespace.force,
-                    vcpkg_root=namespace.vcpkg_root,
+                    vcpkg=namespace.vcpkg,
                 )
             elif cmd == 'vcpkg-host-triplet':
                 return inst.vcpkg_host_triplet()
