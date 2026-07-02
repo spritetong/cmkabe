@@ -10,7 +10,7 @@ const ZigArgFilterArray = std.array_list.Managed(ZigArgFilter);
 
 pub const ZigArgFilter = struct {
     const Self = @This();
-    _container: *ZigArgFilterArray,
+    _container: ?*ZigArgFilterArray,
     matchers: std.array_list.Managed(Matcher),
     replacers: std.array_list.Managed(Replacer),
 
@@ -46,6 +46,7 @@ pub const ZigArgFilter = struct {
 
     /// Options to search directories
     pub const search_dir_opts: []const []const u8 = &.{
+        "-print-resource-dir",
         "-print-search-dirs",
         "-print-multi-os-directory",
     };
@@ -84,17 +85,17 @@ pub const ZigArgFilter = struct {
             map.initFilter("-Werror").replaceWithArg(0).replaceWith(&.{"-Wno-error=date-time"}).done();
             // -m <target>, unknown Clang option: '-m'
             map.initFilter("-m").match("*").done();
-            // -verbose / -version
+            // -version
             map.initFilter("-qversion").replaceWith(&.{"-version"}).done();
             map.initFilter("-V").replaceWith(&.{"-version"}).done();
-            map.initFilter("-v")
-                .linker(true).eof()
-                .replaceWith(&.{"-version"}).done();
-            map.initFilter("-verbose").replaceWith(&.{"-version"}).done();
+            // -verbose
+            map.initFilter("-verbose").replaceWith(&.{"-v"}).done();
             // -Wl,[...]
             map.initFilter("-Wl,")
                 .match("-v").eof()
                 .match("-x").replaceWith(&.{"-Wl,--strip-all"}).done();
+            map.initFilter("-v").linker(true).done();
+            // OpenMP
             map.initFilter("-fopenmp=libomp").linker(true).replaceWithArg(0).replaceWith(&.{"-lomp"}).done();
             // Autoconfig
             map.initFilter("-link").done();
@@ -154,12 +155,13 @@ pub const ZigArgFilter = struct {
     }
 
     pub inline fn done(self: *Self) void {
-        _ = self;
+        self._container = null;
     }
 
     /// Set the end of the current filter, and return the next one.
     pub inline fn eof(self: *Self) *Self {
-        const container = self._container;
+        const container = self._container.?;
+        self._container = null;
         container.append(ZigArgFilter.init(container)) catch unreachable;
         return &container.items.ptr[container.items.len - 1];
     }

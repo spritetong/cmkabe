@@ -146,6 +146,7 @@ def zig_build_wrapper(
         'gcc' if vcpkg else 'cc',
         'g++' if vcpkg else 'c++',
         'dlltool',
+        'ld',
         'lib',
         'link',
         'ranlib',

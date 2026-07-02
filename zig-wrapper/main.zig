@@ -33,6 +33,7 @@ pub const ZigWrapper = struct {
     is_quering_version: bool = false,
     is_searching_dirs: bool = false,
     queried_program_name: ?ZigCommand = null,
+
     /// If the Zig command is running as a linker.
     is_linker: bool = false,
     /// If the Zig compiler is running as a preprocessor.
@@ -84,7 +85,7 @@ pub const ZigWrapper = struct {
     cc_dll_a: ?[]const u8 = null,
     cc_output: ?[]const u8 = null,
 
-    pub fn is_quering_compiler_info(self: *Self) bool {
+    pub fn is_quering_zig_info(self: *Self) bool {
         return self.is_quering_version or self.is_searching_dirs or self.queried_program_name != null;
     }
 
@@ -261,19 +262,24 @@ pub const ZigWrapper = struct {
     }
 
     pub fn run(self: *Self) !u8 {
-        var zig_target_arg = self.zig_target.?;
-        if (self.is_quering_compiler_info()) {
-            zig_target_arg = utils.extractPureTriple(zig_target_arg);
-        }
-
         // Zig executable
         try utils.dupeAndAppend(u8, &self.args, self.allocator, self.zig_exe.?);
+
         // Zig command
         try utils.dupeAndAppend(u8, &self.args, self.allocator, self.command.toName());
+
         // `cc`, `c++`: -target <target> [-march=<cpu>] [-mtune=<cpu>]
-        if (self.command.isCompiler()) {
+        if (self.command.isCompiler()) blk: {
+            // `-target`
             try utils.dupeAndAppend(u8, &self.args, self.allocator, "-target");
-            try utils.dupeAndAppend(u8, &self.args, self.allocator, zig_target_arg);
+            {
+                var zig_target = self.zig_target.?;
+                if (self.is_quering_zig_info()) {
+                    zig_target = utils.extractPureTriple(zig_target);
+                }
+                try utils.dupeAndAppend(u8, &self.args, self.allocator, zig_target);
+                if (self.is_quering_zig_info()) break :blk;
+            }
 
             // Disable 'date-time' error by default.
             try utils.dupeAndAppend(u8, &self.args, self.allocator, "-Wno-error=date-time");
@@ -350,17 +356,16 @@ pub const ZigWrapper = struct {
 
         // Execute the command.
         var exit_code: u8 = 0;
-        if (try query_compiler_info(self)) |res| {
+        if (try query_zig_info(self)) |res| {
+            defer self.allocator.free(res);
             const stdout_file = std.Io.File.stdout();
             try stdout_file.writeStreamingAll(self.io, res);
-            if (self.log.enabled()) {
-                self.log.printExecResult(exit_code, res, "");
-            }
+            self.log.printExecResult(exit_code, res, "");
         } else if (self.log.enabled()) {
             const run_res = try std.process.run(self.allocator, self.io, .{
                 .argv = self.args.items,
-                .stderr_limit = std.Io.Limit.limited(10 * 1024 * 1024),
-                .stdout_limit = std.Io.Limit.limited(10 * 1024 * 1024),
+                .stderr_limit = std.Io.Limit.limited(1 * 1024 * 1024),
+                .stdout_limit = std.Io.Limit.limited(1 * 1024 * 1024),
             });
             defer self.allocator.free(run_res.stdout);
             defer self.allocator.free(run_res.stderr);
@@ -394,40 +399,29 @@ pub const ZigWrapper = struct {
         return exit_code;
     }
 
-    fn query_compiler_info(self: *Self) std.mem.Allocator.Error!?[]u8 {
-        if (self.is_quering_version) {
-            return null;
-        }
-        if (self.is_searching_dirs) {
-            return try self.allocator.dupe(u8, ".");
-        }
+    fn query_zig_info(self: *Self) std.mem.Allocator.Error!?[]u8 {
         if (self.queried_program_name) |name| {
             // replace the tailing "-<command>" argv[0] with "-<name>"
-            const basename = std.fs.path.basename(self.sys_argv.items[0]);
-            var name_len = basename.len;
-            if (name_len > 4 and std.ascii.eqlIgnoreCase(basename[name_len - 4 ..], ".exe")) {
-                name_len -= 4;
+            var exe_name = self.sys_argv0.?;
+            var ext: []const u8 = "";
+            if (utils.strEndsWith(exe_name, ".exe")) {
+                exe_name = exe_name[0 .. exe_name.len - 4];
+                ext = ".exe";
             }
-            const base_no_ext = basename[0..name_len];
-            const prefix = if (std.mem.lastIndexOfScalar(u8, base_no_ext, '-')) |idx|
-                base_no_ext[0 .. idx + 1]
+            const prefix = if (std.mem.lastIndexOfScalar(u8, exe_name, '-')) |idx|
+                exe_name[0 .. idx + 1]
             else
                 "";
-            const prog_name = switch (name) {
-                .ar => "ar",
-                .cc => "gcc",
-                .cxx => "g++",
-                .dlltool => "dlltool",
-                .ld => "ld",
-                .lib => "lib",
-                .link => "link",
-                .objcopy => "objcopy",
-                .ranlib => "ranlib",
-                .rc => "rc",
-                .strip => "strip",
-                .windres => "windres",
-            };
-            return try std.fmt.allocPrint(self.allocator, "{s}{s}\n", .{ prefix, prog_name });
+
+            var prog_name = @tagName(name);
+            if (utils.strEndsWith(exe_name, "gcc") or utils.strEndsWith(exe_name, "g++")) {
+                switch (name) {
+                    .cc => prog_name = "gcc",
+                    .cxx => prog_name = "g++",
+                    else => {},
+                }
+            }
+            return try std.fmt.allocPrint(self.allocator, "{s}{s}{s}\n", .{ prefix, prog_name, ext });
         }
         return null;
     }
@@ -470,8 +464,8 @@ pub const ZigWrapper = struct {
     }
 
     fn parseEnvFlags(self: *Self, dest: *StringArray) !void {
-        // Do not use environment variables if we are querying compiler info
-        if (self.is_quering_compiler_info()) {
+        // Do not use environment variables if we are querying Zig info
+        if (self.is_quering_zig_info()) {
             return;
         }
 
@@ -583,8 +577,8 @@ pub const ZigWrapper = struct {
                     try utils.dupeAndAppend(u8, dest, self.allocator, arg);
                 }
             } else if (parser.parseNamed(ZigArgFilter.query_version_opts, false) or
-                (self.command.isCompiler() and
-                    parser.parseNamed(ZigArgFilter.compiler_query_version_opts, false)))
+                (parser.parseNamed(ZigArgFilter.compiler_query_version_opts, false) and
+                    args.len == 1))
             {
                 self.is_quering_version = true;
                 self.is_linker = false;
@@ -595,11 +589,13 @@ pub const ZigWrapper = struct {
             } else if (parser.parseNamed(ZigArgFilter.search_dir_opts, false)) {
                 self.is_searching_dirs = true;
                 self.is_linker = false;
-            } else if (parser.parseNamed(&.{"-print-prog-name"}, true)) {
-                self.is_linker = false;
-                if (self.queried_program_name == null) {
-                    self.queried_program_name = ZigCommand.fromStr(parser.value);
+                // Do no consume the argument.
+                for (parser.consumed) |arg| {
+                    try utils.dupeAndAppend(u8, dest, self.allocator, arg);
                 }
+            } else if (parser.parseNamed(&.{"-print-prog-name"}, true)) {
+                self.queried_program_name = ZigCommand.fromStr(parser.value);
+                self.is_linker = false;
             } else if (parser.parseNamed(ZigArgFilter.compile_only_opts, false)) {
                 if (self.command.isCompiler()) {
                     self.is_linker = false;
@@ -619,19 +615,6 @@ pub const ZigWrapper = struct {
                 // Do no consume the argument.
                 for (parser.consumed) |arg| {
                     try utils.dupeAndAppend(u8, dest, self.allocator, arg);
-                }
-            } else if (parser.parseNamed(&.{"-static"}, false)) {
-                if (self.command.isCompiler()) {
-                    self.is_linker = true;
-                    if (self.target_is_linux and self.target_is_gnu) {
-                        // Consume the argument because of:
-                        //   "error: libc of the specified target requires dynamic linking"
-                    } else {
-                        // Do no consume the argument.
-                        for (parser.consumed) |arg| {
-                            try utils.dupeAndAppend(u8, dest, self.allocator, arg);
-                        }
-                    }
                 }
             } else if (parser.parseNamed(&.{ "-target", "--target" }, true)) {
                 if (self.zig_target == null) {
@@ -756,6 +739,14 @@ pub const ZigWrapper = struct {
     }
 
     fn fixCommandFlag(self: *Self, arg: []const u8, dest: *StringArray) !void {
+        // Fix "error: libc of the specified target requires dynamic linking"
+        if (self.is_linker and utils.strEql(arg, "-static")) {
+            if (!(self.target_is_linux and self.target_is_gnu)) {
+                try utils.dupeAndAppend(u8, dest, self.allocator, arg);
+            }
+            return;
+        }
+
         // `-Wl,<linker flags>`
         if (self.is_linker and utils.strStartsWith(arg, "-Wl,")) {
             const buf = arg[4..];
@@ -1286,7 +1277,7 @@ pub const ZigWrapper = struct {
         //    https://github.com/ziglang/zig/issues/22847
         //    zig build: Incorrect path prefix added to Linux shared library paths in ELF dynamic section
         if (self.cc_output) |output| {
-            if (self.is_linker and !self.target_is_windows) {
+            if (success and self.is_linker and !self.target_is_windows) {
                 var patterns = StringArray.init(self.allocator);
                 defer {
                     for (patterns.items) |pat| {
