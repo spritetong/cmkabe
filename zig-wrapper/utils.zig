@@ -292,3 +292,8 @@ pub fn reFindString(pattern: []const u8, haystack: []const u8) ?[]const u8 {
     }
     return null;
 }
+
+pub fn extractPureTriple(target: []const u8) []const u8 {
+    const s = reFindString("^[^.]+", target) orelse return "";
+    return reFindString("^.*android[a-z]*", s) orelse s;
+}
