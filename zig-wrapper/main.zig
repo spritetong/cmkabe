@@ -287,17 +287,22 @@ pub const ZigWrapper = struct {
             if (!self.is_preprocessor) {
                 for (&[_]*StringArray{ &self.zig_cpu_opts, &self.zig_cpu_tune_opts }) |options| {
                     for (options.items) |opt| {
-                        // Fix the Zig CC bug about CPU architecture:
-                        //    '-' -> '_' for compiler;
-                        //    '_' -> '-' for preprocessor.
-                        const s = @constCast(opt[1..]);
-                        _ = std.mem.replace(u8, s, "-", "_", s);
+                        // Save the current `args` length
+                        const start = self.args.items.len;
 
                         _ = try self.arg_filter.next(
                             self,
                             @constCast(&SimpleOptionParser{ .args = &.{opt} }),
                             &self.args,
                         );
+
+                        // Fix the Zig CC bug about CPU architecture:
+                        //    '-' -> '_' for compiler;
+                        //    '_' -> '-' for preprocessor.
+                        for (self.args.items[start..]) |item| {
+                            const s = @constCast(item[1..]);
+                            _ = std.mem.replace(u8, s, "-", "_", s);
+                        }
                     }
                 }
 

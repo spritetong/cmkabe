@@ -12,14 +12,14 @@ const ZigArgFilterArray = std.array_list.Managed(ZigArgFilter);
 
 pub const ZigArgFilter = struct {
     const Self = @This();
-    pub const max_commands = 8;
+    pub const MAX_COMMANDS = 8;
     _container: ?*ZigArgFilterArray,
     matchers: std.array_list.Managed(Matcher),
     replacers: std.array_list.Managed(Replacer),
 
     pub const Matcher = union(enum) {
         allow_partial_opt: void,
-        command: [max_commands]?ZigCommand,
+        command: [MAX_COMMANDS]?ZigCommand,
         linker: bool,
         target: []const u8,
         match: []const u8,
@@ -185,9 +185,9 @@ pub const ZigArgFilter = struct {
     }
 
     pub fn command(self: *Self, cmds: []const ZigCommand) *Self {
-        var arr = [_]?ZigCommand{null} ** max_commands;
+        var arr = [_]?ZigCommand{null} ** MAX_COMMANDS;
         for (cmds, 0..) |cmd, i| {
-            if (i >= max_commands) break;
+            if (i >= MAX_COMMANDS) break;
             arr[i] = cmd;
         }
         self.matchers.append(.{ .command = arr }) catch unreachable;
@@ -290,11 +290,11 @@ pub const ZigArgFilterMap = struct {
                 if (std.mem.eql(u8, token, "partial")) {
                     _ = filter.allowPartialOpt();
                 } else if (std.mem.startsWith(u8, token, "command:")) {
-                    var cmds_buf: [ZigArgFilter.max_commands]ZigCommand = undefined;
+                    var cmds_buf: [ZigArgFilter.MAX_COMMANDS]ZigCommand = undefined;
                     var cmds_count: usize = 0;
                     var it = std.mem.splitScalar(u8, token[8..], ',');
                     while (it.next()) |cmd_str| {
-                        if (cmds_count >= ZigArgFilter.max_commands) break;
+                        if (cmds_count >= ZigArgFilter.MAX_COMMANDS) break;
                         if (ZigCommand.fromStr(cmd_str)) |cmd| {
                             cmds_buf[cmds_count] = cmd;
                             cmds_count += 1;
@@ -482,11 +482,11 @@ pub const ZigArgFilterMap = struct {
                         switch (replacer) {
                             .opt_value => {
                                 if (opt_value_valid) {
-                                    try output.append(try ctx.allocator.dupe(u8, opt_value));
+                                    try utils.dupeAndAppend(u8, output, ctx.allocator, opt_value);
                                 }
                             },
                             .string => |str| {
-                                try output.append(try ctx.allocator.dupe(u8, str));
+                                try utils.dupeAndAppend(u8, output, ctx.allocator, str);
                             },
                             .arg_index => |triple| {
                                 const arg_index = triple[0];
@@ -497,7 +497,7 @@ pub const ZigArgFilterMap = struct {
                                 else
                                     continue;
                                 if (triple[1].len == 0) {
-                                    try output.append(try ctx.allocator.dupe(u8, s));
+                                    try utils.dupeAndAppend(u8, output, ctx.allocator, s);
                                 } else {
                                     const replaced = try std.mem.replaceOwned(
                                         u8,
@@ -518,7 +518,7 @@ pub const ZigArgFilterMap = struct {
             }
         }
 
-        try output.append(try ctx.allocator.dupe(u8, opt));
+        try utils.dupeAndAppend(u8, output, ctx.allocator, opt);
         return;
     }
 };
