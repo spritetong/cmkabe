@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const mvzr = @import("mvzr.zig");
 
 /// Take the string slice value, leaving `null` in its place.
 pub inline fn strTake(ptr: *?[]const u8) ?[]const u8 {
@@ -282,4 +283,12 @@ pub inline fn allocPrintAndAppend(
     const printed = try std.fmt.allocPrint(allocator, fmt, args);
     errdefer allocator.free(printed);
     return array_ptr.*.append(printed);
+}
+
+pub fn reFindString(pattern: []const u8, haystack: []const u8) ?[]const u8 {
+    const regex = mvzr.Regex.compile(pattern) orelse return null;
+    if (regex.match(haystack)) |m| {
+        return m.slice;
+    }
+    return null;
 }

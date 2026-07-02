@@ -31,6 +31,7 @@ pub const ZigWrapper = struct {
     command: ZigCommand = ZigCommand.cc,
 
     is_quering_version: bool = false,
+    queried_program_name: ?ZigCommand = null,
     /// If the Zig command is running as a linker.
     is_linker: bool = false,
     /// If the Zig compiler is running as a preprocessor.
@@ -64,6 +65,7 @@ pub const ZigWrapper = struct {
     target_is_wasm: bool = false,
     target_is_msvc: bool = false,
     target_is_musl: bool = false,
+    target_is_gnu: bool = false,
     at_file_opt: ?[]const u8 = null,
 
     arg_filter: ZigArgFilterMap,
@@ -214,6 +216,7 @@ pub const ZigWrapper = struct {
             utils.strEndsWith(self.clang_target.?, "-emscripten");
         self.target_is_msvc = utils.strEndsWith(self.clang_target.?, "-msvc");
         self.target_is_musl = utils.strEndsWith(self.clang_target.?, "-musl");
+        self.target_is_gnu = utils.strEndsWith(self.clang_target.?, "-gnu");
 
         ZigArgFilter.initFilterMap(&self, &self.arg_filter);
         return self;
