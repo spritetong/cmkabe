@@ -39,6 +39,7 @@ pub const ZigArgFilter = struct {
         "--version",
         "-version",
         "-qversion",
+        "-dumpversion",
     };
     pub const compiler_query_version_opts: []const []const u8 = &.{
         "-V",

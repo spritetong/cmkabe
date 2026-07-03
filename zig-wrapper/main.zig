@@ -418,13 +418,12 @@ pub const ZigWrapper = struct {
             else
                 "";
 
-            var prog_name = @tagName(name);
-            if (utils.strEndsWith(exe_name, "gcc") or utils.strEndsWith(exe_name, "g++")) {
-                switch (name) {
-                    .cc => prog_name = "gcc",
-                    .cxx => prog_name = "g++",
-                    else => {},
-                }
+            const is_gcc = utils.strEndsWith(exe_name, "gcc") or utils.strEndsWith(exe_name, "g++");
+            var prog_name: []const u8 = undefined;
+            switch (name) {
+                .cc => prog_name = if (is_gcc) "gcc" else "cc",
+                .cxx => prog_name = if (is_gcc) "g++" else "c++",
+                else => prog_name = @tagName(name),
             }
             return try std.fmt.allocPrint(self.allocator, "{s}{s}{s}\n", .{ prefix, prog_name, ext });
         }
