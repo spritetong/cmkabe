@@ -357,6 +357,22 @@ pub const ZigWrapper = struct {
             try self.parseArgument(&argv_parer);
         }
 
+        if (self.command == .strip) {
+            if (self.strip_input) |input| {
+                if (utils.strEndsWithIgnoreCase(input, ".exe") or
+                    utils.strEndsWithIgnoreCase(input, ".dll") or
+                    utils.strEndsWithIgnoreCase(input, ".a") or
+                    utils.strEndsWithIgnoreCase(input, ".lib"))
+                {
+                    if (self.strip_output) |output| {
+                        const cwd = std.Io.Dir.cwd();
+                        try cwd.copyFile(input, cwd, output, self.io, .{});
+                    }
+                    return 0;
+                }
+            }
+        }
+
         // Fix link libraries.
         if (self.is_linker) {
             try self.fixLinkLibs();
