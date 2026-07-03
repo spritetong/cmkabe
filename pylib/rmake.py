@@ -1,4 +1,9 @@
 # -*- coding: utf-8 -*-
+# Copyright 2024-2026 Sprite Tong (<spritetong@gmail.com>)
+#
+# This software is under the MIT License
+# https://github.com/spritetong/cmkabe
+
 """Windows to WSL2 file synchronization and remote build executor."""
 
 import os

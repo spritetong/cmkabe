@@ -1,15 +1,8 @@
-# * @file       rules.cmake
-# * @brief      This file contains common rules to build cmake targets.
-# * @details    This file is the part of the `cmkabe` library
-# *             (https://github.com/spritetong/cmkabe),
-# *             which is licensed under the MIT license
-# *             (https://opensource.org/licenses/MIT).
-# *             Copyright (C) 2024 spritetong@gmail.com.
-# * @author     spritetong@gmail.com
-# * @date       2022
-# * @version    1.0, 7/9/2022, Tong
-# *             - Initial revision.
-# *
+# Copyright 2024-2026 Sprite Tong (<spritetong@gmail.com>)
+#
+# This software is under the MIT License
+# https://github.com/spritetong/cmkabe
+
 
 cmake_minimum_required(VERSION 3.16)
 

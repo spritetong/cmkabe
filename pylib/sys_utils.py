@@ -1,4 +1,9 @@
 # -*- coding: utf-8 -*-
+# Copyright 2024-2026 Sprite Tong (<spritetong@gmail.com>)
+#
+# This software is under the MIT License
+# https://github.com/spritetong/cmkabe
+
 """System utility functions for building and cross-compilation."""
 
 import os

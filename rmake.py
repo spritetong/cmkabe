@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+# Copyright 2024-2026 Sprite Tong (<spritetong@gmail.com>)
+#
+# This software is under the MIT License
+# https://github.com/spritetong/cmkabe
+
 """The main entry of the `rsync-make` utility
 
 This file is the part of the `cmkabe` library (https://github.com/spritetong/cmkabe),

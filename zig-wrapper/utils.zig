@@ -1,3 +1,8 @@
+// Copyright 2024-2026 Sprite Tong (<spritetong@gmail.com>)
+//
+// This software is under the MIT License
+// https://github.com/spritetong/cmkabe
+
 const std = @import("std");
 const builtin = @import("builtin");
 const mvzr = @import("mvzr.zig");

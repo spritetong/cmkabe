@@ -1,3 +1,8 @@
+// Copyright 2024-2026 Sprite Tong (<spritetong@gmail.com>)
+//
+// This software is under the MIT License
+// https://github.com/spritetong/cmkabe
+
 //! ELF Dynamic Library Path Fixer Module
 //!
 //! This module provides capabilities to parse and modify ELF files in-place.
