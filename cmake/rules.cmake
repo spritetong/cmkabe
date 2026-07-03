@@ -94,9 +94,10 @@ endif()
 add_compile_definitions($<$<AND:$<COMPILE_LANGUAGE:C,CXX>,$<CONFIG:Debug>>:_DEBUG>)
 
 if(TARGET_STRIP_ON_RELEASE AND CC_HAVE_OPTION_STRIP)
-    add_compile_options($<$<AND:$<COMPILE_LANGUAGE:C,CXX>,$<CONFIG:Release>>:-s>)
+    # clang++: warning: argument unused during compilation: '-s' [-Wunused-command-line-argument]
+    # add_compile_options($<$<AND:$<COMPILE_LANGUAGE:C,CXX>,$<CONFIG:Release>>:-s>)
+    # add_compile_options($<$<AND:$<COMPILE_LANGUAGE:C,CXX>,$<CONFIG:MinSizeRel>>:-s>)
     add_link_options($<$<CONFIG:Release>:-s>)
-    add_compile_options($<$<AND:$<COMPILE_LANGUAGE:C,CXX>,$<CONFIG:MinSizeRel>>:-s>)
     add_link_options($<$<CONFIG:MinSizeRel>:-s>)
 endif()
 
