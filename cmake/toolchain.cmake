@@ -115,6 +115,7 @@ elseif(ZIG OR TARGET_CC)
     endif()
     set(CMAKE_AR "${TARGET_AR}")
     set(CMAKE_RANLIB "${TARGET_RANLIB}")
+    set(CMAKE_STRIP "${TARGET_STRIP}")
 
     if(TARGET_RC)
         set(CMAKE_RC_COMPILER "${TARGET_RC}")

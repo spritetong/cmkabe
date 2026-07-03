@@ -44,7 +44,10 @@ pub const SimpleOptionParser = struct {
     /// Do not consume any argument if failed.
     pub fn parsePositional(self: *Self, accept_double_dash: bool) ?[]const u8 {
         while (self.first()) |arg| {
-            if (self.always_positional or !utils.strStartsWith(arg, "-")) {
+            if (self.always_positional or
+                utils.strEql(arg, "-") or
+                !utils.strStartsWith(arg, "-"))
+            {
                 self.advance(1);
                 return arg;
             }

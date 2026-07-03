@@ -85,6 +85,11 @@ pub const ZigWrapper = struct {
     windres_output: ?[]const u8 = null,
     windres_preprocessor_arg: ?[]const u8 = null,
     windres_depfile: ?[]const u8 = null,
+    // strip
+    strip_input: ?[]const u8 = null,
+    strip_output: ?[]const u8 = null,
+    strip_action: enum { none, strip_all, strip_debug } = .none,
+    strip_temp_file: ?TempFile = null,
     // CC linker
     cc_dll_lib: ?[]const u8 = null,
     cc_dll_a: ?[]const u8 = null,
@@ -250,6 +255,12 @@ pub const ZigWrapper = struct {
         if (self.windres_output) |v| self.allocator.free(v);
         if (self.windres_preprocessor_arg) |v| self.allocator.free(v);
         if (self.windres_depfile) |v| self.allocator.free(v);
+        if (self.strip_input) |v| self.allocator.free(v);
+        if (self.strip_output) |v| self.allocator.free(v);
+        if (self.strip_temp_file) |*temp_file| {
+            temp_file.deinit();
+            self.strip_temp_file = null;
+        }
         if (self.cc_dll_lib) |v| self.allocator.free(v);
         if (self.cc_dll_a) |v| self.allocator.free(v);
         if (self.cc_output) |v| self.allocator.free(v);
@@ -572,6 +583,9 @@ pub const ZigWrapper = struct {
     fn parseCustomArgs(self: *Self, args: []const []const u8, dest: *StringArray) !void {
         var parser = SimpleOptionParser{ .args = args };
         while (parser.hasArgument()) {
+            // Flag to determine if we need to consume the parsed arguments.
+            var consume_parsed = false;
+
             if (parser.parsePositional(true)) |opt| {
                 // Check if `opt` is C source file or not.
                 if (self.command.isCompiler() and !self.is_linker) {
@@ -581,28 +595,19 @@ pub const ZigWrapper = struct {
                         } else |_| {}
                     }
                 }
-                // Skip positional arguments.
-                for (parser.consumed) |arg| {
-                    try utils.dupeAndAppend(u8, dest, self.allocator, arg);
-                }
-            } else if (parser.parseNamed(ZigArgFilter.query_version_opts, false) or
-                (parser.parseNamed(ZigArgFilter.compiler_query_version_opts, false) and
-                    args.len == 1))
-            {
+            } else if (parser.parseNamed(ZigArgFilter.query_version_opts, false)) {
                 self.is_quering_version = true;
                 self.is_linker = false;
-                // Do no consume the argument.
-                for (parser.consumed) |arg| {
-                    try utils.dupeAndAppend(u8, dest, self.allocator, arg);
+            } else if (parser.parseNamed(ZigArgFilter.compiler_query_version_opts, false)) {
+                if (args.len == 1) {
+                    self.is_quering_version = true;
+                    self.is_linker = false;
                 }
             } else if (parser.parseNamed(ZigArgFilter.search_dir_opts, false)) {
                 self.is_searching_dirs = true;
                 self.is_linker = false;
-                // Do no consume the argument.
-                for (parser.consumed) |arg| {
-                    try utils.dupeAndAppend(u8, dest, self.allocator, arg);
-                }
             } else if (parser.parseNamed(&.{"-print-prog-name"}, true)) {
+                consume_parsed = true;
                 self.queried_program_name = ZigCommand.fromStr(parser.value);
                 self.is_linker = false;
             } else if (parser.parseNamed(ZigArgFilter.compile_only_opts, false)) {
@@ -612,52 +617,40 @@ pub const ZigWrapper = struct {
                         self.is_preprocessor = true;
                     }
                 }
-                // Do no consume the argument.
-                for (parser.consumed) |arg| {
-                    try utils.dupeAndAppend(u8, dest, self.allocator, arg);
-                }
             } else if (parser.parseNamed(&.{ "-shared", "-dll" }, false)) {
                 if (self.command.isCompiler()) {
                     self.is_linker = true;
                     self.is_shared_lib = true;
                 }
-                // Do no consume the argument.
-                for (parser.consumed) |arg| {
-                    try utils.dupeAndAppend(u8, dest, self.allocator, arg);
-                }
             } else if (parser.parseNamed(&.{ "-target", "--target" }, true)) {
+                consume_parsed = true;
                 if (self.zig_target == null) {
                     self.zig_target = try self.allocator.dupe(u8, parser.value);
                 }
             } else if (parser.parseNamed(&.{ "-march", "-mcpu" }, true)) {
                 if (self.command.isCompiler()) {
+                    consume_parsed = true;
                     for (parser.consumed) |arg| {
                         try utils.dupeAndAppend(u8, &self.zig_cpu_opts, self.allocator, arg);
-                    }
-                } else {
-                    // Do no consume the argument.
-                    for (parser.consumed) |arg| {
-                        try utils.dupeAndAppend(u8, dest, self.allocator, arg);
                     }
                 }
             } else if (parser.parseNamed(&.{"-mtune"}, true)) {
                 if (self.command.isCompiler()) {
+                    consume_parsed = true;
                     for (parser.consumed) |arg| {
                         try utils.dupeAndAppend(u8, &self.zig_cpu_tune_opts, self.allocator, arg);
                     }
-                } else {
-                    // Do no consume the argument.
-                    for (parser.consumed) |arg| {
-                        try utils.dupeAndAppend(u8, dest, self.allocator, arg);
-                    }
                 }
             } else if (parser.parseNamed(&.{"--zig"}, true)) {
+                consume_parsed = true;
                 if (utils.strTake(&self.zig_exe)) |v| self.allocator.free(v);
                 self.zig_exe = try self.allocator.dupe(u8, parser.value);
             } else if (parser.parseNamed(&.{"--clang-target"}, true)) {
+                consume_parsed = true;
                 if (utils.strTake(&self.clang_target)) |v| self.allocator.free(v);
                 self.clang_target = try self.allocator.dupe(u8, parser.value);
             } else if (parser.parseNamed(&.{"--skip-lib"}, true)) {
+                consume_parsed = true;
                 var parts = std.mem.splitAny(u8, parser.value, ",;");
                 while (parts.next()) |part| {
                     const v = utils.strTrimEnd(part);
@@ -672,6 +665,7 @@ pub const ZigWrapper = struct {
                     }
                 }
             } else if (parser.parseNamed(&.{"--skip-lib-path"}, true)) {
+                consume_parsed = true;
                 var parts = std.mem.splitAny(u8, parser.value, ";");
                 while (parts.next()) |part| {
                     const v = utils.strTrimEnd(part);
@@ -683,12 +677,16 @@ pub const ZigWrapper = struct {
                     }
                 }
             } else if (parser.parseNamed(&.{"--allow-target-env-flags"}, false)) {
+                consume_parsed = true;
                 self.allow_target_env_flags = true;
             } else if (parser.parseNamed(&.{"--disallow-target-env-flags"}, false)) {
+                consume_parsed = true;
                 self.allow_target_env_flags = false;
             } else if (parser.parseNamed(&.{"--enable-dllexport"}, false)) {
+                consume_parsed = true;
                 self.disable_dllexport = false;
             } else if (parser.parseNamed(&.{"--disable-dllexport"}, false)) {
+                consume_parsed = true;
                 self.disable_dllexport = true;
             } else if (parser.parseNamed(&.{"-o"}, true)) {
                 // Save the output file path for post-processing.
@@ -701,6 +699,8 @@ pub const ZigWrapper = struct {
                 if (parser.consumed.len == 2 and self.command.isCompiler() and
                     utils.strEndsWith(parser.value, ".dll.a"))
                 {
+                    consume_parsed = true;
+
                     const dll_a = parser.value;
                     const dll = dll_a[0 .. dll_a.len - 2];
                     const lib_name = dll_a[0 .. dll_a.len - 6];
@@ -721,15 +721,17 @@ pub const ZigWrapper = struct {
                     self.cc_dll_a = try self.allocator.dupe(u8, dll_a);
                     if (utils.strTake(&self.cc_dll_lib)) |v| self.allocator.free(v);
                     self.cc_dll_lib = try self.allocator.dupe(u8, dll_lib);
-                } else {
-                    // Do no consume the argument.
-                    for (parser.consumed) |arg| {
-                        try utils.dupeAndAppend(u8, dest, self.allocator, arg);
-                    }
                 }
             } else {
-                // Do no consume the argument.
+                consume_parsed = true;
                 try utils.dupeAndAppend(u8, dest, self.allocator, parser.next().?);
+            }
+
+            if (!consume_parsed) {
+                // Do no consume the argument.
+                for (parser.consumed) |arg| {
+                    try utils.dupeAndAppend(u8, dest, self.allocator, arg);
+                }
             }
         }
     }
@@ -1182,6 +1184,49 @@ pub const ZigWrapper = struct {
                     if (self.windres_output) |v| try utils.dupeAndAppend(u8, &self.args, self.allocator, v);
                 }
             },
+            .strip => {
+                if (parser.parsePositional(false)) |arg| {
+                    if (self.strip_input == null) {
+                        self.strip_input = try self.allocator.dupe(u8, arg);
+                    }
+                } else if (parser.parseNamed(&.{"-o"}, true)) {
+                    if (self.strip_output) |v| self.allocator.free(v);
+                    self.strip_output = try self.allocator.dupe(u8, parser.value);
+                } else if (parser.parseNamed(&.{ "--strip-all", "-s" }, false)) {
+                    self.strip_action = .strip_all;
+                } else if (parser.parseNamed(&.{"--strip-unneeded"}, false)) {
+                    self.strip_action = .strip_all;
+                } else if (parser.parseNamed(&.{ "--strip-debug", "-g", "-S" }, false)) {
+                    self.strip_action = .strip_debug;
+                } else {
+                    _ = parser.next();
+                }
+
+                if (!parser.hasArgument()) {
+                    if (self.strip_action == .strip_all) {
+                        try utils.dupeAndAppend(u8, &self.args, self.allocator, "--strip-all");
+                    } else if (self.strip_action == .strip_debug) {
+                        try utils.dupeAndAppend(u8, &self.args, self.allocator, "--strip-debug");
+                    }
+
+                    if (self.strip_input) |input| {
+                        if (self.strip_output) |output| {
+                            try utils.dupeAndAppend(u8, &self.args, self.allocator, input);
+                            try utils.dupeAndAppend(u8, &self.args, self.allocator, output);
+                        } else {
+                            // In-place strip:
+                            // Create a temporary file to write the stripped output to
+                            var temp_file = try TempFile.init(self.io, self.allocator, self.environ_map);
+                            errdefer temp_file.deinit();
+                            temp_file.close(); // Close so that zig objcopy can write to it
+
+                            try utils.dupeAndAppend(u8, &self.args, self.allocator, input);
+                            try utils.dupeAndAppend(u8, &self.args, self.allocator, temp_file.getPath());
+                            self.strip_temp_file = temp_file;
+                        }
+                    }
+                }
+            },
             else => {
                 _ = try self.arg_filter.next(self, parser, &self.args);
             },
@@ -1276,6 +1321,16 @@ pub const ZigWrapper = struct {
                         })).close(self.io);
                     } else {
                         std.Io.Dir.cwd().deleteFile(self.io, path) catch {};
+                    }
+                }
+            },
+            .strip => {
+                if (success) {
+                    if (self.strip_temp_file) |*temp_file| {
+                        if (self.strip_input) |input| {
+                            const cwd = std.Io.Dir.cwd();
+                            try cwd.copyFile(temp_file.getPath(), cwd, input, self.io, .{});
+                        }
                     }
                 }
             },

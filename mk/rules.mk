@@ -394,6 +394,11 @@ zig-clean-cache:
 	@$(SHLUTIL) zig-clean-cache -v "$(ZIG_ROOT)" || $(OK)
 	@$(RM) -rf "$(TARGET_DIR)/.zig" || $(OK)
 
+# Rebuild Zig wrapper
+.PHONY: zig-build-wrapper
+zig-build-wrapper:
+	@$(SHLUTIL) zig-build-wrapper -f --zig-root="$(ZIG_ROOT)" --out-dir="$(ZIG_CC_DIR)"
+
 # Execute a shell command
 .PHONY: shell
 shell:

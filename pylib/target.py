@@ -335,7 +335,7 @@ class TargetParser:
                 if zig:
                     self.zig = True
 
-        if self.zig and not self.zig_target:
+        if not self.zig_target:
             self.zig_target = zig_target
 
         if not self.cmake_generator and (
@@ -419,18 +419,22 @@ class TargetParser:
         )
         os.makedirs(self.cmake_target_dir, exist_ok=True)
 
-    def _zig_init(self) -> None:
+    def _zig_init(self, *, probe_only: bool = False) -> None:
         from .zig import zig_build_wrapper
 
         # Zig root path and include directories.
         zig_path = shutil.which(f'zig{EXE_EXT}')
-        if not zig_path:
+        if zig_path:
+            self.zig_root = normpath(os.path.realpath(os.path.dirname(zig_path)))
+        elif not probe_only:
             raise FileNotFoundError('`zig` is not found')
-        self.zig_root = normpath(os.path.realpath(os.path.dirname(zig_path)))
 
         self.zig_cc_dir = normpath(
             os.path.join(self.target_dir, '.zig', self.host.host_system)
         )
+        if probe_only:
+            return
+
         zig_build_wrapper(zig_root=self.zig_root, out_dir=self.zig_cc_dir)
 
         # Override the target CC for Zig.
@@ -481,7 +485,7 @@ class TargetParser:
     @classmethod
     def _get_cc_includes(cls, cmd_args: List[str], lang: str = 'c') -> List[str]:
         result = subprocess.run(
-            cmd_args + ['-E', '-x', lang, '-', '-v'],
+            cmd_args + ['-v', '-E', '-x', lang, '-'],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -521,6 +525,8 @@ class TargetParser:
             self._zig_init()
         elif self.target_cc:
             self._cc_init()
+        if not self.zig:
+            self._zig_init(probe_only=True)
         self._cmake_init()
 
         def onoff(b: bool) -> str:
