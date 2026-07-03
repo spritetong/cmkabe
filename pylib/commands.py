@@ -1374,7 +1374,7 @@ class ShellCmd:
                 help='Build compiler wrapper using zig build-exe',
             )
             zig_build_wrapper_parser.add_argument(
-                '--zig_root', default=None, help='Zig installation root'
+                '--zig-root', default=None, help='Zig installation root'
             )
             zig_build_wrapper_parser.add_argument(
                 '--out-dir', default=None, help='Destination directory for wrapper'

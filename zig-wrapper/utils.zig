@@ -40,6 +40,20 @@ pub fn strEndsWith(haystack: []const u8, needle: []const u8) bool {
     return strEql(haystack[haystack.len - needle.len ..], needle);
 }
 
+/// Check if `haystack` ends with `needle`, case insensitively.
+pub fn strEndsWithIgnoreCase(haystack: []const u8, needle: []const u8) bool {
+    if (needle.len > haystack.len) {
+        return false;
+    }
+    const suffix = haystack[haystack.len - needle.len ..];
+    for (suffix, 0..) |c, i| {
+        const c1 = if (c >= 'A' and c <= 'Z') c + 32 else c;
+        const c2 = if (needle[i] >= 'A' and needle[i] <= 'Z') needle[i] + 32 else needle[i];
+        if (c1 != c2) return false;
+    }
+    return true;
+}
+
 /// Check if `slice` contains `sub_slice`.
 pub fn stringsContains(slice: []const []const u8, sub_slice: []const []const u8) bool {
     if (sub_slice.len == 0) return true;

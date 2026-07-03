@@ -154,9 +154,11 @@ def zig_build_wrapper(
         'ld',
         'lib',
         'link',
-        'ranlib',
         'objcopy',
+        'objdump',
+        'ranlib',
         'rc',
+        'strip',
         'windres',
     ]:
         links.append((exe, os.path.join(out_dir, f'{prefix}-{name}{EXE_EXT}')))

@@ -23,6 +23,8 @@ pub const ZigCommand = enum {
     link,
     /// Object file copy utility
     objcopy,
+    /// Object file display utility
+    objdump,
     /// Archive index generator
     ranlib,
     /// Resource compiler
@@ -47,6 +49,7 @@ pub const ZigCommand = enum {
             .{ "lib", .lib },
             .{ "link", .link },
             .{ "objcopy", .objcopy },
+            .{ "objdump", .objdump },
             .{ "ranlib", .ranlib },
             .{ "rc", .rc },
             .{ "strip", .strip },
@@ -66,6 +69,7 @@ pub const ZigCommand = enum {
             .cxx => "c++",
             .ld => "ld.lld",
             .link => "lld-link",
+            .strip => "objcopy",
             .windres => "rc",
             else => @tagName(self),
         };
