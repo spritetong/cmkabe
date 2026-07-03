@@ -357,22 +357,6 @@ pub const ZigWrapper = struct {
             try self.parseArgument(&argv_parer);
         }
 
-        if (self.command == .strip) {
-            if (self.strip_input) |input| {
-                if (utils.strEndsWithIgnoreCase(input, ".exe") or
-                    utils.strEndsWithIgnoreCase(input, ".dll") or
-                    utils.strEndsWithIgnoreCase(input, ".a") or
-                    utils.strEndsWithIgnoreCase(input, ".lib"))
-                {
-                    if (self.strip_output) |output| {
-                        const cwd = std.Io.Dir.cwd();
-                        try cwd.copyFile(input, cwd, output, self.io, .{});
-                    }
-                    return 0;
-                }
-            }
-        }
-
         // Fix link libraries.
         if (self.is_linker) {
             try self.fixLinkLibs();
@@ -393,7 +377,26 @@ pub const ZigWrapper = struct {
 
         // Execute the command.
         var exit_code: u8 = 0;
-        if (try query_zig_info(self)) |res| {
+        var strip_handled = false;
+        if (self.command == .strip) {
+            if (self.strip_input) |input| {
+                for ([_][]const u8{ ".exe", ".dll", ".a", ".lib" }) |ext| {
+                    if (utils.strEndsWithIgnoreCase(input, ext)) {
+                        if (self.strip_output) |output| {
+                            if (!utils.strEql(input, output)) {
+                                const cwd = std.Io.Dir.cwd();
+                                try cwd.copyFile(input, cwd, output, self.io, .{});
+                            }
+                        }
+                        strip_handled = true;
+                        break;
+                    }
+                }
+            }
+        }
+        if (strip_handled) {
+            self.log.printExecResult(exit_code, "", "");
+        } else if (try query_zig_info(self)) |res| {
             defer self.allocator.free(res);
             const stdout_file = std.Io.File.stdout();
             try stdout_file.writeStreamingAll(self.io, res);
