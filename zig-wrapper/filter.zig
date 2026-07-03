@@ -431,6 +431,8 @@ pub const ZigArgFilterMap = struct {
                                             matched = true;
                                             break;
                                         }
+                                    } else {
+                                        break;
                                     }
                                 }
                                 if (!matched) {
