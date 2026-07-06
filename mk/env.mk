@@ -251,11 +251,4 @@ ifeq ($(HOST_SYSTEM),Windows)
     WINREG   = $(SHLUTIL) winreg
 endif
 
-# export CMKABE_COMPLETED_PROJECTS which is from command line.
-ifeq ($(origin CMKABE_COMPLETED_PROJECTS),command line)
-    export CMKABE_COMPLETED_PROJECTS
-else
-    unexport CMKABE_COMPLETED_PROJECTS
-endif
-
 endif # __ENV_MK__

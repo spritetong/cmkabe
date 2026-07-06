@@ -9,6 +9,7 @@
 import os
 import shutil
 import subprocess
+import sys
 from typing import Generator, List, Optional
 
 from .sys_utils import (
@@ -562,23 +563,6 @@ class TargetParser:
                 lines.append(f'    export {name}')
             lines.append('endif')
 
-        def cmake_export_paths(
-            lines,
-            name: str,
-            paths: List[str],
-            subdirs: Optional[List[str]] = None,
-        ):
-            env_name = f'ENV{{{name}}}'
-            value = (
-                os.pathsep + os.pathsep.join(join_paths(paths, subdirs)) + os.pathsep
-            )
-            lines.append(f'# Environment variable `{name}`')
-            lines.append(f'set(_s "{value}")')
-            lines.append(f'string(FIND "${env_name}" "${{_s}}" _n)')
-            lines.append('if(_n EQUAL -1)')
-            lines.append(f'    set({env_name} "${{_s}}${env_name}")')
-            lines.append('endif()')
-
         # ===================== Generate .host.mk =====================
         lines: List[str] = []
         lines.append(f'override HOST_SYSTEM = {self.host.host_system}')
@@ -770,16 +754,23 @@ class TargetParser:
         lines.append(f'set(TARGET_EXE_EXT "{cmake_target_exe_ext}")')
         lines.append('')
 
+        def _cmake_add_build_type(lines: List[str]):
+            lines.append('if(NOT CMAKE_BUILD_TYPE)')
+            lines.append('    if(CMAKE_INSTALL_CONFIG_NAME)')
+            lines.append('        set(CMAKE_BUILD_TYPE "${CMAKE_INSTALL_CONFIG_NAME}")')
+            lines.append('    else()')
+            lines.append('        set(CMAKE_BUILD_TYPE "Release")')
+            lines.append('    endif()')
+            lines.append('endif()')
+            lines.append('string(TOLOWER "${CMAKE_BUILD_TYPE}" CMAKE_BUILD_TYPE_LOWER)')
+            lines.append('if(CMAKE_BUILD_TYPE_LOWER STREQUAL "debug")')
+            lines.append('    set(CARGO_BUILD_TYPE "debug")')
+            lines.append('else()')
+            lines.append('    set(CARGO_BUILD_TYPE "release")')
+            lines.append('endif()')
+
         lines.append('# Build configuration')
-        lines.append('if(NOT CMAKE_BUILD_TYPE)')
-        lines.append('    set(CMAKE_BUILD_TYPE "Release")')
-        lines.append('endif()')
-        lines.append('string(TOLOWER "${CMAKE_BUILD_TYPE}" CMAKE_BUILD_TYPE_LOWER)')
-        lines.append('if(CMAKE_BUILD_TYPE_LOWER STREQUAL "debug")')
-        lines.append('    set(CARGO_BUILD_TYPE "debug")')
-        lines.append('else()')
-        lines.append('    set(CARGO_BUILD_TYPE "release")')
-        lines.append('endif()')
+        _cmake_add_build_type(lines)
         lines.append('')
 
         lines.append('# Constant directories')
@@ -987,6 +978,19 @@ class TargetParser:
         lines.append(f'export RANLIBFLAGS_{cargo_target_under}')
         lines.append('')
 
+        lines.append('# Configure the cross compile pkg-config.')
+        lines.append(
+            f'export PKG_CONFIG_ALLOW_CROSS = {1 if self.is_cross_compiling else 0}'
+        )
+        lines.append(
+            f'override PKG_CONFIG_PATH_{cargo_target_under} := $(TARGET_PKG_CONFIG_PATH)$(if $(TARGET_PKG_CONFIG_PATH),{os.pathsep},)'
+            + os.pathsep.join(
+                join_paths(self.enum_prefix_subdirs_of('lib/pkgconfig', make=True), [])
+            )
+        )
+        lines.append(f'export PKG_CONFIG_PATH_{cargo_target_under}')
+        lines.append('')
+
         lines.append('# For Rust bingen + libclang')
         bindgen_includes = (
             self.enum_prefix_subdirs_of('include', make=True) + self.cxx_includes
@@ -1015,18 +1019,6 @@ class TargetParser:
             )
         lines.append('')
 
-        lines.append('# Configure the cross compile pkg-config.')
-        lines.append(
-            f'export PKG_CONFIG_ALLOW_CROSS = {1 if self.is_cross_compiling else 0}',
-        )
-        make_export_paths(
-            lines,
-            'PKG_CONFIG_PATH_' + cargo_target_under,
-            self.enum_prefix_subdirs_of('lib/pkgconfig', make=True),
-            [],
-        )
-        lines.append('')
-
         lines.append('# Set system paths.')
         if self.target_is_runnable:
             make_export_paths(
@@ -1052,6 +1044,8 @@ class TargetParser:
             'TARGET_CC',
             'CARGO_TARGET',
             'ZIG_TARGET',
+            'TARGET_INSTALL_PREFIX',
+            'CMAKE_INSTALL_PREFIX',
             'DEBUG',
             'MINSIZE',
             'DBGINFO',
@@ -1068,6 +1062,10 @@ class TargetParser:
         lines.append(f'export CMKABE_TARGET_CC = {self.target_cc}')
         lines.append(f'export CMKABE_CARGO_TARGET = {self.cargo_target}')
         lines.append(f'export CMKABE_ZIG_TARGET = {self.zig_target}')
+        lines.append('export CMKABE_TARGET_INSTALL_PREFIX := $(TARGET_INSTALL_PREFIX)')
+        lines.append(
+            'export CMKABE_CMAKE_INSTALL_PREFIX := $(TARGET_INSTALL_PREFIX)/$(TARGET)'
+        )
         lines.append('export CMKABE_DEBUG := $(DEBUG)')
         lines.append('export CMKABE_MINSIZE := $(MINSIZE)')
         lines.append('export CMKABE_DBGINFO := $(DBGINFO)')
@@ -1088,21 +1086,20 @@ class TargetParser:
             f'export CMKABE_INCLUDE_DIRS = {os.path.pathsep.join(self.enum_prefix_subdirs_of("include", make=True))}'
         )
         lines.append('')
+        lines.append('# export CMKABE_COMPLETED_PROJECTS which is from command line.')
+        lines.append('ifeq ($(origin CMKABE_COMPLETED_PROJECTS),command line)')
+        lines.append('    export CMKABE_COMPLETED_PROJECTS')
+        lines.append('else')
+        lines.append('    undefine CMKABE_COMPLETED_PROJECTS')
+        lines.append('    unexport CMKABE_COMPLETED_PROJECTS')
+        lines.append('endif')
+        lines.append('')
+
         with open(os.path.join(self.cmake_target_dir, '.environ.mk'), 'wb') as f:
             f.write('\n'.join(lines).encode('utf-8'))
 
         # ===================== Generate .environ.cmake =====================
         lines.clear()
-        if cc_exports:
-            for line in cc_exports:
-                k, v = list(map(lambda x: x.strip(), line.split('=', 1)))
-                if k.endswith('+'):
-                    k = k[:-1].strip()
-                    cmake_export_paths(lines, k, [v])
-                else:
-                    lines.append(f'set(ENV{{{k}}} "{v}")')
-            lines.append('')
-
         lines.append('# AR, CC, CXX, RANLIB, STRIP, RC')
         lines.append(f'set(TARGET_AR "{ar}")')
         lines.append(f'set(TARGET_CC "{cc}")')
@@ -1112,67 +1109,125 @@ class TargetParser:
         lines.append(f'set(TARGET_RC "{rc}")')
         lines.append('')
 
-        lines.append('# Configure the cross compile pkg-config.')
+        lines.append('# Build configuration')
+        _cmake_add_build_type(lines)
+        lines.append('if(CMAKE_BUILD_TYPE_LOWER STREQUAL "debug")')
+        lines.append('    set(CMKABE_DEBUG ON)')
+        lines.append('    set(CMKABE_MINSIZE OFF)')
+        lines.append('    set(CMKABE_DBGINFO ON)')
+        lines.append('elseif(CMAKE_BUILD_TYPE_LOWER STREQUAL "minsizerel")')
+        lines.append('    set(CMKABE_DEBUG OFF)')
+        lines.append('    set(CMKABE_MINSIZE ON)')
+        lines.append('    set(CMKABE_DBGINFO OFF)')
+        lines.append('elseif(CMAKE_BUILD_TYPE_LOWER STREQUAL "relwithdebinfo")')
+        lines.append('    set(CMKABE_DEBUG OFF)')
+        lines.append('    set(CMKABE_MINSIZE OFF)')
+        lines.append('    set(CMKABE_DBGINFO ON)')
+        lines.append('else()')
+        lines.append('    set(CMKABE_DEBUG OFF)')
+        lines.append('    set(CMKABE_MINSIZE OFF)')
+        lines.append('    set(CMKABE_DBGINFO OFF)')
+        lines.append('endif()')
+        lines.append('if(CMAKE_INSTALL_CONFIG_NAME)')
         lines.append(
-            f'set(ENV{{PKG_CONFIG_ALLOW_CROSS}} "{1 if self.is_cross_compiling else 0}")'
+            f'    set(CMKABE_CMAKE_BUILD_DIR "{self.cmake_target_dir}/${{CMAKE_BUILD_TYPE}}")'
         )
-        cmake_export_paths(
-            lines,
-            'PKG_CONFIG_PATH',
-            self.enum_prefix_subdirs_of('lib/pkgconfig', cmake=True),
-            [],
-        )
+        lines.append('else()')
+        lines.append('    set(CMKABE_CMAKE_BUILD_DIR "${CMAKE_BINARY_DIR}")')
+        lines.append('endif()')
         lines.append('')
 
-        lines.append('# Export variables for Cargo build.rs and CMake')
-        lines.append(f'set(ENV{{CARGO_WORKSPACE_DIR}} "{self.workspace_dir}")')
-        lines.append(f'set(ENV{{CMKABE_HOST_TARGET}} "{self.host.triple}")')
-        lines.append(f'set(ENV{{CMKABE_TARGET}} "{self.cmkabe_target}")')
-        lines.append(f'set(ENV{{CMKABE_TARGET_DIR}} "{self.target_dir}")')
-        lines.append(f'set(ENV{{CMKABE_TARGET_CMAKE_DIR}} "{self.target_cmake_dir}")')
+        lines.append('# Find `CMKABE_TARGET_INSTALL_PREFIX` by `CMAKE_INSTALL_PREFIX')
+        lines.append('function(_cmkabe_get_target_install_prefix result)')
         lines.append(
-            f'set(ENV{{CMKABE_TARGET_DEPENDENCY_PREFIXES}} "{";".join(self.target_dependency_prefixes)}")'
+            '    string(REPLACE "\\\\" "/" clean_dir "${CMAKE_INSTALL_PREFIX}")'
         )
-        lines.append(f'set(ENV{{CMKABE_TARGET_CC}} "{self.target_cc}")')
-        lines.append(f'set(ENV{{CMKABE_CARGO_TARGET}} "{self.cargo_target}")')
-        lines.append(f'set(ENV{{CMKABE_ZIG_TARGET}} "{self.zig_target}")')
-        lines.append('if(CMAKE_BUILD_TYPE_LOWER STREQUAL "debug")')
-        lines.append('    set(ENV{CMKABE_DEBUG} ON)')
-        lines.append('    set(ENV{CMKABE_MINSIZE} OFF)')
-        lines.append('    set(ENV{CMKABE_DBGINFO} ON)')
-        lines.append('elseif(CMAKE_BUILD_TYPE_LOWER STREQUAL "minsizerel")')
-        lines.append('    set(ENV{CMKABE_DEBUG} OFF)')
-        lines.append('    set(ENV{CMKABE_MINSIZE} ON)')
-        lines.append('    set(ENV{CMKABE_DBGINFO} OFF)')
-        lines.append('elseif(CMAKE_BUILD_TYPE_LOWER STREQUAL "relwithdebinfo")')
-        lines.append('    set(ENV{CMKABE_DEBUG} OFF)')
-        lines.append('    set(ENV{CMKABE_MINSIZE} OFF)')
-        lines.append('    set(ENV{CMKABE_DBGINFO} ON)')
-        lines.append('else()')
-        lines.append('    set(ENV{CMKABE_DEBUG} OFF)')
-        lines.append('    set(ENV{CMKABE_MINSIZE} OFF)')
-        lines.append('    set(ENV{CMKABE_DBGINFO} OFF)')
-        lines.append('endif()')
-        lines.append('set(ENV{CMKABE_CMAKE_BUILD_TYPE} "${CMAKE_BUILD_TYPE}")')
-        lines.append('set(ENV{CMKABE_CMAKE_BUILD_DIR} "${CMAKE_BINARY_DIR}")')
+        lines.append('    string(REGEX REPLACE "/+$" "" clean_dir "${clean_dir}")')
         lines.append(
-            f'set(ENV{{CMKABE_CARGO_OUT_DIR}} "{self.cargo_out_dir(cmake=True)}")'
+            '    get_filename_component(_current_basename "${clean_dir}" NAME)'
         )
         lines.append(
-            f'set(ENV{{CMKABE_MAKE_BUILD_VARS}} "{";".join(_make_build_vars)}")'
+            f'    if((_current_basename STREQUAL "{self.target}") OR (_current_basename STREQUAL "{self.cmkabe_target}"))'
         )
         lines.append(
-            f'set(ENV{{CMKABE_PREFIX_SUBDIRS}} "{os.path.pathsep.join(self.target_prefix_subdirs)}")'
+            '        get_filename_component(result_dir "${clean_dir}" DIRECTORY)'
+        )
+        lines.append('    else()')
+        lines.append('        set(result_dir "${CMAKE_INSTALL_PREFIX}")')
+        lines.append('    endif()')
+        lines.append('    set(${result} "${result_dir}" PARENT_SCOPE)')
+        lines.append('endfunction()')
+        lines.append('_cmkabe_get_target_install_prefix(CMKABE_TARGET_INSTALL_PREFIX)')
+        lines.append('')
+
+        # For CMAKE list, escape semicolon.
+        def cmk_lst_esc(value):
+            return value.replace(';', '\\;').replace(
+                '${CMAKE_BINARY_DIR}', '${CMKABE_CMAKE_BUILD_DIR}'
+            )
+
+        lines.append('set(CMKABE_ENV_BLOCK')
+        if cc_exports:
+            for line in cc_exports:
+                k, v = list(map(lambda x: x.strip(), line.split('=', 1)))
+                if k.endswith('+'):
+                    print(f'Skip {line} (It is not supported yet.)', file=sys.stderr)
+                else:
+                    lines.append(cmk_lst_esc(f'"{k}={v}"'))
+
+        lines.append(cmk_lst_esc(f'"CARGO_WORKSPACE_DIR={self.workspace_dir}"'))
+        lines.append(cmk_lst_esc(f'"CMKABE_HOST_TARGET={self.host.triple}"'))
+        lines.append(cmk_lst_esc(f'"CMKABE_TARGET={self.cmkabe_target}"'))
+        lines.append(cmk_lst_esc(f'"CMKABE_TARGET_DIR={self.target_dir}"'))
+        lines.append(cmk_lst_esc(f'"CMKABE_TARGET_CMAKE_DIR={self.target_cmake_dir}"'))
+        lines.append(
+            cmk_lst_esc(
+                f'"CMKABE_TARGET_DEPENDENCY_PREFIXES={";".join(self.target_dependency_prefixes)}"'
+            )
+        )
+        lines.append(cmk_lst_esc(f'"CMKABE_TARGET_CC={self.target_cc}"'))
+        lines.append(cmk_lst_esc(f'"CMKABE_CARGO_TARGET={self.cargo_target}"'))
+        lines.append(cmk_lst_esc(f'"CMKABE_ZIG_TARGET={self.zig_target}"'))
+        lines.append(
+            cmk_lst_esc(
+                '"CMKABE_TARGET_INSTALL_PREFIX=${CMKABE_TARGET_INSTALL_PREFIX}"'
+            )
         )
         lines.append(
-            f'set(ENV{{CMKABE_BIN_DIRS}} "{os.path.pathsep.join(self.enum_prefix_subdirs_of("bin", cmake=True))}")'
+            cmk_lst_esc('"CMKABE_CMAKE_INSTALL_PREFIX=${CMAKE_INSTALL_PREFIX}"')
+        )
+        lines.append(cmk_lst_esc('"CMKABE_DEBUG=${CMKABE_DEBUG}"'))
+        lines.append(cmk_lst_esc('"CMKABE_MINSIZE=${CMKABE_MINSIZE}"'))
+        lines.append(cmk_lst_esc('"CMKABE_DBGINFO=${CMKABE_DBGINFO}"'))
+        lines.append(cmk_lst_esc('"CMKABE_CMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}"'))
+        lines.append(cmk_lst_esc('"CMKABE_CMAKE_BUILD_DIR=${CMAKE_BINARY_DIR}"'))
+        lines.append(
+            cmk_lst_esc(f'"CMKABE_CARGO_OUT_DIR={self.cargo_out_dir(cmake=True)}"')
         )
         lines.append(
-            f'set(ENV{{CMKABE_LIB_DIRS}} "{os.path.pathsep.join(self.enum_prefix_subdirs_of("lib", cmake=True))}")'
+            cmk_lst_esc(f'"CMKABE_MAKE_BUILD_VARS={";".join(_make_build_vars)}"')
         )
         lines.append(
-            f'set(ENV{{CMKABE_INCLUDE_DIRS}} "{os.path.pathsep.join(self.enum_prefix_subdirs_of("include", cmake=True))}")'
+            cmk_lst_esc(
+                f'"CMKABE_PREFIX_SUBDIRS={os.path.pathsep.join(self.target_prefix_subdirs)}"'
+            )
         )
+        lines.append(
+            cmk_lst_esc(
+                f'"CMKABE_BIN_DIRS={os.path.pathsep.join(self.enum_prefix_subdirs_of("bin", cmake=True))}"'
+            )
+        )
+        lines.append(
+            cmk_lst_esc(
+                f'"CMKABE_LIB_DIRS={os.path.pathsep.join(self.enum_prefix_subdirs_of("lib", cmake=True))}"'
+            )
+        )
+        lines.append(
+            cmk_lst_esc(
+                f'"CMKABE_INCLUDE_DIRS={os.path.pathsep.join(self.enum_prefix_subdirs_of("include", cmake=True))}"'
+            )
+        )
+        lines.append(')')
         lines.append('')
         with open(os.path.join(self.cmake_target_dir, '.environ.cmake'), 'wb') as f:
             f.write('\n'.join(lines).encode('utf-8'))
