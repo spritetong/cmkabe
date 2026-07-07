@@ -25,23 +25,25 @@ if(NOT DEFINED TARGET_CMAKE_DIR)
 endif()
 
 # `HOST_TARGET`
-set(DOT_HOST_CMAKE "${TARGET_CMAKE_DIR}/${CMAKE_HOST_SYSTEM_NAME}/.host.cmake")
-if(NOT EXISTS "${DOT_HOST_CMAKE}")
+set(CMKABE_DOT_HOST "${TARGET_CMAKE_DIR}/${CMAKE_HOST_SYSTEM_NAME}/.host.cmake")
+if(NOT EXISTS "${CMKABE_DOT_HOST}")
     _cmkabe_build_make_deps()
 endif()
-include("${DOT_HOST_CMAKE}")
+include("${CMKABE_DOT_HOST}")
 
 # Target and toolchain definitions.
 if("${TARGET}" MATCHES "^(|native)$")
-    set(DOT_TARGET_DIR "${TARGET_CMAKE_DIR}/${CMAKE_HOST_SYSTEM_NAME}/native")
+    set(_X_DOT_TARGET_DIR "${TARGET_CMAKE_DIR}/${CMAKE_HOST_SYSTEM_NAME}/native")
 else()
-    set(DOT_TARGET_DIR "${TARGET_CMAKE_DIR}/${CMAKE_HOST_SYSTEM_NAME}/${TARGET}")
+    set(_X_DOT_TARGET_DIR "${TARGET_CMAKE_DIR}/${CMAKE_HOST_SYSTEM_NAME}/${TARGET}")
 endif()
-if(NOT EXISTS "${DOT_TARGET_DIR}/.settings.cmake")
+set(CMKABE_DOT_SETTINGS "${_X_DOT_TARGET_DIR}/.settings.cmake")
+set(CMKABE_DOT_ENVIRON "${_X_DOT_TARGET_DIR}/.environ.cmake")
+if(NOT EXISTS "${CMKABE_DOT_SETTINGS}")
     _cmkabe_build_make_deps()
 endif()
-include("${DOT_TARGET_DIR}/.settings.cmake")
-include("${DOT_TARGET_DIR}/.environ.cmake")
+include("${CMKABE_DOT_SETTINGS}")
+include("${CMKABE_DOT_ENVIRON}")
 
 # Update `CMKABE_TARGET` 
 if(NOT TARGET_IS_NATIVE)
