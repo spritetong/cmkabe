@@ -136,11 +136,6 @@ pub const ZigArgFilter = struct {
             map.initFilter("--help").replaceWith(&.{"-help"}).done();
             map.initFilter("-v").replaceWith(&.{"--version"}).done();
         }
-        if (utils.getEnvVar(ctx.environ_map, "ZIG_WRAPPER_FILTERS")) |env_filters| {
-            map.parseAndApplyEnvFilters(ctx, env_filters) catch |err| {
-                std.debug.print("Failed to parse ZIG_WRAPPER_FILTERS: {}\n", .{err});
-            };
-        }
     }
 
     pub fn isWeakLib(ctx: *ZigWrapper, lib: []const u8) bool {
@@ -272,7 +267,7 @@ pub const ZigArgFilterMap = struct {
         self.map.deinit(self.allocator);
     }
 
-    pub fn parseAndApplyEnvFilters(self: *Self, _: *ZigWrapper, env_val: []const u8) !void {
+    pub fn parseAndApply(self: *Self, _: *ZigWrapper, env_val: []const u8) !void {
         var rule_it = std.mem.tokenizeSequence(u8, env_val, ";");
         while (rule_it.next()) |rule| {
             const rule_trimmed = std.mem.trim(u8, rule, " \t\r\n");

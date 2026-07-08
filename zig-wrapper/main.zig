@@ -238,6 +238,11 @@ pub const ZigWrapper = struct {
             utils.reFindString("-gnu[-.]", self.clang_target.?) != null;
 
         ZigArgFilter.initFilterMap(&self, &self.arg_filter);
+        if (utils.getEnvVar(self.environ_map, "ZIG_WRAPPER_FILTERS")) |env_filters| {
+            self.arg_filter.parseAndApply(self, env_filters) catch |err| {
+                std.debug.print("Failed to parse ZIG_WRAPPER_FILTERS: {}\n", .{err});
+            };
+        }
         return self;
     }
 
@@ -695,6 +700,11 @@ pub const ZigWrapper = struct {
                         }
                     }
                 }
+            } else if (parser.parseNamed(&.{"--arg-filter"}, true)) {
+                consume_parsed = true;
+                self.arg_filter.parseAndApply(self, parser.value) catch |err| {
+                    std.debug.print("Failed to parse --arg-filter: {}\n", .{err});
+                };
             } else if (parser.parseNamed(&.{"--allow-target-env-flags"}, false)) {
                 consume_parsed = true;
                 self.allow_target_env_flags = true;
@@ -779,9 +789,7 @@ pub const ZigWrapper = struct {
 
         // `-Wl,<linker flags>`
         if (self.is_linker and utils.strStartsWith(arg, "-Wl,")) {
-            const buf = arg[4..];
-
-            var parts = std.mem.splitAny(u8, buf, ",");
+            var parts = std.mem.splitAny(u8, arg[4..], ",");
             while (parts.next()) |flag| {
                 if (flag.len == 0) continue;
                 if (utils.strEndsWith(flag, ".def")) {
@@ -799,6 +807,22 @@ pub const ZigWrapper = struct {
                 } else {
                     // Pass other flags as -Wl,<flag>
                     try utils.allocPrintAndAppend(dest, self.allocator, "-Wl,{s}", .{flag});
+                }
+            }
+            return;
+        }
+
+        // `-Wp,<preprocessor flags>`
+        if (self.command.isCompiler() and utils.strStartsWith(arg, "-Wp,")) {
+            var parts = std.mem.splitAny(u8, arg[4..], ",");
+            while (parts.next()) |flag| {
+                if (flag.len == 0) continue;
+                if (utils.strStartsWith(flag, "-D") or utils.strStartsWith(flag, "-U")) {
+                    // `-D<macro>`, `-U<macro>`
+                    try utils.allocPrintAndAppend(dest, self.allocator, flag);
+                } else {
+                    // Pass other flags as -Wp,<flag>
+                    try utils.allocPrintAndAppend(dest, self.allocator, "-Wp,{s}", .{flag});
                 }
             }
             return;
