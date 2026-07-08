@@ -70,6 +70,10 @@ if(NOT CMAKE_HOST_SYSTEM_PROCESSOR)
     endif()
 endif()
 
+# Internal flags
+set(_CMKABE_EXTRA_FLAGS_APPLIED OFF)
+set(_CMKABE_ALLOW_SET_ROOT_PATH OFF)
+
 # ==============================================================================
 # = String Utilities
 # ==============================================================================
@@ -407,6 +411,11 @@ endfunction()
 
 # Apply extra flags for cross compilation or specific compiler environments.
 function(_cmkabe_apply_extra_flags)
+    if(_CMKABE_EXTRA_FLAGS_APPLIED)
+        return()
+    endif()
+    set(_CMKABE_EXTRA_FLAGS_APPLIED ON PARENT_SCOPE)
+
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS}")
@@ -463,7 +472,9 @@ function(_cmkabe_apply_extra_flags)
     set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS}" PARENT_SCOPE)
     set(CMAKE_PREFIX_PATH "${CMAKE_PREFIX_PATH}" PARENT_SCOPE)
 
-    if(TARGET_IS_CROSS_COMPILING AND NOT (MSVC OR TARGET_IS_MSVC))
+    if(_CMKABE_ALLOW_SET_ROOT_PATH)
+        set(CMAKE_FIND_USE_CMAKE_SYSTEM_PATH OFF PARENT_SCOPE)
+
         # Specify the installation root directory of your own compiled third-party dependencies
         if(TARGET_PREFIX_SUBDIRS)
             list(GET TARGET_PREFIX_SUBDIRS 0 root_path)
