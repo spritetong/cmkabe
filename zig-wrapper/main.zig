@@ -239,7 +239,7 @@ pub const ZigWrapper = struct {
 
         ZigArgFilter.initFilterMap(&self, &self.arg_filter);
         if (utils.getEnvVar(self.environ_map, "ZIG_WRAPPER_FILTERS")) |env_filters| {
-            self.arg_filter.parseAndApply(self, env_filters) catch |err| {
+            self.arg_filter.parseAndApply(&self, env_filters) catch |err| {
                 std.debug.print("Failed to parse ZIG_WRAPPER_FILTERS: {}\n", .{err});
             };
         }
@@ -819,7 +819,7 @@ pub const ZigWrapper = struct {
                 if (flag.len == 0) continue;
                 if (utils.strStartsWith(flag, "-D") or utils.strStartsWith(flag, "-U")) {
                     // `-D<macro>`, `-U<macro>`
-                    try utils.allocPrintAndAppend(dest, self.allocator, flag);
+                    try utils.dupeAndAppend(u8, dest, self.allocator, flag);
                 } else {
                     // Pass other flags as -Wp,<flag>
                     try utils.allocPrintAndAppend(dest, self.allocator, "-Wp,{s}", .{flag});
