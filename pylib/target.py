@@ -1162,7 +1162,7 @@ class TargetParser:
 
         # For CMAKE list, escape semicolon.
         def cmk_lst_esc(value):
-            return value.replace(';', '\\;').replace(
+            return value.replace(';', '$<SEMICOLON>').replace(
                 '${CMAKE_BINARY_DIR}', '${CMKABE_CMAKE_BUILD_DIR}'
             )
 
