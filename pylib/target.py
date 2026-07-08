@@ -727,6 +727,9 @@ class TargetParser:
 
         lines.append('# Target related conditions')
         lines.append(f'override TARGET_IS_NATIVE = {onoff(self.target_is_native)}')
+        lines.append(
+            f'override TARGET_IS_CROSS_COMPILING = {onoff(self.is_cross_compiling)}'
+        )
         lines.append(f'override TARGET_IS_RUNNABLE = {onoff(self.target_is_runnable)}')
         lines.append(f'override TARGET_IS_WIN32 = {onoff(self.win32)}')
         lines.append(f'override TARGET_IS_MSVC = {onoff(self.msvc)}')
@@ -853,12 +856,9 @@ class TargetParser:
         lines.append('')
 
         lines.append('# Target related conditions')
-        lines.append(
-            f'set(TARGET_IS_NATIVE {onoff(self.target_is_native)})',
-        )
-        lines.append(
-            f'set(TARGET_IS_RUNNABLE {onoff(self.target_is_runnable)})',
-        )
+        lines.append(f'set(TARGET_IS_NATIVE {onoff(self.target_is_native)})')
+        lines.append(f'set(TARGET_IS_CROSS_COMPILING {onoff(self.is_cross_compiling)})')
+        lines.append(f'set(TARGET_IS_RUNNABLE {onoff(self.target_is_runnable)})')
         lines.append(f'set(TARGET_IS_WIN32 {onoff(self.win32)})')
         lines.append(f'set(TARGET_IS_MSVC {onoff(self.msvc)})')
         lines.append(f'set(TARGET_IS_ANDROID {onoff(self.android)})')
@@ -1162,7 +1162,7 @@ class TargetParser:
 
         # For CMAKE list, escape semicolon.
         def cmk_lst_esc(value):
-            return value.replace(';', '\\;').replace(
+            return value.replace(';', '$<SEMICOLON>').replace(
                 '${CMAKE_BINARY_DIR}', '${CMKABE_CMAKE_BUILD_DIR}'
             )
 
