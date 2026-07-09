@@ -382,31 +382,12 @@ pub const ZigWrapper = struct {
 
         // Execute the command.
         var exit_code: u8 = 0;
-        var strip_handled = false;
-        if (self.command == .strip) {
-            if (self.strip_input) |input| {
-                for ([_][]const u8{ ".exe", ".dll", ".a", ".lib" }) |ext| {
-                    if (utils.strEndsWithIgnoreCase(input, ext)) {
-                        if (self.strip_output) |output| {
-                            if (!utils.strEql(input, output)) {
-                                const cwd = std.Io.Dir.cwd();
-                                try cwd.copyFile(input, cwd, output, self.io, .{});
-                            }
-                        }
-                        strip_handled = true;
-                        break;
-                    }
-                }
-            }
-        }
-        if (strip_handled) {
-            self.log.printExecResult(exit_code, "", "");
-        } else if (try query_zig_info(self)) |res| {
+        if (try query_zig_info(self)) |res| {
             defer self.allocator.free(res);
             const stdout_file = std.Io.File.stdout();
             try stdout_file.writeStreamingAll(self.io, res);
             self.log.printExecResult(exit_code, res, "");
-        } else if (self.log.enabled()) {
+        } else if (self.log.enabled() or self.command == .strip) {
             const run_res = try std.process.run(self.allocator, self.io, .{
                 .argv = self.args.items,
                 .stderr_limit = std.Io.Limit.limited(1 * 1024 * 1024),
@@ -421,7 +402,9 @@ pub const ZigWrapper = struct {
             };
             const stdout_file = std.Io.File.stdout();
             const stderr_file = std.Io.File.stderr();
-            try stderr_file.writeStreamingAll(self.io, run_res.stderr);
+            if (self.log.enabled()) {
+                try stderr_file.writeStreamingAll(self.io, run_res.stderr);
+            }
             try stdout_file.writeStreamingAll(self.io, run_res.stdout);
             self.log.printExecResult(exit_code, run_res.stdout, run_res.stderr);
         } else {
@@ -437,7 +420,7 @@ pub const ZigWrapper = struct {
                 else => 1,
             };
         }
-        try self.postProcess(exit_code == 0);
+        try self.postProcess(&exit_code);
         if (exit_code != 0) {
             self.log.print("***** error code: {d}\n", .{exit_code});
         }
@@ -1259,7 +1242,8 @@ pub const ZigWrapper = struct {
                         } else {
                             // In-place strip:
                             // Create a temporary file to write the stripped output to
-                            var temp_file = try TempFile.init(self.io, self.allocator, self.environ_map);
+                            const input_dir = std.fs.path.dirname(input) orelse ".";
+                            var temp_file = try TempFile.init(self.io, self.allocator, self.environ_map, input_dir);
                             errdefer temp_file.deinit();
                             temp_file.close(); // Close so that zig objcopy can write to it
 
@@ -1316,7 +1300,7 @@ pub const ZigWrapper = struct {
                 .flags = .{ .truncate = true },
             });
         } else {
-            var flags_file = try TempFile.init(self.io, self.allocator, self.environ_map);
+            var flags_file = try TempFile.init(self.io, self.allocator, self.environ_map, null);
             errdefer flags_file.deinit();
             try flags_file.write(buffer.items);
             flags_file.close();
@@ -1334,7 +1318,8 @@ pub const ZigWrapper = struct {
         try self.args.append(at_file_opt);
     }
 
-    fn postProcess(self: *Self, success: bool) !void {
+    fn postProcess(self: *Self, exit_code: *u8) !void {
+        const success = exit_code.* == 0;
         switch (self.command) {
             .cc, .cxx => {
                 if (success) {
@@ -1372,7 +1357,30 @@ pub const ZigWrapper = struct {
                     if (self.strip_temp_file) |*temp_file| {
                         if (self.strip_input) |input| {
                             const cwd = std.Io.Dir.cwd();
-                            try cwd.copyFile(temp_file.getPath(), cwd, input, self.io, .{});
+                            cwd.deleteFile(self.io, input) catch {};
+                            cwd.rename(temp_file.getPath(), cwd, input, self.io) catch |err| switch (err) {
+                                error.CrossDevice => {
+                                    try cwd.copyFile(temp_file.getPath(), cwd, input, self.io, .{});
+                                    cwd.deleteFile(self.io, temp_file.getPath()) catch {};
+                                },
+                                else => return err,
+                            };
+                        }
+                    }
+                } else {
+                    // Always return 0 to avoid stopping the build process.
+                    exit_code.* = 0;
+                    if (self.strip_temp_file) |*temp_file| {
+                        temp_file.deinit();
+                        self.strip_temp_file = null;
+                    }
+                    if (self.strip_input) |input| {
+                        if (self.strip_output) |output| {
+                            if (!utils.strEql(input, output)) {
+                                const cwd = std.Io.Dir.cwd();
+                                cwd.deleteFile(self.io, output) catch {};
+                                try cwd.copyFile(input, cwd, output, self.io, .{});
+                            }
                         }
                     }
                 }

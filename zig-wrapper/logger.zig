@@ -81,21 +81,24 @@ pub const TempFile = struct {
     _path: std.array_list.Managed(u8),
     pos: u64,
 
-    pub fn init(io: std.Io, a: std.mem.Allocator, env_map: *const std.process.Environ.Map) !Self {
+    pub fn init(io: std.Io, a: std.mem.Allocator, env_map: *const std.process.Environ.Map, opt_dir: ?[]const u8) !Self {
         const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
-        const tmp_dir = try Self.getSysTmpDir(a, env_map);
+        const tmp_dir = if (opt_dir) |dir| try a.dupe(u8, dir) else try Self.getSysTmpDir(a, env_map);
         defer a.free(tmp_dir);
 
         var path = try std.array_list.Managed(u8).initCapacity(a, tmp_dir.len + 32);
         errdefer path.deinit();
         path.appendSlice(tmp_dir) catch unreachable;
-        path.append(std.fs.path.sep) catch unreachable;
-        path.appendSlice("zig-wrapper") catch unreachable;
 
-        // Create the `zig-wrapper` directory in the `tmp` dir.
         const cwd = std.Io.Dir.cwd();
-        try cwd.createDirPath(io, path.items);
+        if (opt_dir == null) {
+            path.append(std.fs.path.sep) catch unreachable;
+            path.appendSlice("zig-wrapper") catch unreachable;
+
+            // Create the `zig-wrapper` directory in the `tmp` dir.
+            try cwd.createDirPath(io, path.items);
+        }
         path.append(std.fs.path.sep) catch unreachable;
         const dir_len = path.items.len;
 
