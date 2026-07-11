@@ -316,3 +316,37 @@ pub fn extractPureTriple(target: []const u8) []const u8 {
     const s = reFindString("^[^.]+", target) orelse return "";
     return reFindString("^.*android[a-z]*", s) orelse s;
 }
+
+pub fn reReplace(
+    allocator: std.mem.Allocator,
+    haystack: []const u8,
+    pattern: []const u8,
+    replacement: []const u8,
+) ![]const u8 {
+    const regex = mvzr.Regex.compile(pattern) orelse return error.InvalidRegex;
+    var result = std.array_list.Managed(u8).init(allocator);
+    errdefer result.deinit();
+
+    var pos: usize = 0;
+    while (pos <= haystack.len) {
+        if (regex.matchPos(pos, haystack)) |m| {
+            try result.appendSlice(haystack[pos..m.start]);
+            try result.appendSlice(replacement);
+
+            if (m.start == m.end) {
+                if (pos < haystack.len) {
+                    try result.append(haystack[pos]);
+                    pos += 1;
+                } else {
+                    break;
+                }
+            } else {
+                pos = m.end;
+            }
+        } else {
+            try result.appendSlice(haystack[pos..]);
+            break;
+        }
+    }
+    return result.toOwnedSlice();
+}
