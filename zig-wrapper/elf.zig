@@ -9,7 +9,7 @@
 //! It is used to remove directory paths from dynamic library dependencies (`DT_NEEDED`)
 //! and RPATH/RUNPATH entries, keeping only the filenames or filtering directory prefixes.
 //!
-//! Ported from `elf_path_fixer.py` to native Zig for performance and dependency reduction.
+//! Ported from `elf.py` to native Zig for performance and dependency reduction.
 
 const std = @import("std");
 const builtin = @import("builtin");

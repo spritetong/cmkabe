@@ -55,10 +55,8 @@ pub const ZigWrapper = struct {
     zig_target: ?[]const u8 = null,
     /// <arch>-<vendor>-<os>-<abi>
     clang_target: ?[]const u8 = null,
-    /// -march=<cpu> or -mcpu=<cpu>
+    /// -march=<cpu> or -mcpu=<cpu> or -mtune=<cpu>
     zig_cpu_opts: StringArray,
-    /// -mtune=<tune>
-    zig_cpu_tune_opts: StringArray,
     /// -l<lib> options not to be passed to the linker.
     skipped_libs: StringSet,
     skipped_lib_patterns: StringArray,
@@ -115,7 +113,6 @@ pub const ZigWrapper = struct {
             .log = log,
             .sys_argv = StringArray.init(allocator_),
             .zig_cpu_opts = StringArray.init(allocator_),
-            .zig_cpu_tune_opts = StringArray.init(allocator_),
             .skipped_libs = .{},
             .skipped_lib_patterns = StringArray.init(allocator_),
             .skipped_lib_paths = .{},
@@ -273,7 +270,6 @@ pub const ZigWrapper = struct {
         utils.freeStringArray(self.allocator, &self.args);
         utils.freeStringArray(self.allocator, &self.sys_argv);
         utils.freeStringArray(self.allocator, &self.zig_cpu_opts);
-        utils.freeStringArray(self.allocator, &self.zig_cpu_tune_opts);
         utils.freeStringSet(self.allocator, &self.skipped_libs);
         utils.freeStringArray(self.allocator, &self.skipped_lib_patterns);
         utils.freeStringSet(self.allocator, &self.skipped_lib_paths);
@@ -289,7 +285,7 @@ pub const ZigWrapper = struct {
         // Zig command
         try utils.dupeAndAppend(u8, &self.args, self.allocator, self.command.toName());
 
-        // `cc`, `c++`: -target <target> [-march=<cpu>] [-mtune=<cpu>]
+        // `cc`, `c++`: -target <target> [-march=<cpu>]
         if (self.command.isCompiler()) blk: {
             // `-target`
             try utils.dupeAndAppend(u8, &self.args, self.allocator, "-target");
@@ -306,7 +302,7 @@ pub const ZigWrapper = struct {
             try utils.dupeAndAppend(u8, &self.args, self.allocator, "-Wno-error=date-time");
 
             if (!self.is_preprocessor) {
-                for (&[_]*StringArray{ &self.zig_cpu_opts, &self.zig_cpu_tune_opts }) |options| {
+                for (&[_]*StringArray{&self.zig_cpu_opts}) |options| {
                     for (options.items) |opt| {
                         // Save the current `args` length
                         const start = self.args.items.len;
@@ -322,7 +318,8 @@ pub const ZigWrapper = struct {
                         //    '_' -> '-' for preprocessor.
                         for (self.args.items[start..]) |item| {
                             const s = @constCast(item[1..]);
-                            _ = std.mem.replace(u8, s, "-", "_", s);
+                            const target = if (std.mem.indexOfScalar(u8, s, '+')) |idx| s[0..idx] else s;
+                            _ = std.mem.replace(u8, target, "-", "_", target);
                         }
                     }
                 }
@@ -634,18 +631,11 @@ pub const ZigWrapper = struct {
                 if (self.zig_target == null) {
                     self.zig_target = try self.allocator.dupe(u8, parser.value);
                 }
-            } else if (parser.parseNamed(&.{ "-march", "-mcpu" }, true)) {
+            } else if (parser.parseNamed(&.{ "-march", "-mcpu", "-mtune" }, true)) {
                 if (self.command.isCompiler()) {
                     consume_parsed = true;
                     for (parser.consumed) |arg| {
                         try utils.dupeAndAppend(u8, &self.zig_cpu_opts, self.allocator, arg);
-                    }
-                }
-            } else if (parser.parseNamed(&.{"-mtune"}, true)) {
-                if (self.command.isCompiler()) {
-                    consume_parsed = true;
-                    for (parser.consumed) |arg| {
-                        try utils.dupeAndAppend(u8, &self.zig_cpu_tune_opts, self.allocator, arg);
                     }
                 }
             } else if (parser.parseNamed(&.{"--zig"}, true)) {
