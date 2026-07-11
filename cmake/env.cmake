@@ -221,7 +221,7 @@ endfunction()
 # On Windows MSVC, add a suffix ".dll.lib" to each item of the dll list.
 function(cmkabe_rust_dlls_for_linker)
     list(POP_FRONT ARGN result)
-    if(not result)
+    if(NOT result)
         message(fatal_error "<result> is missing.")
     endif()
 
@@ -343,21 +343,28 @@ function(cmkabe_add_make_target)
     endif()
 
     list(POP_FRONT args_UNPARSED_ARGUMENTS name)
+
     foreach(arg IN LISTS options)
         if(args_${arg})
             list(APPEND argv "${arg}")
         endif()
     endforeach()
+    if(NOT ("VERBATIM" IN_LIST options))
+        list(APPEND argv "VERBATIM")
+    endif()
+
     foreach(arg IN LISTS one_value_args)
         if(args_${arg})
             list(APPEND argv "${arg}" "${args_${arg}}")
         endif()
     endforeach()
+
     foreach(arg IN LISTS multi_value_args)
         if(args_${arg})
             list(APPEND argv "${arg}" ${args_${arg}})
         endif()
     endforeach()
+
     list(APPEND argv "COMMAND")
     if(CMKABE_ENV_BLOCK OR args_ENVIRONMENT)
         list(APPEND argv "${CMAKE_COMMAND}" "-E" "env" ${CMKABE_ENV_BLOCK} ${args_ENVIRONMENT})

@@ -364,7 +364,7 @@ class ShellCmd:
         try:
             res = os.path.relpath(path, start)
         except (IndexError, ValueError, OSError):
-            res = ''
+            res = path
         print(res.replace('\\', '/'), end='')
         return 0
 
@@ -1232,7 +1232,7 @@ class ShellCmd:
                 'cargo_toml_path', help='Path to Cargo.toml or directory'
             )
             cargo_exec_parser.add_argument(
-                'command', nargs='+', help='Command to execute'
+                'exec_cmd', nargs='+', help='Command to execute'
             )
 
             # 20. upload subparser
@@ -1516,7 +1516,7 @@ class ShellCmd:
             elif cmd == 'cargo-exec':
                 return inst.cargo_exec(
                     cargo_toml_path=namespace.cargo_toml_path,
-                    command=namespace.command,
+                    command=namespace.exec_cmd,
                 )
             elif cmd == 'upload':
                 return inst.upload(

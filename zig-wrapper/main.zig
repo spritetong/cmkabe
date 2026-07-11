@@ -55,10 +55,8 @@ pub const ZigWrapper = struct {
     zig_target: ?[]const u8 = null,
     /// <arch>-<vendor>-<os>-<abi>
     clang_target: ?[]const u8 = null,
-    /// -march=<cpu> or -mcpu=<cpu>
+    /// -march=<cpu> or -mcpu=<cpu> or -mtune=<cpu>
     zig_cpu_opts: StringArray,
-    /// -mtune=<tune>
-    zig_cpu_tune_opts: StringArray,
     /// -l<lib> options not to be passed to the linker.
     skipped_libs: StringSet,
     skipped_lib_patterns: StringArray,
@@ -115,7 +113,6 @@ pub const ZigWrapper = struct {
             .log = log,
             .sys_argv = StringArray.init(allocator_),
             .zig_cpu_opts = StringArray.init(allocator_),
-            .zig_cpu_tune_opts = StringArray.init(allocator_),
             .skipped_libs = .{},
             .skipped_lib_patterns = StringArray.init(allocator_),
             .skipped_lib_paths = .{},
@@ -239,7 +236,7 @@ pub const ZigWrapper = struct {
 
         ZigArgFilter.initFilterMap(&self, &self.arg_filter);
         if (utils.getEnvVar(self.environ_map, "ZIG_WRAPPER_FILTERS")) |env_filters| {
-            self.arg_filter.parseAndApply(self, env_filters) catch |err| {
+            self.arg_filter.parseAndApply(&self, env_filters) catch |err| {
                 std.debug.print("Failed to parse ZIG_WRAPPER_FILTERS: {}\n", .{err});
             };
         }
@@ -273,7 +270,6 @@ pub const ZigWrapper = struct {
         utils.freeStringArray(self.allocator, &self.args);
         utils.freeStringArray(self.allocator, &self.sys_argv);
         utils.freeStringArray(self.allocator, &self.zig_cpu_opts);
-        utils.freeStringArray(self.allocator, &self.zig_cpu_tune_opts);
         utils.freeStringSet(self.allocator, &self.skipped_libs);
         utils.freeStringArray(self.allocator, &self.skipped_lib_patterns);
         utils.freeStringSet(self.allocator, &self.skipped_lib_paths);
@@ -289,7 +285,7 @@ pub const ZigWrapper = struct {
         // Zig command
         try utils.dupeAndAppend(u8, &self.args, self.allocator, self.command.toName());
 
-        // `cc`, `c++`: -target <target> [-march=<cpu>] [-mtune=<cpu>]
+        // `cc`, `c++`: -target <target> [-march=<cpu>]
         if (self.command.isCompiler()) blk: {
             // `-target`
             try utils.dupeAndAppend(u8, &self.args, self.allocator, "-target");
@@ -306,7 +302,7 @@ pub const ZigWrapper = struct {
             try utils.dupeAndAppend(u8, &self.args, self.allocator, "-Wno-error=date-time");
 
             if (!self.is_preprocessor) {
-                for (&[_]*StringArray{ &self.zig_cpu_opts, &self.zig_cpu_tune_opts }) |options| {
+                for (&[_]*StringArray{&self.zig_cpu_opts}) |options| {
                     for (options.items) |opt| {
                         // Save the current `args` length
                         const start = self.args.items.len;
@@ -322,7 +318,8 @@ pub const ZigWrapper = struct {
                         //    '_' -> '-' for preprocessor.
                         for (self.args.items[start..]) |item| {
                             const s = @constCast(item[1..]);
-                            _ = std.mem.replace(u8, s, "-", "_", s);
+                            const target = if (std.mem.indexOfScalar(u8, s, '+')) |idx| s[0..idx] else s;
+                            _ = std.mem.replace(u8, target, "-", "_", target);
                         }
                     }
                 }
@@ -382,31 +379,12 @@ pub const ZigWrapper = struct {
 
         // Execute the command.
         var exit_code: u8 = 0;
-        var strip_handled = false;
-        if (self.command == .strip) {
-            if (self.strip_input) |input| {
-                for ([_][]const u8{ ".exe", ".dll", ".a", ".lib" }) |ext| {
-                    if (utils.strEndsWithIgnoreCase(input, ext)) {
-                        if (self.strip_output) |output| {
-                            if (!utils.strEql(input, output)) {
-                                const cwd = std.Io.Dir.cwd();
-                                try cwd.copyFile(input, cwd, output, self.io, .{});
-                            }
-                        }
-                        strip_handled = true;
-                        break;
-                    }
-                }
-            }
-        }
-        if (strip_handled) {
-            self.log.printExecResult(exit_code, "", "");
-        } else if (try query_zig_info(self)) |res| {
+        if (try query_zig_info(self)) |res| {
             defer self.allocator.free(res);
             const stdout_file = std.Io.File.stdout();
             try stdout_file.writeStreamingAll(self.io, res);
             self.log.printExecResult(exit_code, res, "");
-        } else if (self.log.enabled()) {
+        } else if (self.log.enabled() or self.command == .strip) {
             const run_res = try std.process.run(self.allocator, self.io, .{
                 .argv = self.args.items,
                 .stderr_limit = std.Io.Limit.limited(1 * 1024 * 1024),
@@ -421,7 +399,9 @@ pub const ZigWrapper = struct {
             };
             const stdout_file = std.Io.File.stdout();
             const stderr_file = std.Io.File.stderr();
-            try stderr_file.writeStreamingAll(self.io, run_res.stderr);
+            if (self.log.enabled()) {
+                try stderr_file.writeStreamingAll(self.io, run_res.stderr);
+            }
             try stdout_file.writeStreamingAll(self.io, run_res.stdout);
             self.log.printExecResult(exit_code, run_res.stdout, run_res.stderr);
         } else {
@@ -437,7 +417,7 @@ pub const ZigWrapper = struct {
                 else => 1,
             };
         }
-        try self.postProcess(exit_code == 0);
+        try self.postProcess(&exit_code);
         if (exit_code != 0) {
             self.log.print("***** error code: {d}\n", .{exit_code});
         }
@@ -651,18 +631,11 @@ pub const ZigWrapper = struct {
                 if (self.zig_target == null) {
                     self.zig_target = try self.allocator.dupe(u8, parser.value);
                 }
-            } else if (parser.parseNamed(&.{ "-march", "-mcpu" }, true)) {
+            } else if (parser.parseNamed(&.{ "-march", "-mcpu", "-mtune" }, true)) {
                 if (self.command.isCompiler()) {
                     consume_parsed = true;
                     for (parser.consumed) |arg| {
                         try utils.dupeAndAppend(u8, &self.zig_cpu_opts, self.allocator, arg);
-                    }
-                }
-            } else if (parser.parseNamed(&.{"-mtune"}, true)) {
-                if (self.command.isCompiler()) {
-                    consume_parsed = true;
-                    for (parser.consumed) |arg| {
-                        try utils.dupeAndAppend(u8, &self.zig_cpu_tune_opts, self.allocator, arg);
                     }
                 }
             } else if (parser.parseNamed(&.{"--zig"}, true)) {
@@ -819,7 +792,7 @@ pub const ZigWrapper = struct {
                 if (flag.len == 0) continue;
                 if (utils.strStartsWith(flag, "-D") or utils.strStartsWith(flag, "-U")) {
                     // `-D<macro>`, `-U<macro>`
-                    try utils.allocPrintAndAppend(dest, self.allocator, flag);
+                    try utils.dupeAndAppend(u8, dest, self.allocator, flag);
                 } else {
                     // Pass other flags as -Wp,<flag>
                     try utils.allocPrintAndAppend(dest, self.allocator, "-Wp,{s}", .{flag});
@@ -1259,7 +1232,8 @@ pub const ZigWrapper = struct {
                         } else {
                             // In-place strip:
                             // Create a temporary file to write the stripped output to
-                            var temp_file = try TempFile.init(self.io, self.allocator, self.environ_map);
+                            const input_dir = std.fs.path.dirname(input) orelse ".";
+                            var temp_file = try TempFile.init(self.io, self.allocator, self.environ_map, input_dir);
                             errdefer temp_file.deinit();
                             temp_file.close(); // Close so that zig objcopy can write to it
 
@@ -1316,7 +1290,7 @@ pub const ZigWrapper = struct {
                 .flags = .{ .truncate = true },
             });
         } else {
-            var flags_file = try TempFile.init(self.io, self.allocator, self.environ_map);
+            var flags_file = try TempFile.init(self.io, self.allocator, self.environ_map, null);
             errdefer flags_file.deinit();
             try flags_file.write(buffer.items);
             flags_file.close();
@@ -1334,7 +1308,8 @@ pub const ZigWrapper = struct {
         try self.args.append(at_file_opt);
     }
 
-    fn postProcess(self: *Self, success: bool) !void {
+    fn postProcess(self: *Self, exit_code: *u8) !void {
+        const success = exit_code.* == 0;
         switch (self.command) {
             .cc, .cxx => {
                 if (success) {
@@ -1372,7 +1347,30 @@ pub const ZigWrapper = struct {
                     if (self.strip_temp_file) |*temp_file| {
                         if (self.strip_input) |input| {
                             const cwd = std.Io.Dir.cwd();
-                            try cwd.copyFile(temp_file.getPath(), cwd, input, self.io, .{});
+                            cwd.deleteFile(self.io, input) catch {};
+                            cwd.rename(temp_file.getPath(), cwd, input, self.io) catch |err| switch (err) {
+                                error.CrossDevice => {
+                                    try cwd.copyFile(temp_file.getPath(), cwd, input, self.io, .{});
+                                    cwd.deleteFile(self.io, temp_file.getPath()) catch {};
+                                },
+                                else => return err,
+                            };
+                        }
+                    }
+                } else {
+                    // Always return 0 to avoid stopping the build process.
+                    exit_code.* = 0;
+                    if (self.strip_temp_file) |*temp_file| {
+                        temp_file.deinit();
+                        self.strip_temp_file = null;
+                    }
+                    if (self.strip_input) |input| {
+                        if (self.strip_output) |output| {
+                            if (!utils.strEql(input, output)) {
+                                const cwd = std.Io.Dir.cwd();
+                                cwd.deleteFile(self.io, output) catch {};
+                                try cwd.copyFile(input, cwd, output, self.io, .{});
+                            }
                         }
                     }
                 }
