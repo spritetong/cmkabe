@@ -33,7 +33,7 @@ pub const ZigArgFilter = struct {
 
     pub const ReplaceStep = union(enum) {
         sub_string: struct { []const u8, []const u8 }, // needle, replacement
-        regex: struct { []const u8, []const u8 },      // pattern, replacement
+        regex: struct { []const u8, []const u8 }, // pattern, replacement
     };
 
     pub const Replacer = union(enum) {
@@ -54,6 +54,7 @@ pub const ZigArgFilter = struct {
         "-version",
         "-qversion",
         "-dumpversion",
+        "-?",
     };
     pub const compiler_query_version_opts: []const []const u8 = &.{
         "-V",
@@ -106,6 +107,7 @@ pub const ZigArgFilter = struct {
             // -version
             map.initFilter("-qversion").replaceWith(&.{"-version"}).done();
             map.initFilter("-V").replaceWith(&.{"-version"}).done();
+            map.initFilter("-?").replaceWith(&.{"-version"}).done();
             // -verbose
             map.initFilter("-verbose").replaceWith(&.{"-v"}).done();
             // -Wl,[...]
@@ -123,6 +125,21 @@ pub const ZigArgFilter = struct {
                 .target("x86_64*").match("i386").eof()
                 .target("x86_64*").match("i586").eof()
                 .target("x86_64*").match("i686").done();
+            // Fix `aarch64` architucture
+            map.initFilter("-march")
+                .match("*armv8.5-a*").replaceWithSubString(0, "armv8.5-a", "apple-a14").eof()
+                .match("*armv8.4-a*").replaceWithSubString(0, "armv8.4-a", "apple-a13").eof()
+                .match("*armv8.3-a*").replaceWithSubString(0, "armv8.3-a", "apple-a12").eof()
+                .match("*armv8.2-a*").replaceWithSubString(0, "armv8.2-a", "cortex-a55").eof()
+                .match("*armv8.1-a*").replaceWithSubString(0, "armv8.1-a", "cortex-a53").eof()
+                .match("*armv8.0-a*").replaceWithSubString(0, "armv8.0-a", "cortex-a53").eof()
+                .match("*armv8-a*").replaceWithSubString(0, "armv8-a", "generic").eof()
+                .match("*armv8*").replaceWithSubString(0, "armv8", "generic").eof()
+                .match("*armv9.2-a*").replaceWithSubString(0, "armv9.2-a", "cortex-a725").eof()
+                .match("*armv9.1-a*").replaceWithSubString(0, "armv9.1-a", "cortex-a715").eof()
+                .match("*armv9.0-a*").replaceWithSubString(0, "armv9.0-a", "cortex-a710").eof()
+                .match("*armv9-a*").replaceWithSubString(0, "armv9-a", "cortex-a710").eof()
+                .match("*armv9*").replaceWithSubString(0, "armv9", "cortex-a710").done();
 
             // Windows GNU
             if (ctx.target_is_windows and !ctx.target_is_msvc) {
@@ -668,7 +685,7 @@ test "regex replace and chained replace" {
         var output = StringArray.init(allocator);
         defer utils.freeStringArray(allocator, &output);
 
-        var input = SimpleOptionParser{ .args = &.{ "-march=foo123" } };
+        var input = SimpleOptionParser{ .args = &.{"-march=foo123"} };
         var ctx: ZigWrapper = undefined;
         ctx.allocator = allocator;
         _ = try map.next(&ctx, &input, &output);
@@ -690,7 +707,7 @@ test "regex replace and chained replace" {
         var output = StringArray.init(allocator);
         defer utils.freeStringArray(allocator, &output);
 
-        var input = SimpleOptionParser{ .args = &.{ "-march=abc123abc" } };
+        var input = SimpleOptionParser{ .args = &.{"-march=abc123abc"} };
         _ = try map.next(&ctx, &input, &output);
 
         try std.testing.expectEqual(@as(usize, 1), output.items.len);

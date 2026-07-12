@@ -318,16 +318,11 @@ pub const ZigWrapper = struct {
                 );
 
                 // Fix the Zig CC bug about CPU architecture:
-                //    '-' -> '_' for compiler;
-                //    '_' -> '-' for preprocessor.
+                //    '-' -> '_' for compiler & preprocessor;
                 for (self.args.items[start..]) |item| {
                     const s = @constCast(item[1..]);
                     const target = if (std.mem.indexOfScalar(u8, s, '+')) |idx| s[0..idx] else s;
-                    if (!self.is_preprocessor) {
-                        _ = std.mem.replace(u8, target, "-", "_", target);
-                    } else {
-                        _ = std.mem.replace(u8, target, "_", "-", target);
-                    }
+                    _ = std.mem.replace(u8, target, "-", "_", target);
                 }
             }
 
