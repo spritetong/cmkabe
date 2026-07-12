@@ -95,7 +95,7 @@ cmake_build_target_deps = $(SHLUTIL) build-target-deps \
     TARGET=$(CMKABE_TARGET) \
     TARGET_DIR=$(TARGET_DIR) \
     TARGET_CMAKE_DIR=$(TARGET_CMAKE_DIR) \
-    TARGET_DEPENDENCY_PREFIXES="$(subst $(SPACE),;,$(strip $(TARGET_DEPENDENCY_PREFIXES)))" \
+    TARGET_DEPENDENCY_PREFIXES="$(subst $(SPACE),$(PATHSEP),$(strip $(TARGET_DEPENDENCY_PREFIXES)))" \
     TARGET_CC=$(TARGET_CC) \
     CARGO_TARGET=$(CARGO_TARGET) \
     ZIG_TARGET=$(ZIG_TARGET)
@@ -188,7 +188,7 @@ _X_CMAKE_INIT += -D "WORKSPACE_DIR:FILEPATH=$(WORKSPACE_DIR)"
 _X_CMAKE_INIT += -D "TARGET:STRING=$(CMKABE_TARGET)"
 _X_CMAKE_INIT += -D "TARGET_DIR:FILEPATH=$(TARGET_DIR)"
 _X_CMAKE_INIT += -D "TARGET_CMAKE_DIR:FILEPATH=$(TARGET_CMAKE_DIR)"
-# _X_CMAKE_INIT += -D "TARGET_DEPENDENCY_PREFIXES:STRING=$(subst $(SPACE),;,$(strip $(TARGET_DEPENDENCY_PREFIXES)))"
+# _X_CMAKE_INIT += -D "TARGET_DEPENDENCY_PREFIXES:STRING=$(subst $(SPACE),$(PATHSEP),$(strip $(TARGET_DEPENDENCY_PREFIXES)))"
 _X_CMAKE_INIT += -D "CMAKE_INSTALL_PREFIX=$(TARGET_INSTALL_PREFIX)/$(TARGET)"
 # _X_CMAKE_INIT += -D "TARGET_CC:STRING=$(TARGET_CC)"
 # _X_CMAKE_INIT += -D "CARGO_TARGET:STRING=$(CARGO_TARGET)"
@@ -213,12 +213,12 @@ cmake_init = $(_X_CMAKE_INIT) $(CMAKE_INIT_OPTS)
 
 # cmake_build(<targets:list<str>>)
 cmake_build = cmake --build "$(CMAKE_BUILD_DIR)" \
-    $(addprefix --target ,$(if $(1),$(1),$(subst ;,$(SPACE),$(CMAKE_TARGETS)))) \
+    $(addprefix --target ,$(if $(1),$(1),$(subst $(COMMA),$(SPACE),$(subst ;,$(SPACE),$(CMAKE_TARGETS))))) \
     --config $(CMAKE_BUILD_TYPE) --parallel $(CMAKE_OPTS)
 
 # cmake_install(<components:list<str>>,<target_install_prefix:str>)
 cmake_install = cmake --install "$(CMAKE_BUILD_DIR)" \
-    $(addprefix --component ,$(if $(1),$(1),$(subst ;,$(SPACE),$(CMAKE_COMPONENTS)))) \
+    $(addprefix --component ,$(if $(1),$(1),$(subst $(COMMA),$(SPACE),$(subst ;,$(SPACE),$(CMAKE_COMPONENTS))))) \
     --config $(CMAKE_BUILD_TYPE) \
     --prefix "$(if $(2),$(2),$(TARGET_INSTALL_PREFIX))/$(TARGET)" $(CMAKE_OPTS)
 

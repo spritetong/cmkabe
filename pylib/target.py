@@ -72,7 +72,7 @@ class TargetParser:
         )
         self.target_dependency_prefixes: List[str] = [
             normpath(os.path.abspath(p.strip()))
-            for p in (target_dependency_prefixes or '').replace(';', ' ').split()
+            for p in (target_dependency_prefixes or '').split(os.pathsep)
             if p.strip()
         ]
 
@@ -1057,7 +1057,7 @@ class TargetParser:
         lines.append(f'export CMKABE_TARGET_DIR = {self.target_dir}')
         lines.append(f'export CMKABE_TARGET_CMAKE_DIR = {self.target_cmake_dir}')
         lines.append(
-            f'export CMKABE_TARGET_DEPENDENCY_PREFIXES = {";".join(self.target_dependency_prefixes)}'
+            f'export CMKABE_TARGET_DEPENDENCY_PREFIXES = {os.path.pathsep.join(self.target_dependency_prefixes)}'
         )
         lines.append(f'export CMKABE_TARGET_CC = {self.target_cc}')
         lines.append(f'export CMKABE_CARGO_TARGET = {self.cargo_target}')
@@ -1072,7 +1072,7 @@ class TargetParser:
         lines.append('export CMKABE_CMAKE_BUILD_TYPE := $(CMAKE_BUILD_TYPE)')
         lines.append('export CMKABE_CMAKE_BUILD_DIR := $(CMAKE_BUILD_DIR)')
         lines.append(f'export CMKABE_CARGO_OUT_DIR := {self.cargo_out_dir(make=True)}')
-        lines.append(f'export CMKABE_MAKE_BUILD_VARS = {";".join(_make_build_vars)}')
+        lines.append(f'export CMKABE_MAKE_BUILD_VARS = {",".join(_make_build_vars)}')
         lines.append(
             f'export CMKABE_PREFIX_SUBDIRS := {os.path.pathsep.join(self.target_prefix_subdirs)}'
         )
@@ -1182,7 +1182,7 @@ class TargetParser:
         lines.append(cmk_lst_esc(f'"CMKABE_TARGET_CMAKE_DIR={self.target_cmake_dir}"'))
         lines.append(
             cmk_lst_esc(
-                f'"CMKABE_TARGET_DEPENDENCY_PREFIXES={";".join(self.target_dependency_prefixes)}"'
+                f'"CMKABE_TARGET_DEPENDENCY_PREFIXES={os.path.pathsep.join(self.target_dependency_prefixes)}"'
             )
         )
         lines.append(cmk_lst_esc(f'"CMKABE_TARGET_CC={self.target_cc}"'))
@@ -1205,7 +1205,7 @@ class TargetParser:
             cmk_lst_esc(f'"CMKABE_CARGO_OUT_DIR={self.cargo_out_dir(cmake=True)}"')
         )
         lines.append(
-            cmk_lst_esc(f'"CMKABE_MAKE_BUILD_VARS={";".join(_make_build_vars)}"')
+            cmk_lst_esc(f'"CMKABE_MAKE_BUILD_VARS={",".join(_make_build_vars)}"')
         )
         lines.append(
             cmk_lst_esc(
