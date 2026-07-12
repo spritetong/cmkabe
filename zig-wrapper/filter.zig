@@ -72,17 +72,6 @@ pub const ZigArgFilter = struct {
         "-print-multi-os-directory",
     };
 
-    /// Archs with suffix "-"
-    pub const arch_prefixes: []const []const u8 = &.{
-        "apple-",
-        "cobalt-",
-        "cortex-",
-        "exynos-",
-        "fujitsu-",
-        "neoverse-",
-        "oryon-",
-    };
-
     /// Options to compile source files only and not to run the linker.
     pub const compile_only_opts: []const []const u8 = &.{ "-c", "-E", "-S" };
 
