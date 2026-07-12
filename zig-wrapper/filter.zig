@@ -121,6 +121,8 @@ pub const ZigArgFilter = struct {
             map.initFilter("-?").replaceWith(&.{"-version"}).done();
             // -verbose
             map.initFilter("-verbose").replaceWith(&.{"-v"}).done();
+            // -nologo
+            map.initFilter("-nologo").done();
             // -Wl,[...]
             map.initFilter("-Wl,")
                 .match("-v").eof()
@@ -138,19 +140,19 @@ pub const ZigArgFilter = struct {
                 .target("x86_64*").match("i686").done();
             // Fix `aarch64` architucture
             map.initFilter("-march")
-                .match("*armv8.5-a*").replaceWithSubString(0, "armv8.5-a", "apple-a14").eof()
-                .match("*armv8.4-a*").replaceWithSubString(0, "armv8.4-a", "apple-a13").eof()
-                .match("*armv8.3-a*").replaceWithSubString(0, "armv8.3-a", "apple-a12").eof()
-                .match("*armv8.2-a*").replaceWithSubString(0, "armv8.2-a", "cortex-a55").eof()
-                .match("*armv8.1-a*").replaceWithSubString(0, "armv8.1-a", "cortex-a53").eof()
-                .match("*armv8.0-a*").replaceWithSubString(0, "armv8.0-a", "cortex-a53").eof()
-                .match("*armv8-a*").replaceWithSubString(0, "armv8-a", "generic").eof()
-                .match("*armv8*").replaceWithSubString(0, "armv8", "generic").eof()
-                .match("*armv9.2-a*").replaceWithSubString(0, "armv9.2-a", "cortex-a725").eof()
-                .match("*armv9.1-a*").replaceWithSubString(0, "armv9.1-a", "cortex-a715").eof()
-                .match("*armv9.0-a*").replaceWithSubString(0, "armv9.0-a", "cortex-a710").eof()
-                .match("*armv9-a*").replaceWithSubString(0, "armv9-a", "cortex-a710").eof()
-                .match("*armv9*").replaceWithSubString(0, "armv9", "cortex-a710").done();
+                .match("armv8.5-a*").replaceWithSubString(0, "armv8.5-a", "apple-a14").eof()
+                .match("armv8.4-a*").replaceWithSubString(0, "armv8.4-a", "apple-a13").eof()
+                .match("armv8.3-a*").replaceWithSubString(0, "armv8.3-a", "apple-a12").eof()
+                .match("armv8.2-a*").replaceWithSubString(0, "armv8.2-a", "cortex-a55").eof()
+                .match("armv8.1-a*").replaceWithSubString(0, "armv8.1-a", "cortex-a53").eof()
+                .match("armv8.0-a*").replaceWithSubString(0, "armv8.0-a", "cortex-a53").eof()
+                .match("armv8-a*").replaceWithSubString(0, "armv8-a", "generic").eof()
+                .match("armv8*").replaceWithSubString(0, "armv8", "generic").eof()
+                .match("armv9.2-a*").replaceWithSubString(0, "armv9.2-a", "cortex-a725").eof()
+                .match("armv9.1-a*").replaceWithSubString(0, "armv9.1-a", "cortex-a715").eof()
+                .match("armv9.0-a*").replaceWithSubString(0, "armv9.0-a", "cortex-a710").eof()
+                .match("armv9-a*").replaceWithSubString(0, "armv9-a", "cortex-a710").eof()
+                .match("armv9*").replaceWithSubString(0, "armv9", "cortex-a710").done();
 
             // Windows GNU
             if (ctx.target_is_windows and !ctx.target_is_msvc) {
