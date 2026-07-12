@@ -31,11 +31,20 @@ pub const ZigArgFilter = struct {
         next: void,
     };
 
+    pub const ReplaceStep = union(enum) {
+        sub_string: struct { []const u8, []const u8 }, // needle, replacement
+        regex: struct { []const u8, []const u8 }, // pattern, replacement
+    };
+
     pub const Replacer = union(enum) {
         opt_value: void,
         string: []const u8,
         /// { index, needle, replacement }
         arg_index: struct { usize, []const u8, []const u8 },
+        arg_chained_replace: struct {
+            arg_index: usize,
+            steps: std.array_list.Managed(ReplaceStep),
+        },
     };
 
     /// Options to query the compiler version only.
@@ -45,6 +54,7 @@ pub const ZigArgFilter = struct {
         "-version",
         "-qversion",
         "-dumpversion",
+        "-?",
     };
     pub const compiler_query_version_opts: []const []const u8 = &.{
         "-V",
@@ -97,6 +107,7 @@ pub const ZigArgFilter = struct {
             // -version
             map.initFilter("-qversion").replaceWith(&.{"-version"}).done();
             map.initFilter("-V").replaceWith(&.{"-version"}).done();
+            map.initFilter("-?").replaceWith(&.{"-version"}).done();
             // -verbose
             map.initFilter("-verbose").replaceWith(&.{"-v"}).done();
             // -Wl,[...]
@@ -114,6 +125,21 @@ pub const ZigArgFilter = struct {
                 .target("x86_64*").match("i386").eof()
                 .target("x86_64*").match("i586").eof()
                 .target("x86_64*").match("i686").done();
+            // Fix `aarch64` architucture
+            map.initFilter("-march")
+                .match("*armv8.5-a*").replaceWithSubString(0, "armv8.5-a", "apple-a14").eof()
+                .match("*armv8.4-a*").replaceWithSubString(0, "armv8.4-a", "apple-a13").eof()
+                .match("*armv8.3-a*").replaceWithSubString(0, "armv8.3-a", "apple-a12").eof()
+                .match("*armv8.2-a*").replaceWithSubString(0, "armv8.2-a", "cortex-a55").eof()
+                .match("*armv8.1-a*").replaceWithSubString(0, "armv8.1-a", "cortex-a53").eof()
+                .match("*armv8.0-a*").replaceWithSubString(0, "armv8.0-a", "cortex-a53").eof()
+                .match("*armv8-a*").replaceWithSubString(0, "armv8-a", "generic").eof()
+                .match("*armv8*").replaceWithSubString(0, "armv8", "generic").eof()
+                .match("*armv9.2-a*").replaceWithSubString(0, "armv9.2-a", "cortex-a725").eof()
+                .match("*armv9.1-a*").replaceWithSubString(0, "armv9.1-a", "cortex-a715").eof()
+                .match("*armv9.0-a*").replaceWithSubString(0, "armv9.0-a", "cortex-a710").eof()
+                .match("*armv9-a*").replaceWithSubString(0, "armv9-a", "cortex-a710").eof()
+                .match("*armv9*").replaceWithSubString(0, "armv9", "cortex-a710").done();
 
             // Windows GNU
             if (ctx.target_is_windows and !ctx.target_is_msvc) {
@@ -160,6 +186,14 @@ pub const ZigArgFilter = struct {
 
     pub fn deinit(self: Self) void {
         self.matchers.deinit();
+        for (self.replacers.items) |replacer| {
+            switch (replacer) {
+                .arg_chained_replace => |*chained| {
+                    chained.steps.deinit();
+                },
+                else => {},
+            }
+        }
         self.replacers.deinit();
     }
 
@@ -243,17 +277,50 @@ pub const ZigArgFilter = struct {
         } }) catch unreachable;
         return self;
     }
+
+    pub fn replaceWithChained(self: *Self, arg_index: usize) *Self {
+        const steps = std.array_list.Managed(ReplaceStep).init(self.replacers.allocator);
+        self.replacers.append(.{ .arg_chained_replace = .{
+            .arg_index = arg_index,
+            .steps = steps,
+        } }) catch unreachable;
+        return self;
+    }
+
+    pub fn addRegexStep(self: *Self, pattern: []const u8, replacement: []const u8) *Self {
+        const last = &self.replacers.items[self.replacers.items.len - 1];
+        switch (last.*) {
+            .arg_chained_replace => |*chained| {
+                chained.steps.append(.{ .regex = .{ pattern, replacement } }) catch unreachable;
+            },
+            else => unreachable,
+        }
+        return self;
+    }
+
+    pub fn addSubStringStep(self: *Self, needle: []const u8, replacement: []const u8) *Self {
+        const last = &self.replacers.items[self.replacers.items.len - 1];
+        switch (last.*) {
+            .arg_chained_replace => |*chained| {
+                chained.steps.append(.{ .sub_string = .{ needle, replacement } }) catch unreachable;
+            },
+            else => unreachable,
+        }
+        return self;
+    }
 };
 
 pub const ZigArgFilterMap = struct {
     const Self = @This();
     allocator: std.mem.Allocator,
     map: std.array_hash_map.String(ZigArgFilterArray),
+    allocations: std.array_list.Managed([]const u8),
 
     pub fn init(allocator: std.mem.Allocator) Self {
         return .{
             .allocator = allocator,
             .map = .{},
+            .allocations = std.array_list.Managed([]const u8).init(allocator),
         };
     }
 
@@ -265,6 +332,17 @@ pub const ZigArgFilterMap = struct {
             filters.deinit();
         }
         self.map.deinit(self.allocator);
+        for (self.allocations.items) |slice| {
+            self.allocator.free(slice);
+        }
+        self.allocations.deinit();
+    }
+
+    pub fn dupeAndTrack(self: *Self, string: []const u8) ![]const u8 {
+        const duped = try self.allocator.dupe(u8, string);
+        errdefer self.allocator.free(duped);
+        try self.allocations.append(duped);
+        return duped;
     }
 
     pub fn parseAndApply(self: *Self, _: *ZigWrapper, env_val: []const u8) !void {
@@ -282,7 +360,7 @@ pub const ZigArgFilterMap = struct {
 
             var left_it = std.mem.tokenizeAny(u8, left, " \t");
             const option_token = left_it.next() orelse continue;
-            const duped_option_key = try self.allocator.dupe(u8, option_token);
+            const duped_option_key = try self.dupeAndTrack(option_token);
 
             const filter = self.initFilter(duped_option_key);
             errdefer filter.done();
@@ -306,10 +384,10 @@ pub const ZigArgFilterMap = struct {
                     const is_linker = std.mem.eql(u8, token[7..], "true");
                     _ = filter.linker(is_linker);
                 } else if (std.mem.startsWith(u8, token, "target:")) {
-                    const pattern = try self.allocator.dupe(u8, token[7..]);
+                    const pattern = try self.dupeAndTrack(token[7..]);
                     _ = filter.target(pattern);
                 } else if (std.mem.startsWith(u8, token, "match:")) {
-                    const pattern = try self.allocator.dupe(u8, token[6..]);
+                    const pattern = try self.dupeAndTrack(token[6..]);
                     _ = filter.match(pattern);
                 } else if (std.mem.eql(u8, token, "next")) {
                     _ = filter.next();
@@ -331,11 +409,30 @@ pub const ZigArgFilterMap = struct {
                     const idx = try std.fmt.parseInt(usize, idx_str, 10);
                     _ = filter.replaceWithSubString(
                         idx,
-                        try self.allocator.dupe(u8, needle),
-                        try self.allocator.dupe(u8, replacement),
+                        try self.dupeAndTrack(needle),
+                        try self.dupeAndTrack(replacement),
+                    );
+                } else if (std.mem.startsWith(u8, token, "replace_chain:")) {
+                    const idx = try std.fmt.parseInt(usize, token[14..], 10);
+                    _ = filter.replaceWithChained(idx);
+                } else if (std.mem.startsWith(u8, token, "step_sub:")) {
+                    var sub_it = std.mem.splitScalar(u8, token[9..], ':');
+                    const needle = sub_it.next() orelse return error.InvalidSubst;
+                    const replacement = sub_it.next() orelse return error.InvalidSubst;
+                    _ = filter.addSubStringStep(
+                        try self.dupeAndTrack(needle),
+                        try self.dupeAndTrack(replacement),
+                    );
+                } else if (std.mem.startsWith(u8, token, "step_re:")) {
+                    var re_it = std.mem.splitScalar(u8, token[8..], ':');
+                    const pattern = re_it.next() orelse return error.InvalidSubst;
+                    const replacement = re_it.next() orelse return error.InvalidSubst;
+                    _ = filter.addRegexStep(
+                        try self.dupeAndTrack(pattern),
+                        try self.dupeAndTrack(replacement),
                     );
                 } else {
-                    const duped_token = try self.allocator.dupe(u8, token);
+                    const duped_token = try self.dupeAndTrack(token);
                     try filter.replacers.append(.{ .string = duped_token });
                 }
             }
@@ -512,6 +609,44 @@ pub const ZigArgFilterMap = struct {
                                     try output.append(replaced);
                                 }
                             },
+                            .arg_chained_replace => |chained| {
+                                const arg_index = chained.arg_index;
+                                const s = if (arg_index == 0)
+                                    opt
+                                else if (arg_index <= consumed)
+                                    input.args[arg_index - 1]
+                                else
+                                    continue;
+                                var current_str: []const u8 = try ctx.allocator.dupe(u8, s);
+                                errdefer ctx.allocator.free(current_str);
+
+                                for (chained.steps.items) |step| {
+                                    switch (step) {
+                                        .sub_string => |pair| {
+                                            const next_str = try std.mem.replaceOwned(
+                                                u8,
+                                                ctx.allocator,
+                                                current_str,
+                                                pair[0],
+                                                pair[1],
+                                            );
+                                            ctx.allocator.free(current_str);
+                                            current_str = next_str;
+                                        },
+                                        .regex => |pair| {
+                                            const next_str = try utils.reReplace(
+                                                ctx.allocator,
+                                                current_str,
+                                                pair[0],
+                                                pair[1],
+                                            );
+                                            ctx.allocator.free(current_str);
+                                            current_str = next_str;
+                                        },
+                                    }
+                                }
+                                try output.append(current_str);
+                            },
                         }
                     }
                     // consume the input arguments
@@ -525,3 +660,57 @@ pub const ZigArgFilterMap = struct {
         return;
     }
 };
+
+test "regex replace and chained replace" {
+    const allocator = std.testing.allocator;
+
+    // Test reReplace directly
+    {
+        const result = try utils.reReplace(allocator, "foo123bar456", "[0-9]+", "X");
+        defer allocator.free(result);
+        try std.testing.expectEqualStrings("fooXbarX", result);
+    }
+
+    // Test filter builder and execution with chained replace
+    {
+        var map = ZigArgFilterMap.init(allocator);
+        defer map.deinit();
+
+        var filter = map.initFilter("-march");
+        _ = filter.replaceWithChained(0)
+            .addRegexStep("[0-9]+", "X")
+            .addSubStringStep("foo", "baz");
+        filter.done();
+
+        var output = StringArray.init(allocator);
+        defer utils.freeStringArray(allocator, &output);
+
+        var input = SimpleOptionParser{ .args = &.{"-march=foo123"} };
+        var ctx: ZigWrapper = undefined;
+        ctx.allocator = allocator;
+        _ = try map.next(&ctx, &input, &output);
+
+        try std.testing.expectEqual(@as(usize, 1), output.items.len);
+        try std.testing.expectEqualStrings("-march=bazX", output.items[0]);
+    }
+
+    // Test parseAndApply with chained/regex steps
+    {
+        var map = ZigArgFilterMap.init(allocator);
+        defer map.deinit();
+
+        var ctx: ZigWrapper = undefined;
+        ctx.allocator = allocator;
+
+        try map.parseAndApply(&ctx, "-march -> replace_chain:0 step_re:[0-9]+:Y step_sub:abc:def");
+
+        var output = StringArray.init(allocator);
+        defer utils.freeStringArray(allocator, &output);
+
+        var input = SimpleOptionParser{ .args = &.{"-march=abc123abc"} };
+        _ = try map.next(&ctx, &input, &output);
+
+        try std.testing.expectEqual(@as(usize, 1), output.items.len);
+        try std.testing.expectEqualStrings("-march=defYdef", output.items[0]);
+    }
+}

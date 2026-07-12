@@ -40,6 +40,9 @@ Replacers specify what to emit in place of the matched option.
 | `opt_val` | Emits the value of the option (useful with `partial`). | `opt_val` |
 | `replace_arg:<idx>` | Emits the argument at `<idx>` relative to the option. | `replace_arg:0` |
 | `replace_sub:<idx>:<needle>:<replacement>` | Replaces `<needle>` with `<replacement>` in the argument at `<idx>`. | `replace_sub:0:++:` |
+| `replace_chain:<idx>` | Emits the argument at `<idx>` and initializes a chained replacer. | `replace_chain:0` |
+| `step_sub:<needle>:<replacement>` | Performs a substring replacement on the active chained replacer. | `step_sub:abc:def` |
+| `step_re:<pattern>:<replacement>` | Performs a regex replacement on the active chained replacer. | `step_re:[0-9]+:Y` |
 | `[literal]` | Any other token emits that literal string directly. | `-Wl,--strip-all` |
 
 ---
@@ -194,6 +197,25 @@ Rewrites standard libraries and flags for Windows GCC/MinGW compilers when targe
   ```ini
   -l partial match:mingw32 ->;
   -l partial match:stdc++ -> -lc++ -lc++abi
+  ```
+
+### 2.9 Chained & Regex Replacements
+
+Allows performing multiple replacements (substring and/or regex-based) sequentially on a single argument without modifying the regex engine core.
+
+- **Code (filter.zig)**:
+
+  ```zig
+  // Match "-march" and perform regex replacing numbers with "X", then replacing "foo" with "baz"
+  _ = filter.replaceWithChained(0)
+      .addRegexStep("[0-9]+", "X")
+      .addSubStringStep("foo", "baz");
+  ```
+
+- **DSL Equivalent**:
+
+  ```ini
+  -march -> replace_chain:0 step_re:[0-9]+:X step_sub:foo:baz
   ```
 
 ---
