@@ -348,6 +348,12 @@ pub const ZigWrapper = struct {
                     try utils.dupeAndAppend(u8, &self.args, self.allocator, "-fvisibility-ms-compat");
                     try utils.dupeAndAppend(u8, &self.args, self.allocator, "-Ddllexport=nodebug");
                 }
+
+                if (self.target_is_windows and !self.target_is_msvc) {
+                    for (ZigArgFilter.windows_gnu_builtin_opts) |opt| {
+                        try utils.dupeAndAppend(u8, &self.args, self.allocator, opt);
+                    }
+                }
             }
             if (self.target_is_windows) {
                 // Undefine `_WIN32_WINNT` for Windows targets.

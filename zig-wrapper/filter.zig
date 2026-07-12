@@ -61,6 +61,8 @@ pub const ZigArgFilter = struct {
         "-v",
         "-verbose",
         "--verbose",
+        "-nologo-",
+        "-nologo",
     };
 
     /// Options to search directories
@@ -97,6 +99,9 @@ pub const ZigArgFilter = struct {
         .{"synchronization"},
     });
 
+    /// Fix MSVC-style built-in options in non-MSVC Windows targets
+    pub const windows_gnu_builtin_opts: []const []const u8 = &.{};
+
     pub fn initFilterMap(ctx: *ZigWrapper, map: *ZigArgFilterMap) void {
         if (ctx.command == .cc or ctx.command == .cxx) {
             // Linux system include paths
@@ -115,14 +120,10 @@ pub const ZigArgFilter = struct {
             map.initFilter("-Werror").replaceWithArg(0).replaceWith(&.{"-Wno-error=date-time"}).done();
             // -m <target>, unknown Clang option: '-m'
             map.initFilter("-m").match("*").done();
-            // -version
-            map.initFilter("-qversion").replaceWith(&.{"-version"}).done();
-            map.initFilter("-V").replaceWith(&.{"-version"}).done();
-            map.initFilter("-?").replaceWith(&.{"-version"}).done();
             // -verbose
-            map.initFilter("-verbose").replaceWith(&.{"-v"}).done();
-            // -nologo
-            map.initFilter("-nologo").done();
+            if (ctx.sys_argv_len > 1) {
+                map.initFilter("-verbose").replaceWith(&.{"-v"}).done();
+            }
             // -Wl,[...]
             map.initFilter("-Wl,")
                 .match("-v").eof()
@@ -166,10 +167,18 @@ pub const ZigArgFilter = struct {
                     .match("mingw64").eof()
                     .match("mingwex").eof()
                     .match("stdc++").replaceWith(&.{ "-lc++", "-lc++abi" }).done();
+
                 // Fix LTO link errors from ZIG 0.16+
                 if (ctx.is_linker) {
                     map.initFilter("-flto").done();
                 }
+            }
+
+            // zig: warning: argument unused during preprocessing
+            if (ctx.is_preprocessor) {
+                map.initFilter("-fms-compatibility-version").done();
+                map.initFilter("-fno-sanitize").done();
+                map.initFilter("-fvisibility-ms-compat").done();
             }
         } else if (ctx.command == .link) {
             map.initFilter("--help").replaceWith(&.{"-help"}).done();
