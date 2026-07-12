@@ -56,7 +56,7 @@ pub const ZigWrapper = struct {
     /// <arch>-<vendor>-<os>-<abi>
     clang_target: ?[]const u8 = null,
     /// -march=<cpu> or -mcpu=<cpu> or -mtune=<cpu>
-    zig_cpu_opts: StringArray,
+    zig_arch: ?[]const u8 = null,
     /// -l<lib> options not to be passed to the linker.
     skipped_libs: StringSet,
     skipped_lib_patterns: StringArray,
@@ -112,7 +112,6 @@ pub const ZigWrapper = struct {
             .environ_map = environ_map_,
             .log = log,
             .sys_argv = StringArray.init(allocator_),
-            .zig_cpu_opts = StringArray.init(allocator_),
             .skipped_libs = .{},
             .skipped_lib_patterns = StringArray.init(allocator_),
             .skipped_lib_paths = .{},
@@ -121,33 +120,35 @@ pub const ZigWrapper = struct {
         };
         errdefer self.deinit();
 
-        // Collect `argv[0..]`...
+        // Collect `argv[1..]`...
         var argv = StringArray.init(self.allocator);
         defer utils.freeStringArray(self.allocator, &argv);
-
-        var arg_iter = try proc_init.minimal.args.iterateAllocator(self.allocator);
-        defer arg_iter.deinit();
-        if (arg_iter.next()) |argv0| {
-            self.sys_argv0 = try self.allocator.dupe(u8, argv0);
-        }
-        while (arg_iter.next()) |arg| {
-            if (utils.strStartsWith(arg, "@")) {
-                // Parse the flags file.
-                if (self.parseFileFlags(arg[1..], &argv, 0)) |_| {
-                    if (utils.strTake(&self.at_file_opt)) |v| self.allocator.free(v);
-                    self.at_file_opt = try self.allocator.dupe(u8, arg);
-                    continue;
-                } else |_| {
-                    // Fallback: treat as a literal argument
+        {
+            var arg_iter = try proc_init.minimal.args.iterateAllocator(self.allocator);
+            defer arg_iter.deinit();
+            if (arg_iter.next()) |argv0| {
+                // `argv[0]`
+                self.sys_argv0 = try self.allocator.dupe(u8, argv0);
+            }
+            while (arg_iter.next()) |arg| {
+                if (utils.strStartsWith(arg, "@")) {
+                    // Parse the flags file.
+                    if (self.parseFileFlags(arg[1..], &argv, 0)) |_| {
+                        if (utils.strTake(&self.at_file_opt)) |v| self.allocator.free(v);
+                        self.at_file_opt = try self.allocator.dupe(u8, arg);
+                        continue;
+                    } else |_| {
+                        // Fallback: treat as a literal argument
+                    }
                 }
-            }
 
-            // If the flags file is not the last argument, ignore it.
-            if (self.at_file_opt) |v| {
-                self.allocator.free(v);
-                self.at_file_opt = null;
+                // If the flags file is not the last argument, ignore it.
+                if (self.at_file_opt) |v| {
+                    self.allocator.free(v);
+                    self.at_file_opt = null;
+                }
+                try utils.dupeAndAppend(u8, &argv, self.allocator, arg);
             }
-            try utils.dupeAndAppend(u8, &argv, self.allocator, arg);
         }
 
         // Write the input command line to log.
@@ -172,6 +173,19 @@ pub const ZigWrapper = struct {
         self.zig_exe = utils.dupeEnvVar(self.environ_map, self.allocator, "ZIG_EXECUTABLE");
         self.zig_target = utils.dupeEnvVar(self.environ_map, self.allocator, "ZIG_WRAPPER_TARGET");
         self.clang_target = utils.dupeEnvVar(self.environ_map, self.allocator, "ZIG_WRAPPER_CLANG_TARGET");
+        self.zig_arch = utils.dupeEnvVar(self.environ_map, self.allocator, "ZIG_WRAPPER_ARCH");
+
+        // Parse Zig flags in the environment variables.
+        {
+            var env_flags = try self.parseEnvFlags();
+            defer utils.freeStringArray(self.allocator, &env_flags);
+            if (!utils.stringsContains(argv.items, env_flags.items)) {
+                // Keep `env_flags` ahead of `argv`.
+                try env_flags.appendSlice(argv.items);
+                std.mem.swap(StringArray, &env_flags, &argv);
+                env_flags.clearRetainingCapacity();
+            }
+        }
 
         // Parse Zig flags in `argv[1..]`.
         try self.sys_argv.ensureUnusedCapacity(argv.items.len);
@@ -187,14 +201,6 @@ pub const ZigWrapper = struct {
                 self.command = .cc;
             }
         }
-
-        // Parse Zig flags in the environment variables.
-        try self.parseEnvFlags(&argv);
-        for (argv.items) |arg| {
-            try utils.dupeAndAppend(u8, &self.sys_argv, self.allocator, arg);
-        }
-        utils.freeStringArray(self.allocator, &argv);
-        argv = StringArray.init(self.allocator);
 
         // Set default values.
         if (self.zig_exe == null) {
@@ -252,6 +258,7 @@ pub const ZigWrapper = struct {
         if (self.zig_exe) |v| self.allocator.free(v);
         if (self.zig_target) |v| self.allocator.free(v);
         if (self.clang_target) |v| self.allocator.free(v);
+        if (self.zig_arch) |v| self.allocator.free(v);
         if (self.at_file_opt) |v| self.allocator.free(v);
         if (self.windres_input) |v| self.allocator.free(v);
         if (self.windres_output) |v| self.allocator.free(v);
@@ -269,7 +276,6 @@ pub const ZigWrapper = struct {
 
         utils.freeStringArray(self.allocator, &self.args);
         utils.freeStringArray(self.allocator, &self.sys_argv);
-        utils.freeStringArray(self.allocator, &self.zig_cpu_opts);
         utils.freeStringSet(self.allocator, &self.skipped_libs);
         utils.freeStringArray(self.allocator, &self.skipped_lib_patterns);
         utils.freeStringSet(self.allocator, &self.skipped_lib_paths);
@@ -298,32 +304,37 @@ pub const ZigWrapper = struct {
                 if (self.is_quering_zig_info()) break :blk;
             }
 
+            // `-march=`
+            if (self.zig_arch) |arch| {
+                // Save the current `args` length
+                const start = self.args.items.len;
+
+                const opt = try std.fmt.allocPrint(self.allocator, "-march={s}", .{arch});
+                defer self.allocator.free(opt);
+                _ = try self.arg_filter.next(
+                    self,
+                    @constCast(&SimpleOptionParser{ .args = &.{opt} }),
+                    &self.args,
+                );
+
+                // Fix the Zig CC bug about CPU architecture:
+                //    '-' -> '_' for compiler;
+                //    '_' -> '-' for preprocessor.
+                for (self.args.items[start..]) |item| {
+                    const s = @constCast(item[1..]);
+                    const target = if (std.mem.indexOfScalar(u8, s, '+')) |idx| s[0..idx] else s;
+                    if (!self.is_preprocessor) {
+                        _ = std.mem.replace(u8, target, "-", "_", target);
+                    } else {
+                        _ = std.mem.replace(u8, target, "_", "-", target);
+                    }
+                }
+            }
+
             // Disable 'date-time' error by default.
             try utils.dupeAndAppend(u8, &self.args, self.allocator, "-Wno-error=date-time");
 
             if (!self.is_preprocessor) {
-                for (&[_]*StringArray{&self.zig_cpu_opts}) |options| {
-                    for (options.items) |opt| {
-                        // Save the current `args` length
-                        const start = self.args.items.len;
-
-                        _ = try self.arg_filter.next(
-                            self,
-                            @constCast(&SimpleOptionParser{ .args = &.{opt} }),
-                            &self.args,
-                        );
-
-                        // Fix the Zig CC bug about CPU architecture:
-                        //    '-' -> '_' for compiler;
-                        //    '_' -> '-' for preprocessor.
-                        for (self.args.items[start..]) |item| {
-                            const s = @constCast(item[1..]);
-                            const target = if (std.mem.indexOfScalar(u8, s, '+')) |idx| s[0..idx] else s;
-                            _ = std.mem.replace(u8, target, "-", "_", target);
-                        }
-                    }
-                }
-
                 // https://github.com/ziglang/zig/wiki/FAQ#why-do-i-get-illegal-instruction-when-using-with-zig-cc-to-build-c-code
                 try utils.dupeAndAppend(u8, &self.args, self.allocator, "-fno-sanitize=undefined");
 
@@ -487,10 +498,10 @@ pub const ZigWrapper = struct {
         }
     }
 
-    fn parseEnvFlags(self: *Self, dest: *StringArray) !void {
+    fn parseEnvFlags(self: *Self) !StringArray {
         // Do not use environment variables if we are querying Zig info
         if (self.is_quering_zig_info()) {
-            return;
+            return StringArray.init(self.allocator);
         }
 
         const buf = try self.allocator.alloc(u8, 32 + @max(
@@ -500,7 +511,7 @@ pub const ZigWrapper = struct {
         defer self.allocator.free(buf);
 
         var args = StringArray.init(self.allocator);
-        defer utils.freeStringArray(self.allocator, &args);
+        errdefer utils.freeStringArray(self.allocator, &args);
         var tmp = StringArray.init(self.allocator);
         defer utils.freeStringArray(self.allocator, &tmp);
 
@@ -561,27 +572,18 @@ pub const ZigWrapper = struct {
                         // Do not append the same flags.
                         if (!utils.stringsContains(args.items, tmp.items)) {
                             try args.appendSlice(tmp.items);
-                            tmp.clearRetainingCapacity();
                         } else {
                             for (tmp.items) |item| {
                                 self.allocator.free(item);
                             }
-                            tmp.clearRetainingCapacity();
                         }
+                        tmp.clearRetainingCapacity();
                     }
                 }
             }
         }
 
-        if (!utils.stringsContains(dest.items, args.items)) {
-            try dest.appendSlice(args.items);
-            args.clearRetainingCapacity();
-        } else {
-            for (args.items) |item| {
-                self.allocator.free(item);
-            }
-            args.clearRetainingCapacity();
-        }
+        return args;
     }
 
     fn parseCustomArgs(self: *Self, args: []const []const u8, dest: *StringArray) !void {
@@ -632,12 +634,9 @@ pub const ZigWrapper = struct {
                     self.zig_target = try self.allocator.dupe(u8, parser.value);
                 }
             } else if (parser.parseNamed(&.{ "-march", "-mcpu", "-mtune" }, true)) {
-                if (self.command.isCompiler()) {
-                    consume_parsed = true;
-                    for (parser.consumed) |arg| {
-                        try utils.dupeAndAppend(u8, &self.zig_cpu_opts, self.allocator, arg);
-                    }
-                }
+                consume_parsed = true;
+                if (utils.strTake(&self.zig_arch)) |v| self.allocator.free(v);
+                self.zig_arch = try self.allocator.dupe(u8, parser.value);
             } else if (parser.parseNamed(&.{"--zig"}, true)) {
                 consume_parsed = true;
                 if (utils.strTake(&self.zig_exe)) |v| self.allocator.free(v);
