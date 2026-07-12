@@ -28,8 +28,12 @@ pub const ZigWrapper = struct {
     allocator: std.mem.Allocator,
     environ_map: *std.process.Environ.Map,
     log: ZigLog,
+    /// argv[0]
     sys_argv0: ?[]const u8 = null,
+    /// argv[1..], parsed
     sys_argv: StringArray,
+    /// argv.len - 1
+    sys_argv_len: usize = 0,
     zig_exe: ?[]const u8 = null,
 
     /// The current Zig command.
@@ -130,7 +134,9 @@ pub const ZigWrapper = struct {
                 // `argv[0]`
                 self.sys_argv0 = try self.allocator.dupe(u8, argv0);
             }
+            self.sys_argv_len = 0;
             while (arg_iter.next()) |arg| {
+                self.sys_argv_len += 1;
                 if (utils.strStartsWith(arg, "@")) {
                     // Parse the flags file.
                     if (self.parseFileFlags(arg[1..], &argv, 0)) |_| {
@@ -600,7 +606,7 @@ pub const ZigWrapper = struct {
                 self.is_quering_version = true;
                 self.is_linker = false;
             } else if (parser.parseNamed(ZigArgFilter.compiler_query_version_opts, false)) {
-                if (args.len == 1) {
+                if (self.sys_argv_len == 1) {
                     self.is_quering_version = true;
                     self.is_linker = false;
                 }
