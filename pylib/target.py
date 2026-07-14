@@ -1083,7 +1083,7 @@ class TargetParser:
             f'export CMKABE_LIB_DIRS := {os.path.pathsep.join(self.enum_prefix_subdirs_of("lib", make=True))}'
         )
         lines.append(
-            f'export CMKABE_INCLUDE_DIRS = {os.path.pathsep.join(self.enum_prefix_subdirs_of("include", make=True))}'
+            f'export CMKABE_INCLUDE_DIRS := {os.path.pathsep.join(self.enum_prefix_subdirs_of("include", make=True))}'
         )
         lines.append('')
         lines.append('# export CMKABE_COMPLETED_PROJECTS which is from command line.')

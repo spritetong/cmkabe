@@ -109,15 +109,10 @@ pub const ZigArgFilter = struct {
             map.initFilter("-Werror").replaceWithArg(0).replaceWith(&.{"-Wno-error=date-time"}).done();
             // -m <target>, unknown Clang option: '-m'
             map.initFilter("-m").match("*").done();
-            // -verbose
-            if (ctx.sys_argv_len > 1) {
-                map.initFilter("-verbose").replaceWith(&.{"-v"}).done();
-            }
             // -Wl,[...]
             map.initFilter("-Wl,")
                 .match("-v").eof()
                 .match("-x").replaceWith(&.{"-Wl,--strip-all"}).done();
-            map.initFilter("-v").linker(true).done();
             // OpenMP
             map.initFilter("-fopenmp=libomp").linker(true).replaceWithArg(0).replaceWith(&.{"-lomp"}).done();
             // Autoconfig

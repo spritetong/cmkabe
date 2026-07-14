@@ -17,7 +17,7 @@ ifndef WORKSPACE_DIR
     $(error WORKSPACE_DIR is not defined)
 endif
 
-CMKABE_CLEAN_GOALS += cmake-clean-all cmake-clean cmake-distclean cmake-clean-output
+CMKABE_CLEAN_GOALS += cmake-clean-all cmake-clean cmake-distclean cmake-clean-output cmake-purge-deps
 CMKABE_CLEAN_GOALS += zig-patch zig-clean-cache
 
 CMKABE_IS_CLEANING := $(if $(filter $(CMKABE_CLEAN_GOALS),$(MAKECMDGOALS)),ON,OFF)
@@ -29,12 +29,13 @@ ifeq ($(CMKABE_IS_CLEANING),ON)
 endif
 
 # Set a sentinel goal to force CMake initialization when `cmake-init` is specified.
-ifneq ($(filter cmake-init,$(MAKECMDGOALS)),)
-    _X_CMAKE_FORCE_INIT = _x_cmake_force_init_goal
-    .PHONY: _x_cmake_force_init_goal
-    _x_cmake_force_init_goal: ;
-else
-    _X_CMAKE_FORCE_INIT =
+_X_CMAKE_FORCE_INIT =
+ifeq ($(MAKE_RESTARTS),)
+    ifneq ($(filter cmake-init,$(MAKECMDGOALS)),)
+        _X_CMAKE_FORCE_INIT = _x_cmake_force_init_goal
+        .PHONY: _x_cmake_force_init_goal
+        _x_cmake_force_init_goal: ;
+    endif
 endif
 
 _x_saved_default_goal := $(.DEFAULT_GOAL)
@@ -138,14 +139,16 @@ endif
 
 # Auto rebuild dependencies.
 ifeq ($(CMKABE_IS_CLEANING),OFF)
-    _X_DOT_SETTINGS_DEPS += $(wildcard $(CMKABE_HOME)/cmake/*.cmake)
-    _X_DOT_SETTINGS_DEPS += $(wildcard $(CMKABE_HOME)/mk/*.mk)
-    _X_DOT_SETTINGS_DEPS += $(wildcard $(CMKABE_HOME)/pylib/*.py)
-    _X_DOT_SETTINGS_DEPS += $(wildcard $(CMKABE_HOME)/zig-wrapper/*.zig)
-    _X_DOT_SETTINGS_DEPS += $(filter-out $(subst \,/,$(TARGET_CMAKE_DIR))/%,$(subst \,/,$(MAKEFILE_LIST)))
+    _X_DOT_SETTING_DEPS += $(wildcard $(CMKABE_HOME)/cmake/*.cmake)
+    _X_DOT_SETTING_DEPS += $(wildcard $(CMKABE_HOME)/mk/*.mk)
+    _X_DOT_SETTING_DEPS += $(wildcard $(CMKABE_HOME)/pylib/*.py)
+    _X_DOT_SETTING_DEPS += $(wildcard $(CMKABE_HOME)/zig-wrapper/*.zig)
+    _X_DOT_SETTING_DEPS += $(filter-out $(subst \,/,$(TARGET_CMAKE_DIR))/%,$(subst \,/,$(MAKEFILE_LIST)))
     $(_X_DOT_ENVIRON_MK): $(_X_DOT_SETTINGS_MK) ;
-    $(_X_DOT_SETTINGS_MK): $(_X_DOT_SETTINGS_DEPS) $(_X_CMAKE_FORCE_INIT)
+    $(_X_DOT_SETTINGS_MK): $(_X_DOT_SETTING_DEPS) $(_X_CMAKE_FORCE_INIT)
+    ifeq ($(MAKE_RESTARTS),)
 		@$(cmake_build_target_deps)
+    endif
 endif
 
 # ==============================================================================
@@ -170,17 +173,22 @@ CMAKE_SYSTEM_VERSION ?=
 CMAKE_COMPONENTS +=
 #! The CMake targets (libraries and executables) to be built.
 CMAKE_TARGETS +=
-#! CMake output directories to be cleaned.
+#! CMake output directories and files to be cleaned.
 CMAKE_OUTPUT_DIRS +=
 CMAKE_OUTPUT_FILES +=
-#! CMake output file patterns to be cleaned.
-CMAKE_OUTPUT_FILE_PATTERNS +=
+#! CMake purgeable dependency directories and files.
+CMAKE_PURGE_DEP_DIRS +=
+CMAKE_PURGE_DEP_FILES +=
 #! CMake definitions, such as `FOO=bar`
 CMAKE_DEFS +=
 #! CMake initialization options
 CMAKE_INIT_OPTS +=
 #! CMake additional options
 CMAKE_OPTS +=
+
+CMAKE_BUILD_DEPS += $(CMAKE_BUILD_DIR)/.dirstamp cmake-before-build
+CMAKE_CLEAN_DEPS += cmake-clean-output
+CMAKE_PURGE_DEPS += cmake-purge-deps
 
 _X_CMAKE_INIT = cmake --toolchain "$(CMKABE_HOME)/cmake/toolchain.cmake" -B "$(CMAKE_BUILD_DIR)"
 _X_CMAKE_INIT += $(if $(CMAKE_GENERATOR),-G "$(CMAKE_GENERATOR)",)
@@ -204,9 +212,6 @@ ifeq ($(TARGET_IS_ANDROID),ON)
     _X_CMAKE_INIT += $(if $(ANDROID_STL),-D "ANDROID_STL:STRING=$(ANDROID_STL)",)
 endif
 _X_CMAKE_INIT += $(addprefix -D,$(CMAKE_DEFS))
-
-CMAKE_BUILD_DEPS += $(CMAKE_BUILD_DIR)/.dirstamp
-CMAKE_CLEAN_DEPS += cmake-clean-output
 
 # cmake_init()
 cmake_init = $(_X_CMAKE_INIT) $(CMAKE_INIT_OPTS)
@@ -289,17 +294,17 @@ CARGO_OUT_DIR ?=
 # ==============================================================================
 # = Rules
 
-.PHONY: cmake
-cmake: cmake-build
-
 # Do something before building
 .PHONY: cmake-before-build
 cmake-before-build: ;
 
+.PHONY: cmake
+cmake: cmake-build ;
+
 # Initialize the cmake build directory.
 .PHONY: cmake-init
-cmake-init: $(CMAKE_BUILD_DIR)/.dirstamp cmake-before-build
-$(CMAKE_BUILD_DIR)/.dirstamp: $(_X_DOT_HOST_MK) $(_X_DOT_ENVIRON_MK) $(_X_DOT_SETTINGS_MK)
+cmake-init: $(CMAKE_BUILD_DEPS)
+$(CMAKE_BUILD_DIR)/.dirstamp: $(_X_DOT_HOST_MK) $(_X_DOT_SETTINGS_MK) $(_X_DOT_ENVIRON_MK)
 	@$(call cmake_init)
 	@$(TOUCH) "$(CMAKE_BUILD_DIR)/.dirstamp"
 
@@ -310,17 +315,18 @@ cmake-build: $(CMAKE_BUILD_DEPS)
 
 # Clean the target and rebuild it.
 .PHONY: cmake-rebuild
-cmake-rebuild: cmake-clean cmake-build
+cmake-rebuild: cmake-clean cmake-build ;
 
 # Install the target.
 .PHONY: cmake-install
-cmake-install: $(CMAKE_BUILD_DEPS)
+cmake-install: cmake-build
 	@$(call cmake_install)
 
 # Clean the CMake root directory of all targets.
 .PHONY: cmake-clean-all
-cmake-clean-all: $(CMAKE_CLEAN_DEPS)
+cmake-clean-all: $(CMAKE_PURGE_DEPS)
 	@$(RM) -rf "$(TARGET_CMAKE_DIR)" "$(TARGET_DIR)/.zig" || $(OK)
+	@$(RMDIR) -p "$(TARGET_DIR)" || $(OK)
 
 # Clean the target.
 .PHONY: cmake-clean
@@ -335,9 +341,14 @@ cmake-distclean: $(CMAKE_CLEAN_DEPS)
 # Clean extra output files.
 .PHONY: cmake-clean-output
 cmake-clean-output:
-	@$(RM) -rf $(CMAKE_OUTPUT_DIRS) && $(RMDIR) -p $(CMAKE_OUTPUT_DIRS) || $(OK)
+	@$(if $(CMAKE_OUTPUT_DIRS),$(RM) -rf $(CMAKE_OUTPUT_DIRS) && $(RMDIR) -p $(CMAKE_OUTPUT_DIRS) || ,)$(OK)
 	@$(RM) -rf $(CMAKE_OUTPUT_FILES) "$(WORKSPACE_DIR)/-" || $(OK)
-	@$(call exists,"$(WORKSPACE_DIR)/CMakeLists.txt") && $(TOUCH) "$(WORKSPACE_DIR)/CMakeLists.txt" || $(OK)
+
+# Purge dependency files.
+.PHONY: cmake-purge-deps
+cmake-purge-deps: $(CMAKE_CLEAN_DEPS)
+	@$(if $(CMAKE_PURGE_DEP_DIRS),$(RM) -rf $(CMAKE_PURGE_DEP_DIRS) && $(RMDIR) -p $(CMAKE_PURGE_DEP_DIRS) || ,)$(OK)
+	@$(RM) -rf $(CMAKE_PURGE_DEP_FILES) "$(WORKSPACE_DIR)/-" || $(OK)
 
 # Cargo command
 .PHONY: cargo
@@ -346,38 +357,38 @@ cargo:
 
 # Cargo bench
 .PHONY: cargo-bench
-cargo-bench: cmake-before-build
+cargo-bench: $(CMAKE_BUILD_DEPS)
 	@$(call cargo_command,bench) $(_X_CARGO_RUN_ARGS)
 
 # Cargo build
 .PHONY: cargo-build
-cargo-build: cmake-before-build
+cargo-build: $(CMAKE_BUILD_DEPS)
 	@cargo $(CARGO_TOOLCHAIN) build $(_X_CARGO_OPTS)
 
 # Cargo check
 .PHONY: cargo-check
-cargo-check: cmake-before-build
+cargo-check: $(CMAKE_BUILD_DEPS)
 	@$(call cargo_command,check)
 
 # Clean all Cargo targets
 .PHONY: cargo-clean
-cargo-clean:
+cargo-clean: $(CMAKE_PURGE_DEPS)
 	-@cargo $(CARGO_TOOLCHAIN) clean
 	@$(RM) -rf "$(TARGET_DIR)" || $(OK)
 
 # Cargo clippy
 .PHONY: cargo-clippy
-cargo-clippy: cmake-before-build
+cargo-clippy: $(CMAKE_BUILD_DEPS)
 	@$(call cargo_command,clippy)
 
 # Build all Rust libraries
 .PHONY: cargo-lib
-cargo-lib: cmake-before-build
+cargo-lib: $(CMAKE_BUILD_DEPS)
 	@$(call cargo_build_lib)
 
 # Cargo test
 .PHONY: cargo-test
-cargo-test: cmake-before-build
+cargo-test: $(CMAKE_BUILD_DEPS)
 	@$(call cargo_command,test) $(_X_CARGO_RUN_ARGS)
 
 # Upgrade dependencies
@@ -396,6 +407,7 @@ zig-patch:
 zig-clean-cache:
 	@$(SHLUTIL) zig-clean-cache -v "$(ZIG_ROOT)" || $(OK)
 	@$(RM) -rf "$(TARGET_DIR)/.zig" || $(OK)
+	@$(RMDIR) -p "$(TARGET_DIR)" || $(OK)
 
 # Rebuild Zig wrapper
 .PHONY: zig-build-wrapper
@@ -443,7 +455,7 @@ define _x_cmkabe_cargo_rules_tpl
     endif
 
     .PHONY: build
-    build: cmake-before-build
+    build: $$(CMAKE_BUILD_DEPS)
     ifneq ($$(BIN),)
 		@$$(call cargo_build,$$(BIN))
     else
@@ -451,14 +463,13 @@ define _x_cmkabe_cargo_rules_tpl
     endif
 
     .PHONY: run
-    run: cmake-before-build
+    run: $$(CMAKE_BUILD_DEPS)
 		@$$(call cargo_run,$$(BIN))
 
     .PHONY: lib
     lib: cargo-lib
 
     .PHONY: clean
-    cargo-clean: $$(CMAKE_CLEAN_DEPS)
     clean: cargo-clean
 
     .PHONY: help
@@ -484,7 +495,7 @@ define _x_cargo_build_tpl
         $(1): $(2)
     endif
     .PHONY: $(2)
-    $(2): cmake-before-build
+    $(2): $$(CMAKE_BUILD_DEPS)
 		@$$(call cargo_build,$(2))
 endef
 define _x_cargo_run_tpl
@@ -493,7 +504,7 @@ define _x_cargo_run_tpl
         run-$(1): run-$(2)
     endif
     .PHONY: run-$(2)
-    run-$(2): cmake-before-build
+    run-$(2): $$(CMAKE_BUILD_DEPS)
 		@$$(call cargo_run,$(2))
 endef
 define _x_cargo_build_lib_tpl
@@ -502,8 +513,24 @@ define _x_cargo_build_lib_tpl
         $(1): $(2)
     endif
     .PHONY: $(2)
-    $(2): cmake-before-build
+    $(2): $$(CMAKE_BUILD_DEPS)
 		@$$(call cargo_build_lib,-p $(2))
+endef
+
+# Generate common rules only for CMake.
+cmkabe_cmake_rules = $(eval $(_x_cmkabe_cmake_rules_tpl))
+define _x_cmkabe_cmake_rules_tpl
+.PHONY: build
+build: cmake-build
+
+.PHONY: rebuild
+rebuild: cmake-rebuild
+
+.PHONY: clean
+clean: cmake-clean-all
+
+.PHONY: install
+install: cmake-install
 endef
 
 endif # __RULES_MK__
