@@ -354,21 +354,30 @@ class TargetParser:
         else:
             self.cargo_target_dir = f'{self.target_dir}/{self.target}'
 
-        def _any_prefix_subdirs() -> Generator[str, None, None]:
-            yield self.target
+        def _any_prefix_subdirs(prefixes: List[str]) -> Generator[str, None, None]:
+            for prefix in prefixes:
+                yield f'{prefix}/{self.target}'
             if self.target != self.cargo_target:
-                yield self.cargo_target
-            yield join_triple(self.arch, self.vendor, self.os, 'any')
+                for prefix in prefixes:
+                    yield f'{prefix}/{self.cargo_target}'
+            for vendor in [self.vendor, 'unknown', 'any', '']:
+                for prefix in prefixes:
+                    yield f'{prefix}/{join_triple(self.arch, vendor, self.os, "any")}'
             if self.vendor != '':
-                yield join_triple('any', self.vendor, self.os, 'any')
-            yield join_triple('any', '', self.os, 'any')
-            yield 'any'
+                for prefix in prefixes:
+                    yield f'{prefix}/{join_triple("any", self.vendor, self.os, "any")}'
+            for prefix in prefixes:
+                yield f'{prefix}/{join_triple("any", "", self.os, "any")}'
+            for prefix in prefixes:
+                yield f'{prefix}/any'
 
-        self.target_prefix_subdirs = [
-            normpath(f'{prefix}/{x}')
-            for prefix in self.target_dependency_prefixes
-            for x in _any_prefix_subdirs()
-        ]
+        self.target_prefix_subdirs = list(
+            dict.fromkeys(
+                normpath(dir)
+                for dir in _any_prefix_subdirs(self.target_dependency_prefixes)
+                if os.path.isdir(dir)
+            )
+        )
         return self
 
     def _win32_init(self) -> None:
