@@ -437,10 +437,6 @@ target:
 	@echo "CMAKE_BUILD_DIR:             $(CMAKE_BUILD_DIR)"
 	@echo "CARGO_OUT_DIR:               $(CARGO_OUT_DIR)"
 
-
-# Disable parallel execution
-.NOTPARALLEL:
-
 # Do not change the default goal.
 .DEFAULT_GOAL := $(_x_saved_default_goal)
 undefine _x_saved_default_goal
@@ -520,17 +516,17 @@ endef
 # Generate common rules only for CMake.
 cmkabe_cmake_rules = $(eval $(_x_cmkabe_cmake_rules_tpl))
 define _x_cmkabe_cmake_rules_tpl
-.PHONY: build
-build: cmake-build
+    .PHONY: build
+    build: cmake-build
 
-.PHONY: rebuild
-rebuild: cmake-rebuild
+    .PHONY: rebuild
+    rebuild: cmake-rebuild
 
-.PHONY: clean
-clean: cmake-clean-all
+    .PHONY: clean
+    clean: cmake-clean-all
 
-.PHONY: install
-install: cmake-install
+    .PHONY: install
+    install: cmake-install
 endef
 
 endif # __RULES_MK__

@@ -20,6 +20,9 @@ TARGET_DEPENDENCY_PREFIXES =
 _X_DOT_SETTING_DEPS =
 unexport MAKE_RESTARTS
 
+# Disable parallel execution
+.NOTPARALLEL:
+
 # ==============================================================================
 # = Environment Variables
 
@@ -80,6 +83,16 @@ define _x_cmkabe_clone_libs_tpl
     .DEFAULT_GOAL := $$(_x_saved_default_goal)
     undefine _x_saved_default_goal
 endef
+define _x_cmkabe_add_deps_tpl
+    ifneq ($(2),)
+        _x_saved_default_goal := $$(.DEFAULT_GOAL)
+        $(3): $(1)
+        .DEFAULT_GOAL := $$(_x_saved_default_goal)
+        undefine _x_saved_default_goal
+    else
+        $(4) += $(1)
+    endif
+endef
 
 # cmkabe_parse_target()
 #    Parse the target triplet, compiler and apply to the toolchain.
@@ -91,19 +104,19 @@ cmkabe_update_toolchain = $(eval $(if $(filter $(CMKABE_IS_CLEANING),OFF),,-)inc
 
 # cmkabe_add_setting_deps(<targets>)
 #    Register the targets as dependencies of the settings files initialization.
-cmkabe_add_setting_deps = $(eval $(if $(_X_DOT_SETTINGS_MK),$(_X_DOT_SETTINGS_MK): $(1),_X_DOT_SETTING_DEPS += $(1)))
+cmkabe_add_setting_deps = $(eval $(call _x_cmkabe_add_deps_tpl,$(1),$(_X_DOT_SETTINGS_MK),$(_X_DOT_SETTINGS_MK),_X_DOT_SETTING_DEPS))
 
 # cmkabe_add_build_deps(<targets>)
 #    Register the targets as dependencies of the build target.
-cmkabe_add_build_deps = $(eval $(if $(__RULES_MK__),cmake-before-build: $(1),CMAKE_BUILD_DEPS += $(1)))
+cmkabe_add_build_deps = $(eval $(call _x_cmkabe_add_deps_tpl,$(1),$(__RULES_MK__),cmake-before-build,CMAKE_BUILD_DEPS))
 
 # cmkabe_add_clean_deps(<targets>)
 #    Register the targets as dependencies of the clean targets.
-cmkabe_add_clean_deps = $(eval $(if $(__RULES_MK__),cmake-clean-output: $(1),CMAKE_CLEAN_DEPS += $(1)))
+cmkabe_add_clean_deps = $(eval $(call _x_cmkabe_add_deps_tpl,$(1),$(__RULES_MK__),cmake-clean-output,CMAKE_CLEAN_DEPS))
 
 # cmkabe_add_purge_deps(<targets>)
 #    Register the targets as dependencies of the purge targets.
-cmkabe_add_purge_deps = $(eval $(if $(__RULES_MK__),cmake-purge-deps: $(1),CMAKE_PURGE_DEPS += $(1)))
+cmkabe_add_purge_deps = $(eval $(call _x_cmkabe_add_deps_tpl,$(1),$(__RULES_MK__),cmake-purge-deps,CMAKE_PURGE_DEPS))
 
 # If `$(TARGET_IS_NATIVE)` is true, return `native`; otherwise, return `$(TARGET)`.
 CMKABE_TARGET = $(call bsel,$(TARGET_IS_NATIVE),native,$(TARGET))

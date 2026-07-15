@@ -36,6 +36,7 @@ class ShellCmd:
     def rm(
         self,
         paths: List[str],
+        *,
         recursive: bool = False,
         force: bool = False,
         args_from_stdin: bool = False,
@@ -107,7 +108,7 @@ class ShellCmd:
                         return status
         return status
 
-    def mkdir(self, paths: List[str], force: bool = False) -> int:
+    def mkdir(self, paths: List[str], *, force: bool = False) -> int:
         """Simulate mkdir / mkdir -p.
 
         Creates directory paths. Always acts like Unix `mkdir -p` (creates parent directories, ignores existing paths).
@@ -140,7 +141,11 @@ class ShellCmd:
         return status
 
     def rmdir(
-        self, paths: List[str], remove_parents: bool = False, force: bool = False
+        self,
+        paths: List[str],
+        *,
+        remove_parents: bool = False,
+        force: bool = False,
     ) -> int:
         """Simulate rmdir.
 
@@ -192,7 +197,7 @@ class ShellCmd:
                     curr = parent
         return status
 
-    def mv(self, paths: List[str], force: bool = False) -> int:
+    def mv(self, paths: List[str], *, force: bool = False) -> int:
         """Simulate mv.
 
         Moves files, directories, or glob patterns to a destination path.
@@ -226,6 +231,7 @@ class ShellCmd:
     def cp(
         self,
         paths: List[str],
+        *,
         recursive: bool = False,
         follow_symlinks: bool = True,
         force: bool = False,
@@ -283,7 +289,12 @@ class ShellCmd:
         return status
 
     def mklink(
-        self, link: str, target: str, symlinkd: bool = False, force: bool = False
+        self,
+        link: str,
+        target: str,
+        *,
+        symlinkd: bool = False,
+        force: bool = False,
     ) -> int:
         """Simulate symlink creation.
 
@@ -391,7 +402,7 @@ class ShellCmd:
         print('false', end='')
         return 0
 
-    def touch(self, paths: List[str], force: bool = False) -> int:
+    def touch(self, paths: List[str], *, force: bool = False) -> int:
         """Simulate touch."""
         status = 0
         for pattern in paths:
@@ -421,7 +432,7 @@ class ShellCmd:
         print(time.time(), end='')
         return 0
 
-    def cmpver(self, v1: str, v2: str, force: bool = False) -> int:
+    def cmpver(self, v1: str, v2: str, *, force: bool = False) -> int:
         """Compare two version strings."""
         try:
             parsed_v1 = [int(x) for x in (v1 + '.0.0.0').split('.')[:4]]
@@ -880,6 +891,7 @@ class ShellCmd:
         self,
         elf_file: str,
         targets: List[str],
+        *,
         fix_rpath: bool = False,
         create_backup: bool = True,
         verbose: bool = False,
@@ -900,6 +912,7 @@ class ShellCmd:
 
     def clone_libs(
         self,
+        *,
         dest_dir: str,
         url: str = '',
         local_repo: str = '',
