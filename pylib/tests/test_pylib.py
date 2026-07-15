@@ -19,6 +19,9 @@ if cmkabe_dir not in sys.path:
 from .. import sys_utils
 from .. import ShellCmd
 from .. import TargetParser
+from ..tar import tar_create
+import tarfile
+from typing import Optional
 
 
 class TestSysUtils(unittest.TestCase):
@@ -696,5 +699,171 @@ class TestTargetParser(unittest.TestCase):
         self.assertFalse(parser.wasm)
 
 
+class TestTar(unittest.TestCase):
+    def test_tar_create(self) -> None:
+        import io
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create some dummy files/dirs
+            src_dir = os.path.join(tmpdir, 'src')
+            os.makedirs(src_dir)
+            
+            file1 = os.path.join(src_dir, 'file1.txt')
+            with open(file1, 'w') as f:
+                f.write('hello file1')
+                
+            file2 = os.path.join(src_dir, 'file2.sh')
+            with open(file2, 'w') as f:
+                f.write('echo hello')
+                
+            subdir = os.path.join(src_dir, 'subdir')
+            os.makedirs(subdir)
+            file3 = os.path.join(subdir, 'file3.pyc')
+            with open(file3, 'w') as f:
+                f.write('python bytecode')
+
+            file4 = os.path.join(src_dir, 'file4.txt')
+            with open(file4, 'w') as f:
+                f.write('hello file4')
+
+            file_exec_pl = os.path.join(src_dir, 'exec.pl')
+            with open(file_exec_pl, 'w') as f:
+                f.write('#!/usr/bin/env perl\nprint "hello";')
+
+            file_noexec_php = os.path.join(src_dir, 'noexec.php')
+            with open(file_noexec_php, 'w') as f:
+                f.write('<?php echo "hello";')
+
+            file_exec_noext = os.path.join(src_dir, 'exec_noext')
+            with open(file_exec_noext, 'w') as f:
+                f.write('#!/bin/sh\necho "hello"')
+
+            file_noexec_noext = os.path.join(src_dir, 'noexec_noext')
+            with open(file_noexec_noext, 'w') as f:
+                f.write('hello text')
+
+            output_tar = os.path.join(tmpdir, 'out.tar')
+
+            # 1. Test basic archiving with verbose
+            with patch('sys.stdout', new=io.StringIO()) as fake_out:
+                tar_create(
+                    items=[(src_dir, 'archive/')],
+                    output_path=output_tar,
+                    mode='',  # plain tar for testing (resolves to 'w:')
+                    verbose=True,
+                )
+                output = fake_out.getvalue().replace('\\', '/')
+                # Verify that files were printed
+                self.assertIn('archive/src/', output)
+                self.assertIn('archive/src/file1.txt', output)
+                self.assertIn('archive/src/file2.sh', output)
+                self.assertIn('archive/src/file4.txt', output)
+                self.assertIn('archive/src/exec.pl', output)
+                self.assertIn('archive/src/noexec.php', output)
+                self.assertIn('archive/src/exec_noext', output)
+                self.assertIn('archive/src/noexec_noext', output)
+                self.assertIn('archive/src/subdir/file3.pyc', output)
+
+            # Extract and verify contents & default permissions
+            with tarfile.open(output_tar, 'r') as tar:
+                members = {m.name: m for m in tar.getmembers()}
+                self.assertIn('archive/src', members)
+                self.assertIn('archive/src/file1.txt', members)
+                self.assertIn('archive/src/file2.sh', members)
+                self.assertIn('archive/src/file4.txt', members)
+                self.assertIn('archive/src/exec.pl', members)
+                self.assertIn('archive/src/noexec.php', members)
+                self.assertIn('archive/src/exec_noext', members)
+                self.assertIn('archive/src/noexec_noext', members)
+                self.assertIn('archive/src/subdir', members)
+                self.assertIn('archive/src/subdir/file3.pyc', members)
+                
+                # Check default user/group (root/0)
+                self.assertEqual(members['archive/src/file1.txt'].uid, 0)
+                self.assertEqual(members['archive/src/file1.txt'].uname, 'root')
+                self.assertEqual(members['archive/src/file1.txt'].gid, 0)
+                self.assertEqual(members['archive/src/file1.txt'].gname, 'root')
+                
+                # Check default modes (0o755 for sh/dir/executables, 0o644 for others)
+                self.assertEqual(members['archive/src'].mode, 0o755)
+                self.assertEqual(members['archive/src/file2.sh'].mode, 0o755)
+                self.assertEqual(members['archive/src/file1.txt'].mode, 0o644)
+                self.assertEqual(members['archive/src/file4.txt'].mode, 0o644)
+                self.assertEqual(members['archive/src/exec.pl'].mode, 0o755)
+                self.assertEqual(members['archive/src/noexec.php'].mode, 0o644)
+                self.assertEqual(members['archive/src/exec_noext'].mode, 0o755)
+                self.assertEqual(members['archive/src/noexec_noext'].mode, 0o644)
+
+            # 2. Test user/group overrides & filter list with mode/exclude
+            output_tar2 = os.path.join(tmpdir, 'out2.tar')
+            
+            # Filter rules: 
+            # - Exclude pyc files: (r'.*\.pyc$', False)
+            # - Matches file1.txt and stops matching further rules: (r'file1\.txt$', True)
+            # - Would update txt files mode to 0o600, but file1.txt is skipped due to True above
+            # - Change sh files mode to 0o700: (r'.*\.sh$', 0o700)
+            # - Matches file2.sh but continues matching (so it still gets 0o700 from the sh rule above): (r'.*', None)
+            filter_rules = [
+                (r'.*\.pyc$', False),
+                (r'file1\.txt$', True),
+                (r'.*\.txt$', 0o600),
+                (r'.*\.sh$', 0o700),
+                (r'.*', None),
+            ]
+            
+            tar_create(
+                items=[(src_dir, 'archive/')],
+                output_path=output_tar2,
+                mode='',  # plain tar (resolves to 'w:')
+                filter=filter_rules,
+                user=(1001, 'ubuntu'),
+                group=(1002, 'devs'),
+            )
+            
+            with tarfile.open(output_tar2, 'r') as tar:
+                members = {m.name: m for m in tar.getmembers()}
+                # Verify exclusion
+                self.assertNotIn('archive/src/subdir/file3.pyc', members)
+                self.assertIn('archive/src/file1.txt', members)
+                self.assertIn('archive/src/file2.sh', members)
+                self.assertIn('archive/src/file4.txt', members)
+                
+                # Verify mode change / break behavior
+                self.assertEqual(members['archive/src/file2.sh'].mode, 0o700)
+                self.assertEqual(members['archive/src/file1.txt'].mode, 0o644) # remains default due to 'True' rule
+                self.assertEqual(members['archive/src/file4.txt'].mode, 0o600) # matched by txt rule
+                
+                # Verify user/group overrides
+                self.assertEqual(members['archive/src/file1.txt'].uid, 1001)
+                self.assertEqual(members['archive/src/file1.txt'].uname, 'ubuntu')
+                self.assertEqual(members['archive/src/file1.txt'].gid, 1002)
+                self.assertEqual(members['archive/src/file1.txt'].gname, 'devs')
+
+            # 3. Test functional filter
+            output_tar3 = os.path.join(tmpdir, 'out3.tar')
+            
+            def custom_filter(tarinfo: tarfile.TarInfo) -> Optional[tarfile.TarInfo]:
+                if tarinfo.name.endswith('.sh'):
+                    return None  # exclude sh
+                if tarinfo.name.endswith('.txt'):
+                    tarinfo.mode = 0o600
+                return tarinfo
+                
+            tar_create(
+                items=[(src_dir, 'archive/')],
+                output_path=output_tar3,
+                mode='',  # plain tar (resolves to 'w:')
+                filter=custom_filter,
+            )
+            
+            with tarfile.open(output_tar3, 'r') as tar:
+                members = {m.name: m for m in tar.getmembers()}
+                self.assertNotIn('archive/src/file2.sh', members)
+                self.assertIn('archive/src/file1.txt', members)
+                self.assertEqual(members['archive/src/file1.txt'].mode, 0o600)
+
+
 if __name__ == '__main__':
     unittest.main()
+
