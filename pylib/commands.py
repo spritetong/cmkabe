@@ -1036,6 +1036,121 @@ class ShellCmd:
 
         return 0
 
+    def tar(
+        self,
+        tar_command: str,
+        *,
+        output_path: Optional[str] = None,
+        archive_path: Optional[str] = None,
+        dest_dir: Optional[str] = None,
+        items: Optional[List[str]] = None,
+        mode: str = 'xz',
+        filter_str: Optional[str] = None,
+        user: Optional[List[str]] = None,
+        group: Optional[List[str]] = None,
+        verbose: bool = False,
+    ) -> int:
+        """Simulate tar create or extract."""
+        from .tar import tar_create, tar_extract
+        import re
+
+        # Parse filter if provided
+        parsed_filter = None
+        if filter_str:
+            parsed_filter = []
+            for rule_str in filter_str.split(';'):
+                if not rule_str:
+                    continue
+                parts = rule_str.rsplit(':', 1)
+                if len(parts) == 2:
+                    pattern, action_str = parts[0], parts[1].strip()
+                    if action_str.lower() == 'false':
+                        action = False
+                    elif action_str.lower() == 'true':
+                        action = True
+                    elif action_str.lower() in ('none', 'null', ''):
+                        action = None
+                    elif action_str.startswith('0o'):
+                        action = int(action_str, 8)
+                    elif action_str.startswith('0x'):
+                        action = int(action_str, 16)
+                    else:
+                        try:
+                            action = int(action_str)
+                        except ValueError:
+                            action = action_str
+                    parsed_filter.append((pattern, action))
+
+        # Parse user/group overrides
+        parsed_user = None
+        if user:
+            try:
+                parsed_user = (int(user[0]), user[1])
+            except ValueError:
+                print(f'Error: UID must be an integer, got {user[0]}', file=sys.stderr)
+                return self.EINVAL
+
+        parsed_group = None
+        if group:
+            try:
+                parsed_group = (int(group[0]), group[1])
+            except ValueError:
+                print(f'Error: GID must be an integer, got {group[0]}', file=sys.stderr)
+                return self.EINVAL
+
+        if tar_command == 'create':
+            if not output_path:
+                print('Error: output_path is required for tar create', file=sys.stderr)
+                return self.EINVAL
+            if not items:
+                print('Error: items are required for tar create', file=sys.stderr)
+                return self.EINVAL
+
+            parsed_items = []
+            for item in items:
+                if ':' in item:
+                    parts = item.rsplit(':', 1)
+                    if len(parts[0]) == 1 and parts[0].isalpha():
+                        parsed_items.append((item, ''))
+                    else:
+                        parsed_items.append((parts[0], parts[1]))
+                else:
+                    parsed_items.append((item, ''))
+
+            tar_create(
+                items=parsed_items,
+                output_path=output_path,
+                mode=mode,
+                filter=parsed_filter,
+                user=parsed_user,
+                group=parsed_group,
+                verbose=verbose,
+            )
+            return 0
+
+        elif tar_command == 'extract':
+            if not archive_path:
+                print('Error: archive_path is required for tar extract', file=sys.stderr)
+                return self.EINVAL
+            if not dest_dir:
+                print('Error: dest_dir is required for tar extract', file=sys.stderr)
+                return self.EINVAL
+
+            tar_extract(
+                archive_path=archive_path,
+                dest_dir=dest_dir,
+                mode=mode,
+                filter=parsed_filter,
+                user=parsed_user,
+                group=parsed_group,
+                verbose=verbose,
+            )
+            return 0
+
+        else:
+            print(f'Error: Unrecognized tar command "{tar_command}"', file=sys.stderr)
+            return self.EINVAL
+
     @classmethod
     def _rmtree_try_chmod(cls, path: str, *, ignore_errors=False):
         import shutil
@@ -1436,6 +1551,103 @@ class ShellCmd:
                 'triplets', nargs='*', help='Triplet names'
             )
 
+            # 31. tar subparser
+            tar_parser = subparsers.add_parser(
+                'tar',
+                help='Create or extract tar archives',
+            )
+            tar_subparsers = tar_parser.add_subparsers(
+                dest='tar_command',
+                help='Tar subcommands',
+            )
+
+            # tar create
+            tar_create_parser = tar_subparsers.add_parser(
+                'create',
+                help='Create a tar archive',
+            )
+            tar_create_parser.add_argument(
+                'output_path',
+                help='Output archive file path',
+            )
+            tar_create_parser.add_argument(
+                'items',
+                nargs='+',
+                help='Items to add in src[:dest] format',
+            )
+            tar_create_parser.add_argument(
+                '--mode',
+                default='xz',
+                help='Compression mode (default: xz)',
+            )
+            tar_create_parser.add_argument(
+                '--filter',
+                default=None,
+                dest='filter_str',
+                help='Optional filter rules in pattern:action format, separated by semicolons',
+            )
+            tar_create_parser.add_argument(
+                '--user',
+                nargs=2,
+                metavar=('UID', 'UNAME'),
+                help='Override owner UID and UNAME',
+            )
+            tar_create_parser.add_argument(
+                '--group',
+                nargs=2,
+                metavar=('GID', 'GNAME'),
+                help='Override group GID and GNAME',
+            )
+            tar_create_parser.add_argument(
+                '--verbose',
+                '-v',
+                action='store_true',
+                help='Verbose output',
+            )
+
+            # tar extract
+            tar_extract_parser = tar_subparsers.add_parser(
+                'extract',
+                help='Extract a tar archive',
+            )
+            tar_extract_parser.add_argument(
+                'archive_path',
+                help='Path to the tar archive',
+            )
+            tar_extract_parser.add_argument(
+                'dest_dir',
+                help='Destination directory',
+            )
+            tar_extract_parser.add_argument(
+                '--mode',
+                default='r',
+                help='Extraction mode (default: r)',
+            )
+            tar_extract_parser.add_argument(
+                '--filter',
+                default=None,
+                dest='filter_str',
+                help='Optional filter rules in pattern:action format, separated by semicolons',
+            )
+            tar_extract_parser.add_argument(
+                '--user',
+                nargs=2,
+                metavar=('UID', 'UNAME'),
+                help='Override owner UID and UNAME',
+            )
+            tar_extract_parser.add_argument(
+                '--group',
+                nargs=2,
+                metavar=('GID', 'GNAME'),
+                help='Override group GID and GNAME',
+            )
+            tar_extract_parser.add_argument(
+                '--verbose',
+                '-v',
+                action='store_true',
+                help='Verbose output',
+            )
+
             namespace = parser.parse_args(args)
 
             if not namespace.command:
@@ -1595,6 +1807,19 @@ class ShellCmd:
                     debug=namespace.debug,
                     static_crt=namespace.static_crt,
                     static_lib=namespace.static_lib,
+                )
+            elif cmd == 'tar':
+                return inst.tar(
+                    tar_command=namespace.tar_command,
+                    output_path=getattr(namespace, 'output_path', None),
+                    archive_path=getattr(namespace, 'archive_path', None),
+                    dest_dir=getattr(namespace, 'dest_dir', None),
+                    items=getattr(namespace, 'items', None),
+                    mode=namespace.mode,
+                    filter_str=namespace.filter_str,
+                    user=namespace.user,
+                    group=namespace.group,
+                    verbose=namespace.verbose,
                 )
 
             print(f'Unrecognized command "{cmd}"', file=sys.stderr)

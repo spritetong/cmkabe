@@ -19,7 +19,7 @@ if cmkabe_dir not in sys.path:
 from .. import sys_utils
 from .. import ShellCmd
 from .. import TargetParser
-from ..tar import tar_create
+from ..tar import tar_create, tar_extract
 import tarfile
 from typing import Optional
 
@@ -306,6 +306,54 @@ class TestCommands(unittest.TestCase):
                 fake_out.getvalue().strip().replace('\\', '/'),
                 'Removing /mock/zig/cache',
             )
+
+    def test_tar(self) -> None:
+        import io
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            src_dir = os.path.join(tmpdir, 'src')
+            os.makedirs(src_dir)
+            file1 = os.path.join(src_dir, 'file1.txt')
+            with open(file1, 'w') as f:
+                f.write('hello file1')
+            file2 = os.path.join(src_dir, 'file2.sh')
+            with open(file2, 'w') as f:
+                f.write('echo hello')
+
+            archive_path = os.path.join(tmpdir, 'out.tar')
+
+            # 1. Test tar create CLI with verbose
+            with patch('sys.stdout', new=io.StringIO()) as fake_out:
+                code = ShellCmd.main([
+                    'tar', 'create', archive_path,
+                    src_dir,  # will map dest to ''
+                    '-v',
+                    '--mode', '',  # plain tar
+                ])
+                self.assertEqual(code, 0)
+                output = fake_out.getvalue().replace('\\', '/')
+                self.assertIn('file1.txt', output)
+                self.assertIn('file2.sh', output)
+
+            # 2. Test tar extract CLI with verbose & filter
+            dest_dir = os.path.join(tmpdir, 'dest')
+            with patch('sys.stdout', new=io.StringIO()) as fake_out:
+                code = ShellCmd.main([
+                    'tar', 'extract', archive_path, dest_dir,
+                    '-v',
+                    '--mode', '',  # plain tar
+                    '--filter', '.*\\.sh$:False;.*\\.txt$:0o600',
+                ])
+                self.assertEqual(code, 0)
+                output = fake_out.getvalue().replace('\\', '/')
+                # file2.sh should be excluded, file1.txt should be printed
+                self.assertIn('file1.txt', output)
+                self.assertNotIn('file2.sh', output)
+
+            # Verify files in destination
+            self.assertTrue(os.path.isfile(os.path.join(dest_dir, 'file1.txt')))
+            self.assertFalse(os.path.exists(os.path.join(dest_dir, 'file2.sh')))
 
 
 class TestElfPathFixer(unittest.TestCase):
@@ -862,6 +910,88 @@ class TestTar(unittest.TestCase):
                 self.assertNotIn('archive/src/file2.sh', members)
                 self.assertIn('archive/src/file1.txt', members)
                 self.assertEqual(members['archive/src/file1.txt'].mode, 0o600)
+
+    def test_tar_extract(self) -> None:
+        import io
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create a source archive to test extraction on
+            src_dir = os.path.join(tmpdir, 'src')
+            os.makedirs(src_dir)
+            file1 = os.path.join(src_dir, 'file1.txt')
+            with open(file1, 'w') as f:
+                f.write('hello file1')
+            file2 = os.path.join(src_dir, 'file2.sh')
+            with open(file2, 'w') as f:
+                f.write('echo hello')
+                
+            archive_path = os.path.join(tmpdir, 'archive.tar')
+            tar_create(
+                items=[(src_dir, 'archive/')],
+                output_path=archive_path,
+                mode='',
+            )
+
+            # 1. Test basic extraction with verbose
+            dest_dir1 = os.path.join(tmpdir, 'dest1')
+            with patch('sys.stdout', new=io.StringIO()) as fake_out:
+                tar_extract(
+                    archive_path=archive_path,
+                    dest_dir=dest_dir1,
+                    mode='',
+                    verbose=True,
+                )
+                output = fake_out.getvalue().replace('\\', '/')
+                self.assertIn('archive/src', output)
+                self.assertIn('archive/src/file1.txt', output)
+                self.assertIn('archive/src/file2.sh', output)
+
+            # Verify files exist in dest1
+            self.assertTrue(os.path.isdir(os.path.join(dest_dir1, 'archive/src')))
+            self.assertTrue(os.path.isfile(os.path.join(dest_dir1, 'archive/src/file1.txt')))
+            self.assertTrue(os.path.isfile(os.path.join(dest_dir1, 'archive/src/file2.sh')))
+
+            # 2. Test extraction filter (exclusion & mode update)
+            dest_dir2 = os.path.join(tmpdir, 'dest2')
+            filter_rules = [
+                (r'.*\.sh$', False),       # exclude sh files
+                (r'.*\.txt$', 0o600),      # change txt file mode
+            ]
+            tar_extract(
+                archive_path=archive_path,
+                dest_dir=dest_dir2,
+                mode='',
+                filter=filter_rules,
+            )
+
+            self.assertTrue(os.path.isfile(os.path.join(dest_dir2, 'archive/src/file1.txt')))
+            self.assertFalse(os.path.exists(os.path.join(dest_dir2, 'archive/src/file2.sh')))
+            
+            with open(os.path.join(dest_dir2, 'archive/src/file1.txt'), 'r') as f:
+                self.assertEqual(f.read(), 'hello file1')
+
+            # 3. Test functional filter and user/group overrides
+            dest_dir3 = os.path.join(tmpdir, 'dest3')
+            def custom_filter(tarinfo: tarfile.TarInfo) -> Optional[tarfile.TarInfo]:
+                if tarinfo.name.endswith('.sh'):
+                    tarinfo.mode = 0o700
+                    return tarinfo
+                if tarinfo.name.endswith('.txt'):
+                    return None  # exclude txt
+                return tarinfo
+
+            tar_extract(
+                archive_path=archive_path,
+                dest_dir=dest_dir3,
+                mode='',
+                filter=custom_filter,
+                user=(2001, 'manager'),
+                group=(2002, 'staff'),
+            )
+
+            self.assertFalse(os.path.exists(os.path.join(dest_dir3, 'archive/src/file1.txt')))
+            self.assertTrue(os.path.isfile(os.path.join(dest_dir3, 'archive/src/file2.sh')))
 
 
 if __name__ == '__main__':

@@ -90,7 +90,7 @@ def tar_create(
     output_path: str,
     *,
     mode: str = 'xz',
-    format: int = tarfile.GNU_FORMAT,
+    format: int = tarfile.DEFAULT_FORMAT,
     filter: Optional[
         Union[
             Callable[[tarfile.TarInfo], Optional[tarfile.TarInfo]],
@@ -109,7 +109,7 @@ def tar_create(
                   Use '' for dest to place files at root.
     :param output_path: Output .txz file path.
     :param mode: Tar file open mode (default: 'xz').
-    :param format: Tar format (default: GNU_FORMAT).
+    :param format: Tar format (default: DEFAULT_FORMAT).
     :param filter: Optional filter applied after default permissions.
                    Can be a function: filter(tarinfo: TarInfo) -> Optional[TarInfo]
                    Or a list of [pattern, Union[int, bool, None]] rules, where pattern is a regex,
@@ -190,7 +190,11 @@ def tar_create(
             ti.type = tarfile.REGTYPE
         return set_perms(ti, dry_run=True, local_path=local_path) is None
 
-    open_mode = mode if mode.startswith('w') else 'w:' + mode
+    open_mode = (
+        mode
+        if mode in ('w', 'x', 'a') or mode[:2] in ('w:', 'x:', 'a:')
+        else 'w:' + mode
+    )
     with tarfile.open(output_path, mode=open_mode, format=format) as tar:  # pyright: ignore[reportCallIssue,reportArgumentType]
         for src_pattern, dest in items:
             matched = glob.glob(src_pattern, recursive=True)
@@ -220,6 +224,86 @@ def tar_create(
                     set_perms=set_perms,
                     is_excluded=is_excluded,
                 )
+
+
+def tar_extract(
+    archive_path: str,
+    dest_dir: str,
+    *,
+    mode: str = 'r',
+    filter: Optional[
+        Union[
+            Callable[[tarfile.TarInfo], Optional[tarfile.TarInfo]],
+            List[Tuple[str, Union[int, bool, None]]],
+        ]
+    ] = None,
+    user: Optional[Tuple[int, str]] = None,
+    group: Optional[Tuple[int, str]] = None,
+    verbose: bool = False,
+):
+    """
+    Extract a tar archive to a destination directory.
+
+    :param archive_path: Path to the tar archive.
+    :param dest_dir: Destination directory.
+    :param mode: Tar file open mode (default: 'r').
+    :param filter: Optional filter applied during extraction.
+                   Can be a function: filter(tarinfo: TarInfo) -> Optional[TarInfo]
+                   Or a list of [pattern, Union[int, bool, None]] rules.
+    :param user: Optional (uid, uname) tuple to override owner.
+    :param group: Optional (gid, gname) tuple to override group.
+    :param verbose: Print extracted file paths if True.
+    """
+    if isinstance(filter, (list, tuple)):
+
+        def _user_filter(tarinfo: tarfile.TarInfo) -> Optional[tarfile.TarInfo]:
+            for pattern, action in filter:
+                if re.search(pattern, tarinfo.name):
+                    if action is False:
+                        return None
+                    elif isinstance(action, int) and not isinstance(action, bool):
+                        tarinfo.mode = action
+                        break
+                    elif action is True:
+                        break
+                    elif action is None:
+                        continue
+            return tarinfo
+
+        user_filter = _user_filter
+    elif callable(filter):
+        user_filter = filter
+    else:
+        user_filter = lambda x: x  # noqa: E731
+
+    open_mode = mode if mode == 'r' or mode.startswith('r:') else 'r:' + mode
+    with tarfile.open(archive_path, mode=open_mode) as tar:  # pyright: ignore[reportCallIssue,reportArgumentType]
+        members_to_extract = []
+        for member in tar.getmembers():
+            if user:
+                member.uid = user[0]
+                member.uname = user[1]
+            if group:
+                member.gid = group[0]
+                member.gname = group[1]
+
+            filtered_member = user_filter(member)
+            if filtered_member is None:
+                continue
+
+            members_to_extract.append(filtered_member)
+            if verbose:
+                print(filtered_member.name)
+
+        import inspect
+
+        sig = inspect.signature(tar.extractall)
+        if 'filter' in sig.parameters:
+            tar.extractall(
+                path=dest_dir, members=members_to_extract, filter='fully_trusted'
+            )
+        else:
+            tar.extractall(path=dest_dir, members=members_to_extract)
 
 
 _ensure_xz_crc32()
