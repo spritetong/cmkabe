@@ -19,7 +19,6 @@ from .sys_utils import (
     win2wsl_path,
     wsl2win_path,
 )
-from .zig import zig_build_wrapper, zig_clean_cache, zig_dll2lib, zig_patch
 
 
 class ShellCmd:
@@ -645,6 +644,8 @@ class ShellCmd:
         self, dll_path: str, out_path: Optional[str] = None, force: bool = False
     ) -> int:
         """Call dll2lib to generate MSVC import libraries from DLLs."""
+        from .zig import zig_dll2lib
+
         return zig_dll2lib(
             dll_path,
             out_path=out_path,
@@ -653,6 +654,8 @@ class ShellCmd:
 
     def zig_patch(self, zig_root: Optional[str] = None) -> int:
         """Call zig_patch to patch Zig source libraries to hide runtime exports."""
+        from .zig import zig_patch
+
         zig_patch(zig_root)
         return 0
 
@@ -660,6 +663,8 @@ class ShellCmd:
         self, zig_root: Optional[str] = None, verbose: bool = False
     ) -> int:
         """Call zig_clean_cache to clean Zig global cache."""
+        from .zig import zig_clean_cache
+
         zig_clean_cache(zig_root, verbose=verbose)
         return 0
 
@@ -671,6 +676,8 @@ class ShellCmd:
         force: bool = False,
         vcpkg: bool = False,
     ) -> int:
+        from .zig import zig_build_wrapper
+
         return zig_build_wrapper(
             zig_root=zig_root,
             out_dir=out_dir,
@@ -1052,7 +1059,6 @@ class ShellCmd:
     ) -> int:
         """Simulate tar create or extract."""
         from .tar import tar_create, tar_extract
-        import re
 
         # Parse filter if provided
         parsed_filter = None
@@ -1130,7 +1136,9 @@ class ShellCmd:
 
         elif tar_command == 'extract':
             if not archive_path:
-                print('Error: archive_path is required for tar extract', file=sys.stderr)
+                print(
+                    'Error: archive_path is required for tar extract', file=sys.stderr
+                )
                 return self.EINVAL
             if not dest_dir:
                 print('Error: dest_dir is required for tar extract', file=sys.stderr)
