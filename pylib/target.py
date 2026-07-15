@@ -72,7 +72,7 @@ class TargetParser:
         )
         self.target_dependency_prefixes: List[str] = [
             normpath(os.path.abspath(p.strip()))
-            for p in (target_dependency_prefixes or '').replace(';', ' ').split()
+            for p in (target_dependency_prefixes or '').split(os.pathsep)
             if p.strip()
         ]
 
@@ -354,21 +354,30 @@ class TargetParser:
         else:
             self.cargo_target_dir = f'{self.target_dir}/{self.target}'
 
-        def _any_prefix_subdirs() -> Generator[str, None, None]:
-            yield self.target
+        def _any_prefix_subdirs(prefixes: List[str]) -> Generator[str, None, None]:
+            for prefix in prefixes:
+                yield f'{prefix}/{self.target}'
             if self.target != self.cargo_target:
-                yield self.cargo_target
-            yield join_triple(self.arch, self.vendor, self.os, 'any')
+                for prefix in prefixes:
+                    yield f'{prefix}/{self.cargo_target}'
+            for vendor in [self.vendor, 'unknown', 'any', '']:
+                for prefix in prefixes:
+                    yield f'{prefix}/{join_triple(self.arch, vendor, self.os, "any")}'
             if self.vendor != '':
-                yield join_triple('any', self.vendor, self.os, 'any')
-            yield join_triple('any', '', self.os, 'any')
-            yield 'any'
+                for prefix in prefixes:
+                    yield f'{prefix}/{join_triple("any", self.vendor, self.os, "any")}'
+            for prefix in prefixes:
+                yield f'{prefix}/{join_triple("any", "", self.os, "any")}'
+            for prefix in prefixes:
+                yield f'{prefix}/any'
 
-        self.target_prefix_subdirs = [
-            normpath(f'{prefix}/{x}')
-            for prefix in self.target_dependency_prefixes
-            for x in _any_prefix_subdirs()
-        ]
+        self.target_prefix_subdirs = list(
+            dict.fromkeys(
+                normpath(dir)
+                for dir in _any_prefix_subdirs(self.target_dependency_prefixes)
+                if os.path.isdir(dir)
+            )
+        )
         return self
 
     def _win32_init(self) -> None:
@@ -1057,7 +1066,7 @@ class TargetParser:
         lines.append(f'export CMKABE_TARGET_DIR = {self.target_dir}')
         lines.append(f'export CMKABE_TARGET_CMAKE_DIR = {self.target_cmake_dir}')
         lines.append(
-            f'export CMKABE_TARGET_DEPENDENCY_PREFIXES = {";".join(self.target_dependency_prefixes)}'
+            f'export CMKABE_TARGET_DEPENDENCY_PREFIXES = {os.path.pathsep.join(self.target_dependency_prefixes)}'
         )
         lines.append(f'export CMKABE_TARGET_CC = {self.target_cc}')
         lines.append(f'export CMKABE_CARGO_TARGET = {self.cargo_target}')
@@ -1072,7 +1081,7 @@ class TargetParser:
         lines.append('export CMKABE_CMAKE_BUILD_TYPE := $(CMAKE_BUILD_TYPE)')
         lines.append('export CMKABE_CMAKE_BUILD_DIR := $(CMAKE_BUILD_DIR)')
         lines.append(f'export CMKABE_CARGO_OUT_DIR := {self.cargo_out_dir(make=True)}')
-        lines.append(f'export CMKABE_MAKE_BUILD_VARS = {";".join(_make_build_vars)}')
+        lines.append(f'export CMKABE_MAKE_BUILD_VARS = {",".join(_make_build_vars)}')
         lines.append(
             f'export CMKABE_PREFIX_SUBDIRS := {os.path.pathsep.join(self.target_prefix_subdirs)}'
         )
@@ -1083,7 +1092,7 @@ class TargetParser:
             f'export CMKABE_LIB_DIRS := {os.path.pathsep.join(self.enum_prefix_subdirs_of("lib", make=True))}'
         )
         lines.append(
-            f'export CMKABE_INCLUDE_DIRS = {os.path.pathsep.join(self.enum_prefix_subdirs_of("include", make=True))}'
+            f'export CMKABE_INCLUDE_DIRS := {os.path.pathsep.join(self.enum_prefix_subdirs_of("include", make=True))}'
         )
         lines.append('')
         lines.append('# export CMKABE_COMPLETED_PROJECTS which is from command line.')
@@ -1182,7 +1191,7 @@ class TargetParser:
         lines.append(cmk_lst_esc(f'"CMKABE_TARGET_CMAKE_DIR={self.target_cmake_dir}"'))
         lines.append(
             cmk_lst_esc(
-                f'"CMKABE_TARGET_DEPENDENCY_PREFIXES={";".join(self.target_dependency_prefixes)}"'
+                f'"CMKABE_TARGET_DEPENDENCY_PREFIXES={os.path.pathsep.join(self.target_dependency_prefixes)}"'
             )
         )
         lines.append(cmk_lst_esc(f'"CMKABE_TARGET_CC={self.target_cc}"'))
@@ -1205,7 +1214,7 @@ class TargetParser:
             cmk_lst_esc(f'"CMKABE_CARGO_OUT_DIR={self.cargo_out_dir(cmake=True)}"')
         )
         lines.append(
-            cmk_lst_esc(f'"CMKABE_MAKE_BUILD_VARS={";".join(_make_build_vars)}"')
+            cmk_lst_esc(f'"CMKABE_MAKE_BUILD_VARS={",".join(_make_build_vars)}"')
         )
         lines.append(
             cmk_lst_esc(

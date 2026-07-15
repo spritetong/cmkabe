@@ -373,7 +373,7 @@ function(cmkabe_add_make_target)
     list(APPEND argv ${args_TARGETS})
     list(APPEND argv ${make_options})
     if(args_DEPENDENCIES)
-        string(REPLACE ";" "$<SEMICOLON>" deps "${args_DEPENDENCIES}")
+        string(REPLACE ";" "," deps "${args_DEPENDENCIES}")
         list(APPEND argv "CMKABE_COMPLETED_PROJECTS=${deps}")
     endif()
 

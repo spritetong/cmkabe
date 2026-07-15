@@ -246,12 +246,12 @@ pub const ZigWrapper = struct {
         self.target_is_gnu = utils.reFindString("-gnu$", self.clang_target.?) != null or
             utils.reFindString("-gnu[-.]", self.clang_target.?) != null;
 
-        ZigArgFilter.initFilterMap(&self, &self.arg_filter);
         if (utils.getEnvVar(self.environ_map, "ZIG_WRAPPER_FILTERS")) |env_filters| {
             self.arg_filter.parseAndApply(&self, env_filters) catch |err| {
                 std.debug.print("Failed to parse ZIG_WRAPPER_FILTERS: {}\n", .{err});
             };
         }
+        ZigArgFilter.initFilterMap(&self, &self.arg_filter);
         return self;
     }
 
@@ -343,6 +343,12 @@ pub const ZigWrapper = struct {
                 if (self.disable_dllexport) {
                     try utils.dupeAndAppend(u8, &self.args, self.allocator, "-fvisibility-ms-compat");
                     try utils.dupeAndAppend(u8, &self.args, self.allocator, "-Ddllexport=nodebug");
+                }
+
+                if (self.target_is_windows and !self.target_is_msvc) {
+                    for (ZigArgFilter.windows_gnu_builtin_opts) |opt| {
+                        try utils.dupeAndAppend(u8, &self.args, self.allocator, opt);
+                    }
                 }
             }
             if (self.target_is_windows) {

@@ -8,14 +8,17 @@ ifndef __ENV_MK__
 __ENV_MK__ = $(abspath $(lastword $(MAKEFILE_LIST)))
 CMKABE_HOME := $(abspath $(dir $(__ENV_MK__))/..)
 
-CMKABE_VERSION = 0.9.0
+CMKABE_VERSION = 0.9.1
 
 # all clean goal names
 CMKABE_CLEAN_GOALS = clean distclean cargo-clean
-CMAKE_OUTPUT_DIRS =
+CMAKE_BUILD_DEPS =
+CMAKE_CLEAN_DEPS =
+CMAKE_PURGE_DEPS =
 TARGET_DEPENDENCY_PREFIXES =
 # internal variable
-_X_DOT_SETTINGS_DEPS =
+_X_DOT_SETTING_DEPS =
+unexport MAKE_RESTARTS
 
 # ==============================================================================
 # = Environment Variables
@@ -65,15 +68,14 @@ define _x_cmkabe_clone_libs_tpl
         $$(error Error: `cmkabe_clone_libs` requires a target name as the first argument)
     endif
     CMKABE_CLEAN_GOALS += $(1)
-    CMAKE_OUTPUT_DIRS += $(2)
+    CMAKE_PURGE_DEP_DIRS += $(2)
     TARGET_DEPENDENCY_PREFIXES += $(2)
-    $$(call cmkabe_reg_reinit_deps,$(2)/.dirstamp)
+    $$(call cmkabe_add_setting_deps,$(2))
 
     .PHONY: $(1)
-    $(1) $(2)/.dirstamp:
+    $(1) $(2):
 		@$$(RM) -rf "$(2)" || $$(OK)
 		@$$(SHLUTIL) clone-libs --dest-dir "$(2)" $(3)
-		@$(TOUCH) "$(2)/.dirstamp"
 
     .DEFAULT_GOAL := $$(_x_saved_default_goal)
     undefine _x_saved_default_goal
@@ -87,9 +89,21 @@ cmkabe_parse_target = $(eval include $(CMKABE_HOME)/mk/rules.mk)
 #    Apply settings to the toolchain of the current target.
 cmkabe_update_toolchain = $(eval $(if $(filter $(CMKABE_IS_CLEANING),OFF),,-)include $(_X_DOT_ENVIRON_MK))
 
-# cmkabe_reg_reinit_deps(<targets>)
-#    Register the targets as dependencies of the settings files reinitialization.
-cmkabe_reg_reinit_deps = $(eval $(if $(_X_DOT_SETTINGS_MK),$(_X_DOT_SETTINGS_MK): $(1),_X_DOT_SETTINGS_DEPS += $(1)))
+# cmkabe_add_setting_deps(<targets>)
+#    Register the targets as dependencies of the settings files initialization.
+cmkabe_add_setting_deps = $(eval $(if $(_X_DOT_SETTINGS_MK),$(_X_DOT_SETTINGS_MK): $(1),_X_DOT_SETTING_DEPS += $(1)))
+
+# cmkabe_add_build_deps(<targets>)
+#    Register the targets as dependencies of the build target.
+cmkabe_add_build_deps = $(eval $(if $(__RULES_MK__),cmake-before-build: $(1),CMAKE_BUILD_DEPS += $(1)))
+
+# cmkabe_add_clean_deps(<targets>)
+#    Register the targets as dependencies of the clean targets.
+cmkabe_add_clean_deps = $(eval $(if $(__RULES_MK__),cmake-clean-output: $(1),CMAKE_CLEAN_DEPS += $(1)))
+
+# cmkabe_add_purge_deps(<targets>)
+#    Register the targets as dependencies of the purge targets.
+cmkabe_add_purge_deps = $(eval $(if $(__RULES_MK__),cmake-purge-deps: $(1),CMAKE_PURGE_DEPS += $(1)))
 
 # If `$(TARGET_IS_NATIVE)` is true, return `native`; otherwise, return `$(TARGET)`.
 CMKABE_TARGET = $(call bsel,$(TARGET_IS_NATIVE),native,$(TARGET))
