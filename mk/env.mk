@@ -122,9 +122,10 @@ cmkabe_add_purge_deps = $(eval $(call _x_cmkabe_add_deps_tpl,$(1),$(__RULES_MK__
 CMKABE_TARGET = $(call bsel,$(TARGET_IS_NATIVE),native,$(TARGET))
 
 # bool(value:bool,default:bool)
-bool = $(call _bool_norm_,$(1),$(if $(2),$(2),OFF))
-_bool_upper_ = $(subst a,A,$(subst e,E,$(subst f,F,$(subst l,L,$(subst o,O,$(subst n,N,$(subst r,R,$(subst s,S,$(subst t,T,$(subst u,U,$(1)))))))))))
-_bool_norm_ = $(word 2,$(subst =, ,$(filter $(call _bool_upper_,$(1))=%,1=ON ON=ON TRUE=ON 0=OFF OFF=OFF FALSE=OFF)) OFF $(2))
+bool = $(call _x_bool_norm,$(1),$(if $(2),$(2),OFF))
+_X_BOOL_MAP = a,A e,E f,F l,L o,O n,N r,R s,S t,T u,U
+_x_bool_upper = $(strip $(eval __x := $(1))$(foreach __y,$(_X_BOOL_MAP),$(eval __x := $$(subst $(__y),$$(__x))))$(__x))
+_x_bool_norm = $(word 2,$(subst =, ,$(filter $(call _x_bool_upper,$(1))=%,1=ON ON=ON TRUE=ON 0=OFF OFF=OFF FALSE=OFF)) OFF $(2))
 
 # not(value:bool)
 not = $(if $(filter ON,$(call bool,$(1))),OFF,ON)
@@ -138,13 +139,15 @@ sel = $(if $(filter $(1)=%,$(2)),$(patsubst $(1)=%,%,$(filter $(1)=%,$(2))),$(3)
 
 # bsel(ON_or_OFF:bool,value_of_ON:str,value_of_OFF:str)
 #    e.g. $(call bsel,ON,A,B) == A
-bsel = $(if $(filter ON,$(1)),$(2),$(3))
+bsel = $(if $(filter ON,$(call bool,$(1))),$(2),$(3))
 
 # lower(value:str)
-lower = $(subst A,a,$(subst B,b,$(subst C,c,$(subst D,d,$(subst E,e,$(subst F,f,$(subst G,g,$(subst H,h,$(subst I,i,$(subst J,j,$(subst K,k,$(subst L,l,$(subst M,m,$(subst N,n,$(subst O,o,$(subst P,p,$(subst Q,q,$(subst R,r,$(subst S,s,$(subst T,t,$(subst U,u,$(subst V,v,$(subst W,w,$(subst X,x,$(subst Y,y,$(subst Z,z,$(1)))))))))))))))))))))))))))
+lower = $(subst ~!@"',,$(eval __x := ~!@"'$(1)~!@"')$(strip $(foreach __y,$(_X_LWR_MAP),$(eval __x := $$(subst $(__y),$$(__x)))))$(__x))
+_X_LWR_MAP = A,a B,b C,c D,d E,e F,f G,g H,h I,i J,j K,k L,l M,m N,n O,o P,p Q,q R,r S,s T,t U,u V,v W,w X,x Y,y Z,z
 
 # upper(value:str)
-upper = $(subst a,A,$(subst b,B,$(subst c,C,$(subst d,D,$(subst e,E,$(subst f,F,$(subst g,G,$(subst h,H,$(subst i,I,$(subst j,J,$(subst k,K,$(subst l,L,$(subst m,M,$(subst n,N,$(subst o,O,$(subst p,P,$(subst q,Q,$(subst r,R,$(subst s,S,$(subst t,T,$(subst u,U,$(subst v,V,$(subst w,W,$(subst x,X,$(subst y,Y,$(subst z,Z,$(1)))))))))))))))))))))))))))
+upper = $(subst ~!@"',,$(eval __x := ~!@"'$(1)~!@"')$(strip $(foreach __y,$(_X_UPR_MAP),$(eval __x := $$(subst $(__y),$$(__x)))))$(__x))
+_X_UPR_MAP = a,A b,B c,C d,D e,E f,F g,G h,H i,I j,J k,K l,L m,M n,N o,O p,P q,Q r,R s,S t,T u,U v,V w,W x,X y,Y z,Z
 
 # greater_than(x:int[0,99999999],y:int[0,99999999])
 #     if x > y, return ON, OFF otherwise
@@ -198,7 +201,7 @@ join_paths = $(subst $(SPACE)$(PATHSEP),$(PATHSEP),$(foreach I,$(1),$(foreach J,
 rmake = $(PY) rmake.py $(1)
 # If RMAKE is on, call rmake; otherwise, call make directly.
 # try_rmake(options:str)
-try_rmake = $(call bsel,$(call bool,$(RMAKE)),$(call rmake,$(1)),$(call wsl_run,make $(1)))
+try_rmake = $(call bsel,$(RMAKE),$(call rmake,$(1)),$(call wsl_run,make $(1)))
 
 # Set an environment variable in command line.
 # set_env(key:str,value:str)

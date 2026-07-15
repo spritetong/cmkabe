@@ -48,7 +48,7 @@ override DEBUG := $(call bool,$(DEBUG),ON)
 #! Generate with minimum size
 override MINSIZE := $(call bool,$(MINSIZE),OFF)
 #! Generate debug information
-override DBGINFO := $(call bool,$(DBGINFO),$(call bsel,$(DEBUG),ON,OFF))
+override DBGINFO := $(call bool,$(DBGINFO),$(DEBUG))
 #! Show verbose output
 override VERBOSE := $(call bool,$(VERBOSE),OFF)
 
