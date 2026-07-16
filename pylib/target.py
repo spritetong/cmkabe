@@ -1061,6 +1061,7 @@ class TargetParser:
         ]
         lines.append('# Export variables for Cargo build.rs and CMake')
         lines.append(f'export CARGO_WORKSPACE_DIR = {self.workspace_dir}')
+        lines.append(f'export CMKABE_HOME = {self.cmkabe_dir}')
         lines.append(f'export CMKABE_HOST_TARGET = {self.host.triple}')
         lines.append(f'export CMKABE_TARGET = {self.cmkabe_target}')
         lines.append(f'export CMKABE_TARGET_DIR = {self.target_dir}')
@@ -1185,6 +1186,7 @@ class TargetParser:
                     lines.append(cmk_lst_esc(f'"{k}={v}"'))
 
         lines.append(cmk_lst_esc(f'"CARGO_WORKSPACE_DIR={self.workspace_dir}"'))
+        lines.append(cmk_lst_esc(f'"CMKABE_HOME={self.cmkabe_dir}"'))
         lines.append(cmk_lst_esc(f'"CMKABE_HOST_TARGET={self.host.triple}"'))
         lines.append(cmk_lst_esc(f'"CMKABE_TARGET={self.cmkabe_target}"'))
         lines.append(cmk_lst_esc(f'"CMKABE_TARGET_DIR={self.target_dir}"'))
