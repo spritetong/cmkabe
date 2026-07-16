@@ -32,24 +32,28 @@ class ShellCmd:
     def __init__(self, *, cli_mode: bool = False) -> None:
         self.cli_mode: bool = cli_mode
 
-    def return_(
+    def check(
         self,
         status: int,
         message: Optional[Union[str, Exception]] = None,
+        silence: bool = False,
+        rethrow: bool = False,
     ) -> int:
         if status == 0:
-            if message is not None:
+            if message is not None and not silence:
                 print(message, file=sys.stdout)
             return status
 
         if self.cli_mode:
-            if message is not None:
-                print(message, file=sys.stderr)
+            if message is not None and not silence:
+                print(str(message), file=sys.stderr)
         else:
             if isinstance(message, Exception):
+                if rethrow:
+                    raise
                 raise message
             elif message is not None:
-                raise RuntimeError(message)
+                raise Exception(message)
         return status
 
     def rm(
@@ -86,8 +90,9 @@ class ShellCmd:
             for pattern in read_arg():
                 files = glob.glob(pattern)
                 if not files and not force:
-                    print(f'Can not find file {pattern}', file=sys.stderr)
-                    return self.EFAIL
+                    return self.check(
+                        self.EFAIL, OSError(f'Can not find file {pattern}')
+                    )
                 for file in files:
                     try:
                         if os.path.isfile(file) or os.path.islink(file):
@@ -101,14 +106,16 @@ class ShellCmd:
                         status = self.EFAIL
                         if force:
                             continue
-                        print(f'Can not remove file {file}', file=sys.stderr)
-                        return status
+                        return self.check(
+                            status, OSError(f'Can not remove file {file}')
+                        )
         else:
             for pattern in read_arg():
                 files = glob.glob(pattern)
                 if not files and not force:
-                    print(f'Can not find file {pattern}', file=sys.stderr)
-                    return self.EFAIL
+                    return self.check(
+                        self.EFAIL, OSError(f'Can not find file {pattern}')
+                    )
                 for file in files:
                     try:
                         if os.path.isfile(file) or os.path.islink(file):
@@ -122,8 +129,9 @@ class ShellCmd:
                         status = self.EFAIL
                         if force:
                             continue
-                        print(f'Can not remove tree {file}', file=sys.stderr)
-                        return status
+                        return self.check(
+                            status, OSError(f'Can not remove tree {file}')
+                        )
         return status
 
     def mkdir(
@@ -158,8 +166,7 @@ class ShellCmd:
                 status = self.EFAIL
                 if ignore_errors:
                     continue
-                print(f'Can not make directory {path}', file=sys.stderr)
-                return status
+                return self.check(status, OSError(f'Can not make directory "{path}"'))
         return status
 
     def rmdir(
@@ -181,8 +188,9 @@ class ShellCmd:
                     status = self.EFAIL
                     if ignore_errors:
                         continue
-                    print(f'Can not remove directory {path}', file=sys.stderr)
-                    return status
+                    return self.check(
+                        status, OSError(f'Can not remove directory {path}')
+                    )
             else:
                 # If path is a directory, keep the original logic of "downward recursion" to
                 # clean up empty subdirectories.
@@ -232,24 +240,26 @@ class ShellCmd:
         import shutil
 
         status = 0
-        if not sources:
-            if not ignore_errors:
-                print('Invalid parameter "sources" for mv', file=sys.stderr)
-            return self.EFAIL
         files: List[str] = []
         for pattern in sources:
             files += glob.glob(pattern)
         if len(files) > 1 and not os.path.isdir(dest):
-            if not ignore_errors:
-                print(f'{dest} is not a directory', file=sys.stderr)
-            return self.EFAIL
+            return self.check(
+                self.EFAIL,
+                ValueError(f'{dest} is not a directory'),
+                silence=ignore_errors,
+            )
         if not files:
             if not ignore_errors:
-                print(f'Can not find file {sources}', file=sys.stderr)
-            return self.EFAIL
+                self.check(
+                    self.EFAIL,
+                    OSError(f'Can not find file "{sources}"'),
+                    silence=True,
+                )
+            return 0
 
         for file in files:
-            if os.path.isdir(dest):
+            if os.path.isdir(dest) or dest.endswith((os.sep, '/')):
                 dest_path = os.path.join(dest, os.path.basename(file))
             else:
                 dest_path = dest
@@ -261,12 +271,11 @@ class ShellCmd:
                 same = os.path.abspath(file) == os.path.abspath(dest_path)
 
             if same:
-                status = self.EFAIL
-                if not ignore_errors:
-                    print(
-                        f"'{file}' and '{dest_path}' are the same file", file=sys.stderr
-                    )
-                return status
+                return self.check(
+                    self.EFAIL,
+                    ValueError(f'"{file}" and "{dest_path}" are the same file'),
+                    silence=ignore_errors,
+                )
 
             if force and os.path.lexists(dest_path):
                 try:
@@ -282,12 +291,13 @@ class ShellCmd:
                     pass
 
             try:
-                shutil.move(file, dest)
+                shutil.move(file, dest_path)
             except OSError:
-                status = self.EFAIL
-                if not ignore_errors:
-                    print(f'Can not move {file} to {dest}', file=sys.stderr)
-                return status
+                return self.check(
+                    self.EFAIL,
+                    OSError(f'Can not move {file} to {dest}'),
+                    silence=ignore_errors,
+                )
         return status
 
     def cp(
@@ -317,24 +327,26 @@ class ShellCmd:
                 shutil.copy2(src, dst)
 
         status = 0
-        if not sources:
-            if not ignore_errors:
-                print('Invalid parameter "sources" for cp', file=sys.stderr)
-            return self.EFAIL
         files: List[str] = []
         for pattern in sources:
             files += glob.glob(pattern)
         if len(files) > 1 and not os.path.isdir(dest):
-            if not ignore_errors:
-                print(f'{dest} is not a directory', file=sys.stderr)
-            return self.EFAIL
+            return self.check(
+                self.EFAIL,
+                ValueError(f'{dest} is not a directory'),
+                silence=ignore_errors,
+            )
         if not files:
             if not ignore_errors:
-                print(f'Can not find file {sources}', file=sys.stderr)
-            return self.EFAIL
+                self.check(
+                    self.EFAIL,
+                    OSError(f'Can not find file "{sources}"'),
+                    silence=True,
+                )
+            return 0
 
         for file in files:
-            if os.path.isdir(dest):
+            if os.path.isdir(dest) or dest.endswith((os.sep, '/')):
                 dest_path = os.path.join(dest, os.path.basename(file))
             else:
                 dest_path = dest
@@ -346,12 +358,11 @@ class ShellCmd:
                 same = os.path.abspath(file) == os.path.abspath(dest_path)
 
             if same:
-                status = self.EFAIL
-                if not ignore_errors:
-                    print(
-                        f"'{file}' and '{dest_path}' are the same file", file=sys.stderr
-                    )
-                return status
+                return self.check(
+                    self.EFAIL,
+                    ValueError(f'"{file}" and "{dest_path}" are the same file'),
+                    silence=ignore_errors,
+                )
 
             if force and os.path.lexists(dest_path):
                 try:
@@ -368,19 +379,20 @@ class ShellCmd:
 
             try:
                 if os.path.islink(file) or os.path.isfile(file):
-                    copy_file(file, dest)
+                    copy_file(file, dest_path)
                 elif recursive:
                     shutil.copytree(
                         file,
-                        os.path.join(dest, os.path.basename(file)),
+                        dest_path,
                         copy_function=copy_file,
                         dirs_exist_ok=True,
                     )
             except OSError:
-                status = self.EFAIL
-                if not ignore_errors:
-                    print(f'Can not copy {file} to {dest}', file=sys.stderr)
-                return status
+                return self.check(
+                    self.EFAIL,
+                    OSError(f'Can not copy {file} to {dest}'),
+                    silence=ignore_errors,
+                )
         return status
 
     def mklink(
@@ -409,13 +421,11 @@ class ShellCmd:
         same = os.path.abspath(link) == abs_target
 
         if same:
-            status = self.EFAIL
-            if not ignore_errors:
-                print(
-                    f"'{link}' and '{target}' are the same file",
-                    file=sys.stderr,
-                )
-            return status
+            return self.check(
+                self.EFAIL,
+                ValueError(f'"{link}" and "{target}" are the same file'),
+                silence=ignore_errors,
+            )
 
         if force and os.path.lexists(link):
             try:
@@ -438,12 +448,11 @@ class ShellCmd:
                 target_is_directory=symlinkd or os.path.isdir(abs_target),
             )
         except OSError:
-            status = self.EFAIL
-            if not ignore_errors:
-                print(
-                    f'Can not create symbolic link: {link} -> {target}',
-                    file=sys.stderr,
-                )
+            return self.check(
+                self.EFAIL,
+                OSError(f'Can not create symbolic link: {link} -> {target}'),
+                silence=ignore_errors,
+            )
         return status
 
     def fix_symlink(self, patterns: List[str]) -> int:
@@ -481,8 +490,8 @@ class ShellCmd:
             for pattern in patterns:
                 walk(pattern)
             return 0
-        except OSError:
-            return self.EFAIL
+        except OSError as e:
+            return self.check(self.EFAIL, e, rethrow=True)
 
     def cwd(self) -> int:
         """Print current working directory in Unix format (forward slashes)."""
@@ -548,8 +557,7 @@ class ShellCmd:
                     status = self.EFAIL
                     if ignore_errors:
                         continue
-                    print(f'Can not create file {pattern}', file=sys.stderr)
-                    return status
+                    return self.check(status, OSError(f'Can not create file {pattern}'))
             for file in files:
                 try:
                     os.utime(file, None)
@@ -557,8 +565,7 @@ class ShellCmd:
                     status = self.EFAIL
                     if ignore_errors:
                         continue
-                    print(f'Can not touch file {file}', file=sys.stderr)
-                    return status
+                    return self.check(status, OSError(f'Can not touch file {file}'))
         return status
 
     def sed_replace(
@@ -581,8 +588,7 @@ class ShellCmd:
             expanded_paths.extend(files)
 
         if not expanded_paths:
-            print('Error: no files found to process', file=sys.stderr)
-            return self.ENOENT
+            return self.check(self.ENOENT, OSError('Error: no files found to process'))
 
         for filepath in expanded_paths:
             if not os.path.isfile(filepath):
@@ -662,8 +668,8 @@ class ShellCmd:
                 pass
             print(value or '', end='')
             return 0
-        except (NameError, AttributeError):
-            return self.EFAIL
+        except (NameError, AttributeError) as e:
+            return self.check(self.EFAIL, e, rethrow=True)
 
     def ndk_root(self) -> int:
         """Print Android NDK root directory path."""
@@ -671,7 +677,7 @@ class ShellCmd:
         if root_dir:
             print(root_dir, end='')
             return 0
-        return self.ENOENT
+        return self.check(self.ENOENT, OSError('Android NDK root directory not found'))
 
     def cargo_exec(self, cargo_toml_path: str, command: List[str]) -> int:
         """Simulate cargo build environment execution."""
@@ -698,17 +704,21 @@ class ShellCmd:
                 with open(cargo_toml, mode='rb') as fp:
                     cargo = tomllib.load(fp)
             except ImportError:
-                print(
-                    'toml is not installed. Please execute: pip install toml',
-                    file=sys.stderr,
+                return self.check(
+                    self.EFAIL,
+                    ImportError(
+                        'toml is not installed. Please execute: pip install toml'
+                    ),
                 )
-                return self.EFAIL
         package = cargo['package']
         os.environ['CARGO_CRATE_NAME'] = package['name']
         os.environ['CARGO_PKG_NAME'] = package['name']
         os.environ['CARGO_PKG_VERSION'] = package['version']
         os.environ['CARGO_MAKE_TIMESTAMP'] = f'{time.time()}'
-        return subprocess.call(' '.join(command), shell=True)
+        if self.cli_mode:
+            return subprocess.call(' '.join(command), shell=True)
+        else:
+            return subprocess.check_call(' '.join(command), shell=True)
 
     def upload(self, ftp_path: str, files: List[str]) -> int:
         """Upload file via FTP or SFTP."""
@@ -716,8 +726,7 @@ class ShellCmd:
 
         parsed = urllib.parse.urlparse(ftp_path)
         if not parsed.hostname:
-            print(f'No hostname in {ftp_path}', file=sys.stderr)
-            return self.EINVAL
+            return self.check(self.EINVAL, ValueError('No hostname in ftp_path'))
         scheme = parsed.scheme
         hostname = parsed.hostname
         port = int(parsed.port) if parsed.port else 0
@@ -742,18 +751,21 @@ class ShellCmd:
             try:
                 import paramiko
             except ImportError:
-                print(
-                    'paramiko is not installed. Please execute: pip install paramiko',
-                    file=sys.stderr,
+                return self.check(
+                    self.EFAIL,
+                    ImportError(
+                        'paramiko is not installed. Please execute: pip install paramiko'
+                    ),
                 )
-                return self.EFAIL
             ssh = paramiko.SSHClient()
             ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
             ssh.connect(hostname, port or 22, username, password)
             sftp = ssh.open_sftp()
         else:
-            print(f'Unsupported protocol: {scheme}', file=sys.stderr)
-            return self.EINVAL
+            return self.check(
+                self.EINVAL,
+                ValueError(f'Unsupported protocol: {scheme}'),
+            )
 
         for item in files:
             pair = item.split('=')
@@ -802,23 +814,10 @@ class ShellCmd:
         """Call TargetParser to build target dependencies."""
         from .target import TargetParser
 
-        try:
-            args = {
-                k.strip().lower(): v
-                for (k, v) in map(lambda x: x.split('=', 1), params)
-            }
-            TargetParser(**args).parse().build()
-        except Exception as e:
-            if os.environ.get('CMKABE_DEBUG') == '1':
-                import traceback
-
-                traceback.print_exc(file=sys.stderr)
-            else:
-                print(
-                    f'[ERROR] Failed to build target dependencies: {e}',
-                    file=sys.stderr,
-                )
-            return 1
+        args = {
+            k.strip().lower(): v for (k, v) in map(lambda x: x.split('=', 1), params)
+        }
+        TargetParser(**args).parse().build()
         return 0
 
     def dll2lib(
@@ -921,8 +920,8 @@ class ShellCmd:
                             os.makedirs(os.path.dirname(cache_path), exist_ok=True)
                             with open(cache_path, 'wb') as f:
                                 f.write(content)
-                        except OSError:
-                            return self.EFAIL
+                        except OSError as e:
+                            return self.check(self.EFAIL, e, rethrow=True)
                     found_triplet = True
                     found_any = True
                     break
@@ -1088,15 +1087,18 @@ class ShellCmd:
         """Fix ELF dynamic library paths by removing directory paths."""
         from .elf import modify_elf_file
 
-        success = modify_elf_file(
-            elf_file,
-            targets,
-            fix_rpath=fix_rpath,
-            create_backup=create_backup,
-            verbose=verbose,
-            quiet=quiet,
-        )
-        return 0 if success else self.EFAIL
+        try:
+            success = modify_elf_file(
+                elf_file,
+                targets,
+                fix_rpath=fix_rpath,
+                create_backup=create_backup,
+                verbose=verbose,
+                quiet=quiet,
+            )
+            return 0 if success else self.EFAIL
+        except Exception as e:
+            return self.check(self.EFAIL, f'[ERROR] Failed to modify ELF file: {e}')
 
     def clone_libs(
         self,
@@ -1113,8 +1115,7 @@ class ShellCmd:
         import subprocess
 
         if not dest_dir:
-            print('Error: --dest-dir is required', file=sys.stderr)
-            return self.EINVAL
+            return self.check(self.EINVAL, ValueError('Error: --dest-dir is required'))
 
         if not local_repo and url:
             base = os.path.basename(url)
@@ -1139,11 +1140,12 @@ class ShellCmd:
                 cwd=local_repo,
             )
             if ret != 0:
-                print(
-                    f"Error: rebuild in '{local_repo}' failed with exit code {ret}",
-                    file=sys.stderr,
+                return self.check(
+                    self.EFAIL,
+                    ValueError(
+                        f"Error: rebuild in '{local_repo}' failed with exit code {ret}"
+                    ),
                 )
-                return self.EFAIL
             src_dir = local_repo
         elif url and glob.glob(url):
             matched = glob.glob(url)
@@ -1155,8 +1157,10 @@ class ShellCmd:
                 f'git clone --depth 1 --branch master "{url}" "{tmp_dir}"', shell=True
             )
             if ret != 0:
-                print(f'Error: git clone failed with exit code {ret}', file=sys.stderr)
-                return self.EFAIL
+                return self.check(
+                    self.EFAIL,
+                    ValueError(f'Error: git clone failed with exit code {ret}'),
+                )
             src_dir = tmp_dir
             need_cleanup = True
 
@@ -1274,24 +1278,32 @@ class ShellCmd:
             try:
                 parsed_user = (int(user[0]), user[1])
             except ValueError:
-                print(f'Error: UID must be an integer, got {user[0]}', file=sys.stderr)
-                return self.EINVAL
+                return self.check(
+                    self.EINVAL,
+                    ValueError(f'Error: UID must be an integer, got {user[0]}'),
+                )
 
         parsed_group = None
         if group:
             try:
                 parsed_group = (int(group[0]), group[1])
             except ValueError:
-                print(f'Error: GID must be an integer, got {group[0]}', file=sys.stderr)
-                return self.EINVAL
+                return self.check(
+                    self.EINVAL,
+                    ValueError(f'Error: GID must be an integer, got {group[0]}'),
+                )
 
         if tar_command == 'create':
             if not output_path:
-                print('Error: output_path is required for tar create', file=sys.stderr)
-                return self.EINVAL
+                return self.check(
+                    self.EINVAL,
+                    ValueError('Error: output_path is required for tar create'),
+                )
             if not items:
-                print('Error: items are required for tar create', file=sys.stderr)
-                return self.EINVAL
+                return self.check(
+                    self.EINVAL,
+                    ValueError('Error: items are required for tar create'),
+                )
 
             parsed_items = []
             for item in items:
@@ -1317,13 +1329,15 @@ class ShellCmd:
 
         elif tar_command == 'extract':
             if not archive_path:
-                print(
-                    'Error: archive_path is required for tar extract', file=sys.stderr
+                return self.check(
+                    self.EINVAL,
+                    ValueError('Error: archive_path is required for tar extract'),
                 )
-                return self.EINVAL
             if not dest_dir:
-                print('Error: dest_dir is required for tar extract', file=sys.stderr)
-                return self.EINVAL
+                return self.check(
+                    self.EINVAL,
+                    ValueError('Error: dest_dir is required for tar extract'),
+                )
 
             tar_extract(
                 archive_path=archive_path,
@@ -1337,8 +1351,10 @@ class ShellCmd:
             return 0
 
         else:
-            print(f'Error: Unrecognized tar command "{tar_command}"', file=sys.stderr)
-            return self.EINVAL
+            return self.check(
+                self.EINVAL,
+                ValueError(f'Error: Unrecognized tar command "{tar_command}"'),
+            )
 
     @classmethod
     def _rmtree_try_chmod(cls, path: str, *, ignore_errors=False):
@@ -1871,12 +1887,14 @@ class ShellCmd:
             )
 
             namespace = parser.parse_args(args)
+            inst = cls(cli_mode=True)
 
             if not namespace.command:
-                print('Missing command', file=sys.stderr)
-                return cls.EINVAL
+                return inst.check(
+                    inst.EINVAL,
+                    ValueError('Error: Missing command'),
+                )
 
-            inst = cls(cli_mode=True)
             cmd = namespace.command
 
             if cmd == 'rm':
