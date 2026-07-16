@@ -355,6 +355,37 @@ class TestCommands(unittest.TestCase):
             self.assertTrue(os.path.isfile(os.path.join(dest_dir, 'file1.txt')))
             self.assertFalse(os.path.exists(os.path.join(dest_dir, 'file2.sh')))
 
+    def test_sed_replace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file1 = os.path.join(tmpdir, 'file1.txt')
+            with open(file1, 'w', encoding='utf-8') as f:
+                f.write('hello world\napple banana apple\n')
+
+            file2 = os.path.join(tmpdir, 'file2.txt')
+            with open(file2, 'w', encoding='utf-8') as f:
+                f.write('orange apple peach\n')
+
+            # Run sed-replace on both files
+            # Substitute 'apple' with 'pineapple' and 'banana' with 'grape'
+            code = ShellCmd.main([
+                'sed-replace',
+                '-s', 'apple', 'pineapple',
+                '--pattern', 'banana', 'grape',
+                file1,
+                os.path.join(tmpdir, '*2.txt'), # test glob path expansion
+            ])
+            self.assertEqual(code, 0)
+
+            # Verify contents of file1
+            with open(file1, 'r', encoding='utf-8') as f:
+                content1 = f.read()
+                self.assertEqual(content1, 'hello world\npineapple grape pineapple\n')
+
+            # Verify contents of file2
+            with open(file2, 'r', encoding='utf-8') as f:
+                content2 = f.read()
+                self.assertEqual(content2, 'orange pineapple peach\n')
+
 
 class TestElfPathFixer(unittest.TestCase):
     def _create_mock_elf(self, is_64bit: bool = True, is_le: bool = True) -> bytes:

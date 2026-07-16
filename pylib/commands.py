@@ -10,7 +10,7 @@ import glob
 import os
 import sys
 import time
-from typing import Any, Generator, List, Optional
+from typing import Any, Generator, List, Optional, Tuple
 
 from .sys_utils import (
     HostTargetInfo,
@@ -424,6 +424,50 @@ class ShellCmd:
                         continue
                     print(f'Can not touch file {file}', file=sys.stderr)
                     return status
+        return status
+
+    def sed_replace(
+        self,
+        paths: List[str],
+        replacements: List[Tuple[str, str]],
+    ) -> int:
+        """Replace text in files matching the given pattern and replacement rules.
+
+        Equivalent to: sed -i 's/old/new/g' <file>
+        """
+        import re
+
+        status = 0
+        expanded_paths = []
+        for pattern in paths:
+            files = glob.glob(pattern)
+            if not files:
+                print(f'Warning: no files matched pattern {pattern}', file=sys.stderr)
+            expanded_paths.extend(files)
+
+        if not expanded_paths:
+            print('Error: no files found to process', file=sys.stderr)
+            return self.ENOENT
+
+        for filepath in expanded_paths:
+            if not os.path.isfile(filepath):
+                continue
+            try:
+                with open(filepath, 'rb') as f:
+                    content = f.read().decode('utf-8')
+                new_content = content
+                for pattern, replacement in replacements:
+                    new_content = re.sub(pattern, replacement, new_content)
+                if content != new_content:
+                    with open(filepath, 'wb') as f:
+                        f.write(new_content.encode('utf-8'))
+            except OSError as e:
+                print(f'Error accessing or writing file {filepath}: {e}', file=sys.stderr)
+                status = self.EFAIL
+            except Exception as e:
+                print(f'Error processing file {filepath}: {e}', file=sys.stderr)
+                status = self.EFAIL
+
         return status
 
     def timestamp(self) -> int:
@@ -1656,6 +1700,27 @@ class ShellCmd:
                 help='Verbose output',
             )
 
+            # 32. sed-replace subparser
+            sed_replace_parser = subparsers.add_parser(
+                'sed-replace',
+                help='Replace patterns in files using regex',
+            )
+            sed_replace_parser.add_argument(
+                '--pattern',
+                '-s',
+                nargs=2,
+                action='append',
+                dest='replacements',
+                required=True,
+                metavar=('PATTERN', 'REPLACEMENT'),
+                help='Regex pattern and its replacement string',
+            )
+            sed_replace_parser.add_argument(
+                'paths',
+                nargs='+',
+                help='Files or glob patterns to process',
+            )
+
             namespace = parser.parse_args(args)
 
             if not namespace.command:
@@ -1828,6 +1893,11 @@ class ShellCmd:
                     user=namespace.user,
                     group=namespace.group,
                     verbose=namespace.verbose,
+                )
+            elif cmd == 'sed-replace':
+                return inst.sed_replace(
+                    paths=namespace.paths,
+                    replacements=namespace.replacements,
                 )
 
             print(f'Unrecognized command "{cmd}"', file=sys.stderr)
