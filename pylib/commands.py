@@ -10,7 +10,7 @@ import glob
 import os
 import sys
 import time
-from typing import Any, Generator, List, Optional
+from typing import Any, Generator, List, Optional, Tuple
 
 from .sys_utils import (
     HostTargetInfo,
@@ -19,7 +19,6 @@ from .sys_utils import (
     win2wsl_path,
     wsl2win_path,
 )
-from .zig import zig_build_wrapper, zig_clean_cache, zig_dll2lib, zig_patch
 
 
 class ShellCmd:
@@ -36,6 +35,7 @@ class ShellCmd:
     def rm(
         self,
         paths: List[str],
+        *,
         recursive: bool = False,
         force: bool = False,
         args_from_stdin: bool = False,
@@ -107,7 +107,7 @@ class ShellCmd:
                         return status
         return status
 
-    def mkdir(self, paths: List[str], force: bool = False) -> int:
+    def mkdir(self, paths: List[str], *, force: bool = False) -> int:
         """Simulate mkdir / mkdir -p.
 
         Creates directory paths. Always acts like Unix `mkdir -p` (creates parent directories, ignores existing paths).
@@ -140,7 +140,11 @@ class ShellCmd:
         return status
 
     def rmdir(
-        self, paths: List[str], remove_parents: bool = False, force: bool = False
+        self,
+        paths: List[str],
+        *,
+        remove_parents: bool = False,
+        force: bool = False,
     ) -> int:
         """Simulate rmdir.
 
@@ -192,7 +196,7 @@ class ShellCmd:
                     curr = parent
         return status
 
-    def mv(self, paths: List[str], force: bool = False) -> int:
+    def mv(self, paths: List[str], *, force: bool = False) -> int:
         """Simulate mv.
 
         Moves files, directories, or glob patterns to a destination path.
@@ -226,6 +230,7 @@ class ShellCmd:
     def cp(
         self,
         paths: List[str],
+        *,
         recursive: bool = False,
         follow_symlinks: bool = True,
         force: bool = False,
@@ -283,7 +288,12 @@ class ShellCmd:
         return status
 
     def mklink(
-        self, link: str, target: str, symlinkd: bool = False, force: bool = False
+        self,
+        link: str,
+        target: str,
+        *,
+        symlinkd: bool = False,
+        force: bool = False,
     ) -> int:
         """Simulate symlink creation.
 
@@ -391,7 +401,7 @@ class ShellCmd:
         print('false', end='')
         return 0
 
-    def touch(self, paths: List[str], force: bool = False) -> int:
+    def touch(self, paths: List[str], *, force: bool = False) -> int:
         """Simulate touch."""
         status = 0
         for pattern in paths:
@@ -416,12 +426,56 @@ class ShellCmd:
                     return status
         return status
 
+    def sed_replace(
+        self,
+        paths: List[str],
+        replacements: List[Tuple[str, str]],
+    ) -> int:
+        """Replace text in files matching the given pattern and replacement rules.
+
+        Equivalent to: sed -i 's/old/new/g' <file>
+        """
+        import re
+
+        status = 0
+        expanded_paths = []
+        for pattern in paths:
+            files = glob.glob(pattern)
+            if not files:
+                print(f'Warning: no files matched pattern {pattern}', file=sys.stderr)
+            expanded_paths.extend(files)
+
+        if not expanded_paths:
+            print('Error: no files found to process', file=sys.stderr)
+            return self.ENOENT
+
+        for filepath in expanded_paths:
+            if not os.path.isfile(filepath):
+                continue
+            try:
+                with open(filepath, 'rb') as f:
+                    content = f.read().decode('utf-8')
+                new_content = content
+                for pattern, replacement in replacements:
+                    new_content = re.sub(pattern, replacement, new_content)
+                if content != new_content:
+                    with open(filepath, 'wb') as f:
+                        f.write(new_content.encode('utf-8'))
+            except OSError as e:
+                print(f'Error accessing or writing file {filepath}: {e}', file=sys.stderr)
+                status = self.EFAIL
+            except Exception as e:
+                print(f'Error processing file {filepath}: {e}', file=sys.stderr)
+                status = self.EFAIL
+
+        return status
+
     def timestamp(self) -> int:
         """Print current epoch timestamp."""
         print(time.time(), end='')
         return 0
 
-    def cmpver(self, v1: str, v2: str, force: bool = False) -> int:
+    def cmpver(self, v1: str, v2: str, *, force: bool = False) -> int:
         """Compare two version strings."""
         try:
             parsed_v1 = [int(x) for x in (v1 + '.0.0.0').split('.')[:4]]
@@ -634,6 +688,8 @@ class ShellCmd:
         self, dll_path: str, out_path: Optional[str] = None, force: bool = False
     ) -> int:
         """Call dll2lib to generate MSVC import libraries from DLLs."""
+        from .zig import zig_dll2lib
+
         return zig_dll2lib(
             dll_path,
             out_path=out_path,
@@ -642,6 +698,8 @@ class ShellCmd:
 
     def zig_patch(self, zig_root: Optional[str] = None) -> int:
         """Call zig_patch to patch Zig source libraries to hide runtime exports."""
+        from .zig import zig_patch
+
         zig_patch(zig_root)
         return 0
 
@@ -649,6 +707,8 @@ class ShellCmd:
         self, zig_root: Optional[str] = None, verbose: bool = False
     ) -> int:
         """Call zig_clean_cache to clean Zig global cache."""
+        from .zig import zig_clean_cache
+
         zig_clean_cache(zig_root, verbose=verbose)
         return 0
 
@@ -660,6 +720,8 @@ class ShellCmd:
         force: bool = False,
         vcpkg: bool = False,
     ) -> int:
+        from .zig import zig_build_wrapper
+
         return zig_build_wrapper(
             zig_root=zig_root,
             out_dir=out_dir,
@@ -880,6 +942,7 @@ class ShellCmd:
         self,
         elf_file: str,
         targets: List[str],
+        *,
         fix_rpath: bool = False,
         create_backup: bool = True,
         verbose: bool = False,
@@ -900,6 +963,7 @@ class ShellCmd:
 
     def clone_libs(
         self,
+        *,
         dest_dir: str,
         url: str = '',
         local_repo: str = '',
@@ -1022,6 +1086,122 @@ class ShellCmd:
                 )
 
         return 0
+
+    def tar(
+        self,
+        tar_command: str,
+        *,
+        output_path: Optional[str] = None,
+        archive_path: Optional[str] = None,
+        dest_dir: Optional[str] = None,
+        items: Optional[List[str]] = None,
+        mode: str = 'xz',
+        filter_str: Optional[str] = None,
+        user: Optional[List[str]] = None,
+        group: Optional[List[str]] = None,
+        verbose: bool = False,
+    ) -> int:
+        """Simulate tar create or extract."""
+        from .tar import tar_create, tar_extract
+
+        # Parse filter if provided
+        parsed_filter = None
+        if filter_str:
+            parsed_filter = []
+            for rule_str in filter_str.split(';'):
+                if not rule_str:
+                    continue
+                parts = rule_str.rsplit(':', 1)
+                if len(parts) == 2:
+                    pattern, action_str = parts[0], parts[1].strip()
+                    if action_str.lower() == 'false':
+                        action = False
+                    elif action_str.lower() == 'true':
+                        action = True
+                    elif action_str.lower() in ('none', 'null', ''):
+                        action = None
+                    elif action_str.startswith('0o'):
+                        action = int(action_str, 8)
+                    elif action_str.startswith('0x'):
+                        action = int(action_str, 16)
+                    else:
+                        try:
+                            action = int(action_str)
+                        except ValueError:
+                            action = action_str
+                    parsed_filter.append((pattern, action))
+
+        # Parse user/group overrides
+        parsed_user = None
+        if user:
+            try:
+                parsed_user = (int(user[0]), user[1])
+            except ValueError:
+                print(f'Error: UID must be an integer, got {user[0]}', file=sys.stderr)
+                return self.EINVAL
+
+        parsed_group = None
+        if group:
+            try:
+                parsed_group = (int(group[0]), group[1])
+            except ValueError:
+                print(f'Error: GID must be an integer, got {group[0]}', file=sys.stderr)
+                return self.EINVAL
+
+        if tar_command == 'create':
+            if not output_path:
+                print('Error: output_path is required for tar create', file=sys.stderr)
+                return self.EINVAL
+            if not items:
+                print('Error: items are required for tar create', file=sys.stderr)
+                return self.EINVAL
+
+            parsed_items = []
+            for item in items:
+                if ':' in item:
+                    parts = item.rsplit(':', 1)
+                    if len(parts[0]) == 1 and parts[0].isalpha():
+                        parsed_items.append((item, ''))
+                    else:
+                        parsed_items.append((parts[0], parts[1]))
+                else:
+                    parsed_items.append((item, ''))
+
+            tar_create(
+                items=parsed_items,
+                output_path=output_path,
+                mode=mode,
+                filter=parsed_filter,
+                user=parsed_user,
+                group=parsed_group,
+                verbose=verbose,
+            )
+            return 0
+
+        elif tar_command == 'extract':
+            if not archive_path:
+                print(
+                    'Error: archive_path is required for tar extract', file=sys.stderr
+                )
+                return self.EINVAL
+            if not dest_dir:
+                print('Error: dest_dir is required for tar extract', file=sys.stderr)
+                return self.EINVAL
+
+            tar_extract(
+                archive_path=archive_path,
+                dest_dir=dest_dir,
+                mode=mode,
+                filter=parsed_filter,
+                user=parsed_user,
+                group=parsed_group,
+                verbose=verbose,
+            )
+            return 0
+
+        else:
+            print(f'Error: Unrecognized tar command "{tar_command}"', file=sys.stderr)
+            return self.EINVAL
 
     @classmethod
     def _rmtree_try_chmod(cls, path: str, *, ignore_errors=False):
@@ -1423,6 +1603,124 @@ class ShellCmd:
                 'triplets', nargs='*', help='Triplet names'
             )
 
+            # 31. tar subparser
+            tar_parser = subparsers.add_parser(
+                'tar',
+                help='Create or extract tar archives',
+            )
+            tar_subparsers = tar_parser.add_subparsers(
+                dest='tar_command',
+                help='Tar subcommands',
+            )
+
+            # tar create
+            tar_create_parser = tar_subparsers.add_parser(
+                'create',
+                help='Create a tar archive',
+            )
+            tar_create_parser.add_argument(
+                'output_path',
+                help='Output archive file path',
+            )
+            tar_create_parser.add_argument(
+                'items',
+                nargs='+',
+                help='Items to add in src[:dest] format',
+            )
+            tar_create_parser.add_argument(
+                '--mode',
+                default='xz',
+                help='Compression mode (default: xz)',
+            )
+            tar_create_parser.add_argument(
+                '--filter',
+                default=None,
+                dest='filter_str',
+                help='Optional filter rules in pattern:action format, separated by semicolons',
+            )
+            tar_create_parser.add_argument(
+                '--user',
+                nargs=2,
+                metavar=('UID', 'UNAME'),
+                help='Override owner UID and UNAME',
+            )
+            tar_create_parser.add_argument(
+                '--group',
+                nargs=2,
+                metavar=('GID', 'GNAME'),
+                help='Override group GID and GNAME',
+            )
+            tar_create_parser.add_argument(
+                '--verbose',
+                '-v',
+                action='store_true',
+                help='Verbose output',
+            )
+
+            # tar extract
+            tar_extract_parser = tar_subparsers.add_parser(
+                'extract',
+                help='Extract a tar archive',
+            )
+            tar_extract_parser.add_argument(
+                'archive_path',
+                help='Path to the tar archive',
+            )
+            tar_extract_parser.add_argument(
+                'dest_dir',
+                help='Destination directory',
+            )
+            tar_extract_parser.add_argument(
+                '--mode',
+                default='r',
+                help='Extraction mode (default: r)',
+            )
+            tar_extract_parser.add_argument(
+                '--filter',
+                default=None,
+                dest='filter_str',
+                help='Optional filter rules in pattern:action format, separated by semicolons',
+            )
+            tar_extract_parser.add_argument(
+                '--user',
+                nargs=2,
+                metavar=('UID', 'UNAME'),
+                help='Override owner UID and UNAME',
+            )
+            tar_extract_parser.add_argument(
+                '--group',
+                nargs=2,
+                metavar=('GID', 'GNAME'),
+                help='Override group GID and GNAME',
+            )
+            tar_extract_parser.add_argument(
+                '--verbose',
+                '-v',
+                action='store_true',
+                help='Verbose output',
+            )
+
+            # 32. sed-replace subparser
+            sed_replace_parser = subparsers.add_parser(
+                'sed-replace',
+                help='Replace patterns in files using regex',
+            )
+            sed_replace_parser.add_argument(
+                '--pattern',
+                '-s',
+                nargs=2,
+                action='append',
+                dest='replacements',
+                required=True,
+                metavar=('PATTERN', 'REPLACEMENT'),
+                help='Regex pattern and its replacement string',
+            )
+            sed_replace_parser.add_argument(
+                'paths',
+                nargs='+',
+                help='Files or glob patterns to process',
+            )
+
             namespace = parser.parse_args(args)
 
             if not namespace.command:
@@ -1582,6 +1880,24 @@ class ShellCmd:
                     debug=namespace.debug,
                     static_crt=namespace.static_crt,
                     static_lib=namespace.static_lib,
+                )
+            elif cmd == 'tar':
+                return inst.tar(
+                    tar_command=namespace.tar_command,
+                    output_path=getattr(namespace, 'output_path', None),
+                    archive_path=getattr(namespace, 'archive_path', None),
+                    dest_dir=getattr(namespace, 'dest_dir', None),
+                    items=getattr(namespace, 'items', None),
+                    mode=namespace.mode,
+                    filter_str=namespace.filter_str,
+                    user=namespace.user,
+                    group=namespace.group,
+                    verbose=namespace.verbose,
+                )
+            elif cmd == 'sed-replace':
+                return inst.sed_replace(
+                    paths=namespace.paths,
+                    replacements=namespace.replacements,
                 )
 
             print(f'Unrecognized command "{cmd}"', file=sys.stderr)
