@@ -27,7 +27,7 @@ if __name__ == '__main__':
     try:
         sys.exit(ShellCmd.main())
     except Exception as e:
-        if os.environ.get('CMKABE_DEBUG') == '1':
+        if os.environ.get('CMKABE_DEBUG') in ('1', 'ON'):
             import traceback
 
             traceback.print_exc(file=sys.stderr)
