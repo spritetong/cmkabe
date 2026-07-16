@@ -386,6 +386,131 @@ class TestCommands(unittest.TestCase):
                 content2 = f.read()
                 self.assertEqual(content2, 'orange pineapple peach\n')
 
+    def test_mv(self) -> None:
+        import io
+        import stat
+        from unittest.mock import patch
+
+        with patch('sys.stderr', new=io.StringIO()):
+            with tempfile.TemporaryDirectory() as tmpdir:
+                src = os.path.join(tmpdir, 'src.txt')
+                dst = os.path.join(tmpdir, 'dst.txt')
+
+                # Test 1: normal move
+                with open(src, 'w') as f:
+                    f.write('hello')
+                code = ShellCmd.main(['mv', src, dst])
+                self.assertEqual(code, 0)
+                self.assertFalse(os.path.exists(src))
+                self.assertTrue(os.path.exists(dst))
+                with open(dst, 'r') as f:
+                    self.assertEqual(f.read(), 'hello')
+
+                # Test 2: non-existent source, even with force=True, should fail
+                code = ShellCmd.main(['mv', '-f', src, dst])
+                self.assertNotEqual(code, 0)
+
+                # Test 3: destination exists but is read-only, force=True should succeed
+                with open(src, 'w') as f:
+                    f.write('new-source')
+                with open(dst, 'w') as f:
+                    f.write('protected-dst')
+                # Make destination read-only
+                os.chmod(dst, stat.S_IREAD)
+
+                try:
+                    # With force=True, it should always succeed and overwrite.
+                    code_force = ShellCmd.main(['mv', '-f', src, dst])
+                    self.assertEqual(code_force, 0)
+                    self.assertTrue(os.path.exists(dst))
+                    # Ensure write permission is restored
+                    os.chmod(dst, stat.S_IWRITE)
+                    with open(dst, 'r') as f:
+                        self.assertEqual(f.read(), 'new-source')
+                finally:
+                    try:
+                        os.chmod(dst, stat.S_IWRITE)
+                    except OSError:
+                        pass
+
+    def test_cp(self) -> None:
+        import io
+        import stat
+        from unittest.mock import patch
+
+        with patch('sys.stderr', new=io.StringIO()):
+            with tempfile.TemporaryDirectory() as tmpdir:
+                src = os.path.join(tmpdir, 'src.txt')
+                dst = os.path.join(tmpdir, 'dst.txt')
+
+                # Test 1: normal copy
+                with open(src, 'w') as f:
+                    f.write('hello')
+                code = ShellCmd.main(['cp', src, dst])
+                self.assertEqual(code, 0)
+                self.assertTrue(os.path.exists(src))
+                self.assertTrue(os.path.exists(dst))
+                with open(dst, 'r') as f:
+                    self.assertEqual(f.read(), 'hello')
+
+                # Test 2: non-existent source, even with force=True, should fail
+                code = ShellCmd.main(['cp', '-f', os.path.join(tmpdir, 'nonexistent.txt'), dst])
+                self.assertNotEqual(code, 0)
+
+                # Test 3: destination exists but is read-only, force=True should succeed
+                with open(src, 'w') as f:
+                    f.write('new-source')
+                with open(dst, 'w') as f:
+                    f.write('protected-dst')
+                # Make destination read-only
+                os.chmod(dst, stat.S_IREAD)
+
+                try:
+                    # With force=True, it should always succeed and overwrite.
+                    code_force = ShellCmd.main(['cp', '-f', src, dst])
+                    self.assertEqual(code_force, 0)
+                    self.assertTrue(os.path.exists(dst))
+                    # Ensure write permission is restored
+                    os.chmod(dst, stat.S_IWRITE)
+                    with open(dst, 'r') as f:
+                        self.assertEqual(f.read(), 'new-source')
+                finally:
+                    try:
+                        os.chmod(dst, stat.S_IWRITE)
+                    except OSError:
+                        pass
+
+    def test_mklink(self) -> None:
+        import io
+        import stat
+        from unittest.mock import patch
+
+        with patch('sys.stderr', new=io.StringIO()):
+            with tempfile.TemporaryDirectory() as tmpdir:
+                target = os.path.join(tmpdir, 'target.txt')
+                link = os.path.join(tmpdir, 'link.txt')
+
+                # Create target file
+                with open(target, 'w') as f:
+                    f.write('target content')
+
+                # Test 1: normal symlink creation
+                code = ShellCmd.main(['mklink', link, target])
+                self.assertEqual(code, 0)
+                self.assertTrue(os.path.islink(link))
+
+                # Test 2: recreate symlink when it already exists (without force) -> should fail
+                code = ShellCmd.main(['mklink', link, target])
+                self.assertNotEqual(code, 0)
+
+                # Test 3: recreate symlink when it already exists (with force) -> should succeed
+                code_force = ShellCmd.main(['mklink', '-f', link, target])
+                self.assertEqual(code_force, 0)
+                self.assertTrue(os.path.islink(link))
+
+
+
+
 
 class TestElfPathFixer(unittest.TestCase):
     def _create_mock_elf(self, is_64bit: bool = True, is_le: bool = True) -> bytes:

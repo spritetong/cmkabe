@@ -124,7 +124,7 @@ CMKABE_TARGET = $(call bsel,$(TARGET_IS_NATIVE),native,$(TARGET))
 # bool(value:bool,default:bool)
 bool = $(call _x_bool_norm,$(1),$(if $(2),$(2),OFF))
 _X_BOOL_MAP = a,A e,E f,F l,L o,O n,N r,R s,S t,T u,U
-_x_bool_upper = $(strip $(eval __x := $(1))$(foreach __y,$(_X_BOOL_MAP),$(eval __x := $$(subst $(__y),$$(__x))))$(__x))
+_x_bool_upper = $(strip $(eval __t := $(1))$(foreach __tt,$(_X_BOOL_MAP),$(eval __t := $$(subst $(__tt),$$(__t))))$(__t))
 _x_bool_norm = $(word 2,$(subst =, ,$(filter $(call _x_bool_upper,$(1))=%,1=ON ON=ON TRUE=ON 0=OFF OFF=OFF FALSE=OFF)) OFF $(2))
 
 # not(value:bool)
@@ -142,11 +142,11 @@ sel = $(if $(filter $(1)=%,$(2)),$(patsubst $(1)=%,%,$(filter $(1)=%,$(2))),$(3)
 bsel = $(if $(filter ON,$(call bool,$(1))),$(2),$(3))
 
 # lower(value:str)
-lower = $(subst ~!@"',,$(eval __x := ~!@"'$(1)~!@"')$(strip $(foreach __y,$(_X_LWR_MAP),$(eval __x := $$(subst $(__y),$$(__x)))))$(__x))
+lower = $(subst ~!@"',,$(eval __t := ~!@"'$(1)~!@"')$(strip $(foreach __tt,$(_X_LWR_MAP),$(eval __t := $$(subst $(__tt),$$(__t)))))$(__t))
 _X_LWR_MAP = A,a B,b C,c D,d E,e F,f G,g H,h I,i J,j K,k L,l M,m N,n O,o P,p Q,q R,r S,s T,t U,u V,v W,w X,x Y,y Z,z
 
 # upper(value:str)
-upper = $(subst ~!@"',,$(eval __x := ~!@"'$(1)~!@"')$(strip $(foreach __y,$(_X_UPR_MAP),$(eval __x := $$(subst $(__y),$$(__x)))))$(__x))
+upper = $(subst ~!@"',,$(eval __t := ~!@"'$(1)~!@"')$(strip $(foreach __tt,$(_X_UPR_MAP),$(eval __t := $$(subst $(__tt),$$(__t)))))$(__t))
 _X_UPR_MAP = a,A b,B c,C d,D e,E f,F g,G h,H i,I j,J k,K l,L m,M n,N o,O p,P q,Q r,R s,S t,T u,U v,V w,W x,X y,Y z,Z
 
 # greater_than(x:int[0,99999999],y:int[0,99999999])
@@ -250,7 +250,7 @@ MV      = mv
 PY      = python3
 RELPATH = $(SHLUTIL) relpath
 RM      = $(SHLUTIL) rm
-RMDIR   = $(SHLUTIL) rmdir -f
+RMDIR   = $(SHLUTIL) rmdir --ignore-errors
 TOUCH   = touch
 UPLOAD  = $(SHLUTIL) upload
 WHICH   = which

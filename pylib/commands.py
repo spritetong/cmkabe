@@ -10,7 +10,7 @@ import glob
 import os
 import sys
 import time
-from typing import Any, Generator, List, Optional, Tuple
+from typing import Any, Generator, List, Optional, Tuple, Union
 
 from .sys_utils import (
     HostTargetInfo,
@@ -29,13 +29,32 @@ class ShellCmd:
     EINVAL: int = 8
     EINTERRUPT: int = 254
 
-    def __init__(self) -> None:
-        pass
+    def __init__(self, *, cli_mode: bool = False) -> None:
+        self.cli_mode: bool = cli_mode
+
+    def return_(
+        self,
+        status: int,
+        message: Optional[Union[str, Exception]] = None,
+    ) -> int:
+        if status == 0:
+            if message is not None:
+                print(message, file=sys.stdout)
+            return status
+
+        if self.cli_mode:
+            if message is not None:
+                print(message, file=sys.stderr)
+        else:
+            if isinstance(message, Exception):
+                raise message
+            elif message is not None:
+                raise RuntimeError(message)
+        return status
 
     def rm(
         self,
-        paths: List[str],
-        *,
+        *paths: str,
         recursive: bool = False,
         force: bool = False,
         args_from_stdin: bool = False,
@@ -107,7 +126,11 @@ class ShellCmd:
                         return status
         return status
 
-    def mkdir(self, paths: List[str], *, force: bool = False) -> int:
+    def mkdir(
+        self,
+        *paths: str,
+        ignore_errors: bool = False,
+    ) -> int:
         """Simulate mkdir / mkdir -p.
 
         Creates directory paths. Always acts like Unix `mkdir -p` (creates parent directories, ignores existing paths).
@@ -133,7 +156,7 @@ class ShellCmd:
                 break
             if not ok:
                 status = self.EFAIL
-                if force:
+                if ignore_errors:
                     continue
                 print(f'Can not make directory {path}', file=sys.stderr)
                 return status
@@ -141,10 +164,9 @@ class ShellCmd:
 
     def rmdir(
         self,
-        paths: List[str],
-        *,
+        *paths: str,
         remove_parents: bool = False,
-        force: bool = False,
+        ignore_errors: bool = False,
     ) -> int:
         """Simulate rmdir.
 
@@ -157,7 +179,7 @@ class ShellCmd:
                     os.rmdir(path)
                 except OSError:
                     status = self.EFAIL
-                    if force:
+                    if ignore_errors:
                         continue
                     print(f'Can not remove directory {path}', file=sys.stderr)
                     return status
@@ -196,7 +218,13 @@ class ShellCmd:
                     curr = parent
         return status
 
-    def mv(self, paths: List[str], *, force: bool = False) -> int:
+    def mv(
+        self,
+        *sources: str,
+        dest: str,
+        force: bool = False,
+        ignore_errors: bool = False,
+    ) -> int:
         """Simulate mv.
 
         Moves files, directories, or glob patterns to a destination path.
@@ -204,36 +232,72 @@ class ShellCmd:
         import shutil
 
         status = 0
-        if len(paths) < 2:
-            print(f'Invalid parameter {paths} for mv', file=sys.stderr)
+        if not sources:
+            if not ignore_errors:
+                print('Invalid parameter "sources" for mv', file=sys.stderr)
             return self.EFAIL
-        dst = paths[-1]
         files: List[str] = []
-        for pattern in paths[:-1]:
+        for pattern in sources:
             files += glob.glob(pattern)
-        if len(files) > 1 and not os.path.isdir(dst):
-            print(f'{dst} is not a directory', file=sys.stderr)
+        if len(files) > 1 and not os.path.isdir(dest):
+            if not ignore_errors:
+                print(f'{dest} is not a directory', file=sys.stderr)
             return self.EFAIL
-        if not files and not force:
-            print(f'Can not find file {paths[:-1]}', file=sys.stderr)
+        if not files:
+            if not ignore_errors:
+                print(f'Can not find file {sources}', file=sys.stderr)
             return self.EFAIL
+
         for file in files:
+            if os.path.isdir(dest):
+                dest_path = os.path.join(dest, os.path.basename(file))
+            else:
+                dest_path = dest
+
+            # Check if source and destination are the same file
             try:
-                shutil.move(file, dst)
+                same = os.path.samefile(file, dest_path)
+            except OSError:
+                same = os.path.abspath(file) == os.path.abspath(dest_path)
+
+            if same:
+                status = self.EFAIL
+                if not ignore_errors:
+                    print(
+                        f"'{file}' and '{dest_path}' are the same file", file=sys.stderr
+                    )
+                return status
+
+            if force and os.path.lexists(dest_path):
+                try:
+                    if os.path.isdir(dest_path) and not os.path.islink(dest_path):
+                        self._rmtree_try_chmod(dest_path)
+                    else:
+                        if not os.access(dest_path, os.W_OK):
+                            import stat
+
+                            os.chmod(dest_path, stat.S_IWUSR)
+                        os.remove(dest_path)
+                except OSError:
+                    pass
+
+            try:
+                shutil.move(file, dest)
             except OSError:
                 status = self.EFAIL
-                if not force:
-                    print(f'Can not move {file} to {dst}', file=sys.stderr)
+                if not ignore_errors:
+                    print(f'Can not move {file} to {dest}', file=sys.stderr)
                 return status
         return status
 
     def cp(
         self,
-        paths: List[str],
-        *,
+        *sources: str,
+        dest: str,
         recursive: bool = False,
         follow_symlinks: bool = True,
         force: bool = False,
+        ignore_errors: bool = False,
     ) -> int:
         """Simulate cp.
 
@@ -253,37 +317,69 @@ class ShellCmd:
                 shutil.copy2(src, dst)
 
         status = 0
-        if len(paths) < 1:
-            print(f'Invalid parameter {paths} for cp', file=sys.stderr)
+        if not sources:
+            if not ignore_errors:
+                print('Invalid parameter "sources" for cp', file=sys.stderr)
             return self.EFAIL
-        args_copy = list(paths)
-        if len(args_copy) == 1:
-            args_copy.append('.')
-        dst = args_copy[-1]
         files: List[str] = []
-        for pattern in args_copy[:-1]:
+        for pattern in sources:
             files += glob.glob(pattern)
-        if len(files) > 1 and not os.path.isdir(dst):
-            print(f'{dst} is not a directory', file=sys.stderr)
+        if len(files) > 1 and not os.path.isdir(dest):
+            if not ignore_errors:
+                print(f'{dest} is not a directory', file=sys.stderr)
             return self.EFAIL
-        if not files and not force:
-            print(f'Can not find file {args_copy[:-1]}', file=sys.stderr)
+        if not files:
+            if not ignore_errors:
+                print(f'Can not find file {sources}', file=sys.stderr)
             return self.EFAIL
+
         for file in files:
+            if os.path.isdir(dest):
+                dest_path = os.path.join(dest, os.path.basename(file))
+            else:
+                dest_path = dest
+
+            # Check if source and destination are the same file
             try:
-                if os.path.isfile(file):
-                    copy_file(file, dst)
+                same = os.path.samefile(file, dest_path)
+            except OSError:
+                same = os.path.abspath(file) == os.path.abspath(dest_path)
+
+            if same:
+                status = self.EFAIL
+                if not ignore_errors:
+                    print(
+                        f"'{file}' and '{dest_path}' are the same file", file=sys.stderr
+                    )
+                return status
+
+            if force and os.path.lexists(dest_path):
+                try:
+                    if os.path.isdir(dest_path) and not os.path.islink(dest_path):
+                        self._rmtree_try_chmod(dest_path)
+                    else:
+                        if not os.access(dest_path, os.W_OK):
+                            import stat
+
+                            os.chmod(dest_path, stat.S_IWUSR)
+                        os.remove(dest_path)
+                except OSError:
+                    pass
+
+            try:
+                if os.path.islink(file) or os.path.isfile(file):
+                    copy_file(file, dest)
                 elif recursive:
                     shutil.copytree(
                         file,
-                        os.path.join(dst, os.path.basename(file)),
+                        os.path.join(dest, os.path.basename(file)),
                         copy_function=copy_file,
                         dirs_exist_ok=True,
                     )
             except OSError:
                 status = self.EFAIL
-                if not force:
-                    print(f'Can not copy {file} to {dst}', file=sys.stderr)
+                if not ignore_errors:
+                    print(f'Can not copy {file} to {dest}', file=sys.stderr)
                 return status
         return status
 
@@ -294,22 +390,56 @@ class ShellCmd:
         *,
         symlinkd: bool = False,
         force: bool = False,
+        ignore_errors=False,
     ) -> int:
         """Simulate symlink creation.
 
         Creates file or directory symbolic links.
         """
         status = 0
+
+        # Check same file
+        abs_target = target
+        if not os.path.isabs(target):
+            link_dir = os.path.dirname(os.path.abspath(link))
+            abs_target = os.path.abspath(os.path.join(link_dir, target))
+        else:
+            abs_target = os.path.abspath(target)
+
+        same = os.path.abspath(link) == abs_target
+
+        if same:
+            status = self.EFAIL
+            if not ignore_errors:
+                print(
+                    f"'{link}' and '{target}' are the same file",
+                    file=sys.stderr,
+                )
+            return status
+
+        if force and os.path.lexists(link):
+            try:
+                if os.path.isdir(link) and not os.path.islink(link):
+                    self._rmtree_try_chmod(link)
+                else:
+                    if not os.access(link, os.W_OK):
+                        import stat
+
+                        os.chmod(link, stat.S_IWUSR)
+                    os.remove(link)
+            except OSError:
+                pass
+
         try:
             target = target.replace('/', os.sep).replace('\\', os.sep)
             os.symlink(
                 target,
                 link,
-                target_is_directory=symlinkd or os.path.isdir(target),
+                target_is_directory=symlinkd or os.path.isdir(abs_target),
             )
         except OSError:
             status = self.EFAIL
-            if not force:
+            if not ignore_errors:
                 print(
                     f'Can not create symbolic link: {link} -> {target}',
                     file=sys.stderr,
@@ -401,7 +531,12 @@ class ShellCmd:
         print('false', end='')
         return 0
 
-    def touch(self, paths: List[str], *, force: bool = False) -> int:
+    def touch(
+        self,
+        paths: List[str],
+        *,
+        ignore_errors: bool = False,
+    ) -> int:
         """Simulate touch."""
         status = 0
         for pattern in paths:
@@ -411,7 +546,7 @@ class ShellCmd:
                     open(pattern, 'ab').close()
                 except OSError:
                     status = self.EFAIL
-                    if force:
+                    if ignore_errors:
                         continue
                     print(f'Can not create file {pattern}', file=sys.stderr)
                     return status
@@ -420,7 +555,7 @@ class ShellCmd:
                     os.utime(file, None)
                 except OSError:
                     status = self.EFAIL
-                    if force:
+                    if ignore_errors:
                         continue
                     print(f'Can not touch file {file}', file=sys.stderr)
                     return status
@@ -428,7 +563,7 @@ class ShellCmd:
 
     def sed_replace(
         self,
-        paths: List[str],
+        *paths: str,
         replacements: List[Tuple[str, str]],
     ) -> int:
         """Replace text in files matching the given pattern and replacement rules.
@@ -462,7 +597,9 @@ class ShellCmd:
                     with open(filepath, 'wb') as f:
                         f.write(new_content.encode('utf-8'))
             except OSError as e:
-                print(f'Error accessing or writing file {filepath}: {e}', file=sys.stderr)
+                print(
+                    f'Error accessing or writing file {filepath}: {e}', file=sys.stderr
+                )
                 status = self.EFAIL
             except Exception as e:
                 print(f'Error processing file {filepath}: {e}', file=sys.stderr)
@@ -1252,13 +1389,13 @@ class ShellCmd:
                 'mkdir', help='Simulate mkdir / mkdir -p'
             )
             mkdir_parser.add_argument(
-                '-f', '--force', action='store_true', help='Force create'
-            )
-            mkdir_parser.add_argument(
                 '-p',
                 '--parents',
                 action='store_true',
                 help='Make parent directories as needed',
+            )
+            mkdir_parser.add_argument(
+                '--ignore-errors', action='store_true', help='Ignore errors'
             )
             mkdir_parser.add_argument(
                 'paths', nargs='+', help='Directory paths to create'
@@ -1274,14 +1411,20 @@ class ShellCmd:
                 help='Remove parent directories as needed',
             )
             rmdir_parser.add_argument(
-                '-f', '--force', action='store_true', help='Ignore errors'
+                '--ignore-errors', action='store_true', help='Ignore errors'
             )
             rmdir_parser.add_argument('paths', nargs='*', help='Directories to remove')
 
             # 4. mv subparser
             mv_parser = subparsers.add_parser('mv', help='Simulate mv')
             mv_parser.add_argument(
-                '-f', '--force', action='store_true', help='Force move'
+                '-f',
+                '--force',
+                action='store_true',
+                help='Do not prompt before overwriting',
+            )
+            mv_parser.add_argument(
+                '--ignore-errors', action='store_true', help='Ignore errors'
             )
             mv_parser.add_argument(
                 'paths', nargs='+', help='Source files and destination directory'
@@ -1304,6 +1447,9 @@ class ShellCmd:
                 '-f', '--force', action='store_true', help='Force copy'
             )
             cp_parser.add_argument(
+                '--ignore-errors', action='store_true', help='Ignore errors'
+            )
+            cp_parser.add_argument(
                 'paths', nargs='+', help='Source files and destination directory'
             )
 
@@ -1316,6 +1462,9 @@ class ShellCmd:
             )
             mklink_parser.add_argument(
                 '-f', '--force', action='store_true', help='Force link'
+            )
+            mklink_parser.add_argument(
+                '--ignore-errors', action='store_true', help='Ignore errors'
             )
             mklink_parser.add_argument('link', help='Link path')
             mklink_parser.add_argument('target', help='Target path')
@@ -1377,7 +1526,7 @@ class ShellCmd:
             # 14. touch subparser
             touch_parser = subparsers.add_parser('touch', help='Simulate touch')
             touch_parser.add_argument(
-                '-f', '--force', action='store_true', help='Force touch'
+                '--ignore-errors', action='store_true', help='Ignore errors'
             )
             touch_parser.add_argument('paths', nargs='+', help='File paths')
 
@@ -1727,38 +1876,42 @@ class ShellCmd:
                 print('Missing command', file=sys.stderr)
                 return cls.EINVAL
 
-            inst = cls()
+            inst = cls(cli_mode=True)
             cmd = namespace.command
 
             if cmd == 'rm':
                 return inst.rm(
-                    paths=namespace.paths,
+                    *namespace.paths,
                     recursive=namespace.recursive,
                     force=namespace.force,
                     args_from_stdin=namespace.args_from_stdin,
                 )
             elif cmd == 'mkdir':
                 return inst.mkdir(
-                    paths=namespace.paths,
-                    force=namespace.force,
+                    *namespace.paths,
+                    ignore_errors=namespace.ignore_errors,
                 )
             elif cmd == 'rmdir':
                 return inst.rmdir(
-                    paths=namespace.paths,
+                    *namespace.paths,
                     remove_parents=namespace.remove_parents,
-                    force=namespace.force,
+                    ignore_errors=namespace.ignore_errors,
                 )
             elif cmd == 'mv':
                 return inst.mv(
-                    paths=namespace.paths,
+                    *(namespace.paths[:-1] if namespace.paths else ()),
+                    dest=namespace.paths[-1] if namespace.paths else '',
                     force=namespace.force,
+                    ignore_errors=namespace.ignore_errors,
                 )
             elif cmd == 'cp':
                 return inst.cp(
-                    paths=namespace.paths,
+                    *(namespace.paths[:-1] if namespace.paths else ()),
+                    dest=namespace.paths[-1] if namespace.paths else '',
                     recursive=namespace.recursive,
                     follow_symlinks=namespace.follow_symlinks,
                     force=namespace.force,
+                    ignore_errors=namespace.ignore_errors,
                 )
             elif cmd == 'mklink':
                 return inst.mklink(
@@ -1766,6 +1919,7 @@ class ShellCmd:
                     target=namespace.target,
                     symlinkd=namespace.symlinkd,
                     force=namespace.force,
+                    ignore_errors=namespace.ignore_errors,
                 )
             elif cmd == 'fix-symlink':
                 return inst.fix_symlink(
@@ -1795,7 +1949,7 @@ class ShellCmd:
             elif cmd == 'touch':
                 return inst.touch(
                     paths=namespace.paths,
-                    force=namespace.force,
+                    ignore_errors=namespace.ignore_errors,
                 )
             elif cmd == 'timestamp':
                 return inst.timestamp()
@@ -1896,7 +2050,7 @@ class ShellCmd:
                 )
             elif cmd == 'sed-replace':
                 return inst.sed_replace(
-                    paths=namespace.paths,
+                    *namespace.paths,
                     replacements=namespace.replacements,
                 )
 
