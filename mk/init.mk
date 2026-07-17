@@ -4,11 +4,11 @@
 # https://github.com/spritetong/cmkabe
 
 
-ifndef __ENV_MK__
-__ENV_MK__ = $(abspath $(lastword $(MAKEFILE_LIST)))
-CMKABE_HOME := $(abspath $(dir $(__ENV_MK__))/..)
+ifndef __INIT_MK__
+__INIT_MK__ = $(abspath $(lastword $(MAKEFILE_LIST)))
+override CMKABE_HOME := $(abspath $(dir $(__INIT_MK__))/..)
 
-CMKABE_VERSION = 0.9.1
+override CMKABE_VERSION = 0.9.2
 
 # all clean goal names
 CMKABE_CLEAN_GOALS = clean distclean cargo-clean
@@ -281,4 +281,4 @@ ifeq ($(HOST_SYSTEM),Windows)
     WINREG   = $(SHLUTIL) winreg
 endif
 
-endif # __ENV_MK__
+endif # __INIT_MK__

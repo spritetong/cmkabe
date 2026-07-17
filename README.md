@@ -130,7 +130,7 @@ If you are developing inside Windows but want the build to execute at Linux spee
 
 ### Setting up Rsync build
 
-Configure your target settings to use `rmake` in your local environment, or use `python cmk/rmake.py` to trigger remote compilation.
+Configure your target settings to use `rmake` in your local environment, or use `python rmake.py` to trigger remote compilation.
 
 ---
 
@@ -149,7 +149,7 @@ Cross-compiling C/C++ alongside Rust cargo libraries is typically error-prone. `
   - `logger.zig`: File logging tool for tracing parameters (`ZIG_WRAPPER_LOG`).
   - `filter.zig`: Flag rewriting rules (translates system include flags, filters unsupported options, maps `-fopenmp` to `-lomp`).
   - `main.zig`: Child process spawner with Windows shell boundary protection (checks command length and falls back to safe `@flags` files).
-- **Compilation**: The compiler wrapper is automatically recompiled from `cmk/zig-wrapper/main.zig` using `zig build-exe` whenever changes are detected.
+- **Compilation**: The compiler wrapper is automatically recompiled from `zig-wrapper/main.zig` using `zig build-exe` whenever changes are detected.
 
 ### 2. Android NDK Toolchain Discovery
 
@@ -163,7 +163,7 @@ It then extracts compiler executable paths and includes for the specified target
 
 ## CMake APIs Reference
 
-`cmkabe` provides helper functions inside `cmk/cmake/env.cmake` (and standard `cmk/rules.cmake` legacy stub) to facilitate compilation in CMake.
+`cmkabe` provides helper functions inside `cmake/init.cmake` (and standard `cmake/rules.cmake` legacy stub) to facilitate compilation in CMake.
 
 ### `cmkabe_target_link_rust_dlls`
 

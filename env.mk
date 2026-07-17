@@ -4,4 +4,4 @@
 # https://github.com/spritetong/cmkabe
 
 # Compatibility stub for legacy projects
-include $(abspath $(dir $(lastword $(MAKEFILE_LIST))))/mk/env.mk
+include $(abspath $(dir $(lastword $(MAKEFILE_LIST))))/mk/init.mk

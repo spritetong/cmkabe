@@ -7,8 +7,8 @@
 ifndef __RULES_MK__
 __RULES_MK__ = $(abspath $(lastword $(MAKEFILE_LIST)))
 
-ifeq ($(CMKABE_HOME),)
-    include $(dir $(__RULES_MK__))env.mk
+ifeq ($(__INIT_MK__),)
+    include $(dir $(__RULES_MK__))init.mk
 endif
 
 ifndef WORKSPACE_DIR

@@ -7,13 +7,13 @@
 cmake_minimum_required(VERSION 3.16)
 
 # Allow this file to run once.
-if(DEFINED _cmkabe_env_inited)
+if(DEFINED _cmkabe_inited)
     return()
 endif()
-set(_cmkabe_env_inited ON)
+set(_cmkabe_inited ON)
 
 if(NOT DEFINED CMKABE_HOME)
-    # Since env.cmake is in cmake/, CMKABE_HOME should be the parent directory.
+    # Since init.cmake is in cmake/, CMKABE_HOME should be the parent directory.
     get_filename_component(CMKABE_HOME "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
 endif()
 
