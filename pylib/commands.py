@@ -264,6 +264,19 @@ class ShellCmd:
             else:
                 dest_path = dest
 
+            if (
+                os.path.isdir(file)
+                and not os.path.isdir(dest)
+                and not dest.endswith((os.sep, '/'))
+            ):
+                parent_dir = os.path.dirname(dest_path)
+                if parent_dir and not os.path.exists(parent_dir):
+                    return self.check(
+                        self.EFAIL,
+                        OSError(f'Can not move {file} to {dest}'),
+                        silence=ignore_errors,
+                    )
+
             # Check if source and destination are the same file
             try:
                 same = os.path.samefile(file, dest_path)
@@ -377,10 +390,19 @@ class ShellCmd:
                 except OSError:
                     pass
 
+            is_dir = os.path.isdir(file)
+            is_link = os.path.islink(file)
+            if is_dir and not recursive:
+                return self.check(
+                    self.EFAIL,
+                    OSError(f'Can not copy directory {file} to {dest} without -r'),
+                    silence=ignore_errors,
+                )
+
             try:
-                if os.path.islink(file) or os.path.isfile(file):
+                if is_link or os.path.isfile(file):
                     copy_file(file, dest_path)
-                elif recursive:
+                elif is_dir and recursive:
                     shutil.copytree(
                         file,
                         dest_path,

@@ -406,12 +406,20 @@ class TestCommands(unittest.TestCase):
                 with open(dst, 'r') as f:
                     self.assertEqual(f.read(), 'hello')
 
-                # Test 2: non-existent source should still return success for consistency
+                # Test 2: moving a directory to a path whose parent does not exist should fail.
+                src_dir = os.path.join(tmpdir, 'src-dir')
+                os.makedirs(src_dir, exist_ok=True)
+                with open(os.path.join(src_dir, 'nested.txt'), 'w') as f:
+                    f.write('nested')
+                code = ShellCmd.main(['mv', src_dir, os.path.join(tmpdir, 'dst-dir', 'nested')])
+                self.assertEqual(code, 1)
+
+                # Test 3: non-existent source should still return success for consistency
                 # when no matching source is found.
                 code = ShellCmd.main(['mv', '-f', src, dst])
                 self.assertEqual(code, 0)
 
-                # Test 3: destination exists but is read-only, force=True should succeed
+                # Test 4: destination exists but is read-only, force=True should succeed
                 with open(src, 'w') as f:
                     f.write('new-source')
                 with open(dst, 'w') as f:
@@ -454,12 +462,20 @@ class TestCommands(unittest.TestCase):
                 with open(dst, 'r') as f:
                     self.assertEqual(f.read(), 'hello')
 
-                # Test 2: non-existent source should still return success for consistency
+                # Test 2: copying a directory without recursive mode should fail.
+                src_dir = os.path.join(tmpdir, 'src-dir')
+                os.makedirs(src_dir, exist_ok=True)
+                with open(os.path.join(src_dir, 'nested.txt'), 'w') as f:
+                    f.write('nested')
+                code = ShellCmd.main(['cp', src_dir, os.path.join(tmpdir, 'dst-dir')])
+                self.assertEqual(code, 1)
+
+                # Test 3: non-existent source should still return success for consistency
                 # when no matching source is found.
                 code = ShellCmd.main(['cp', '-f', os.path.join(tmpdir, 'nonexistent.txt'), dst])
                 self.assertEqual(code, 0)
 
-                # Test 3: destination exists but is read-only, force=True should succeed
+                # Test 4: destination exists but is read-only, force=True should succeed
                 with open(src, 'w') as f:
                     f.write('new-source')
                 with open(dst, 'w') as f:
