@@ -79,7 +79,7 @@ set(_CMKABE_ALLOW_SET_ROOT_PATH OFF)
 # ==============================================================================
 
 # Find the value of a key in a key-value map string.
-function(cmkabe_value_from_map map_string key default result)
+function(cmkabe_value_from_map map_string key default out_var)
     set(value "${default}")
     foreach(kv ${map_string})
         if("${kv}" MATCHES "^([^=]+)=(.*)$")
@@ -89,19 +89,19 @@ function(cmkabe_value_from_map map_string key default result)
             endif()
         endif()
     endforeach()
-    set(${result} "${value}" PARENT_SCOPE)
+    set(${out_var} "${value}" PARENT_SCOPE)
 endfunction()
 
 # Capitalize the initial of a string.
-function(cmkabe_initial_capitalize str result)
+function(cmkabe_initial_capitalize str out_var)
     string(SUBSTRING "${str}" 0 1 x)
     string(TOUPPER "${x}" x)
     string(REGEX REPLACE "^.(.*)$" "${x}\\1" x "${str}")
-    set(${result} "${x}" PARENT_SCOPE)
+    set(${out_var} "${x}" PARENT_SCOPE)
 endfunction()
 
 # Convert an underscore string into camel-case.
-function(cmkabe_underscore_camel_case str result)
+function(cmkabe_underscore_camel_case str out_var)
     string(TOLOWER "${str}" str)
     string(REPLACE "_" ";" words "${str}")
     set(value "")
@@ -109,22 +109,22 @@ function(cmkabe_underscore_camel_case str result)
         cmkabe_initial_capitalize("${x}" x)
         set(value "${value}${x}")
     endforeach()
-    set(${result} "${value}" PARENT_SCOPE)
+    set(${out_var} "${value}" PARENT_SCOPE)
 endfunction()
 
 # Convert a camel-case string into lower-case-underscore.
-function(cmkabe_camel_case_to_lower_underscore str result)
+function(cmkabe_camel_case_to_lower_underscore str out_var)
     string(REGEX REPLACE "(.)([A-Z][a-z]+)" "\\1_\\2" value "${str}")
     string(REGEX REPLACE "([a-z0-9])([A-Z])" "\\1_\\2" value "${value}")
     string(TOLOWER "${value}" value)
-    set(${result} "${value}" PARENT_SCOPE)
+    set(${out_var} "${value}" PARENT_SCOPE)
 endfunction()
 
 # Convert a camel-case string into upper-case-underscore.
-function(cmkabe_camel_case_to_upper_underscore str result)
+function(cmkabe_camel_case_to_upper_underscore str out_var)
     cmkabe_camel_case_to_lower_underscore("${str}" value)
     string(TOUPPER "${value}" value)
-    set(${result} "${value}" PARENT_SCOPE)
+    set(${out_var} "${value}" PARENT_SCOPE)
 endfunction()
 
 # ==============================================================================
@@ -132,12 +132,12 @@ endfunction()
 # ==============================================================================
 
 # Get the full path of an executable.
-function(cmkabe_get_exe_path executable result)
+function(cmkabe_get_exe_path executable out_var)
     find_program(_cmkabe_get_exe_path "${executable}")
     if(_cmkabe_get_exe_path STREQUAL "_cmkabe_get_exe_path-NOTFOUND")
-        set(${result} "" PARENT_SCOPE)
+        set(${out_var} "" PARENT_SCOPE)
     else()
-        set(${result} "${_cmkabe_get_exe_path}" PARENT_SCOPE)
+        set(${out_var} "${_cmkabe_get_exe_path}" PARENT_SCOPE)
     endif()
     unset(_cmkabe_get_exe_path cache)
 endfunction()
@@ -157,11 +157,11 @@ function(cmkabe_add_subdirs parent_dir)
 endfunction()
 
 # Find a target file or directory in a directory and its ancestors.
-function(cmkabe_find_in_ancesters directory name result)
+function(cmkabe_find_in_ancesters directory name out_var)
     get_filename_component(current_dir "${directory}" absolute)
     while(true)
         if(EXISTS "${current_dir}/${name}")
-            set(${result} "${current_dir}/${name}" PARENT_SCOPE)
+            set(${out_var} "${current_dir}/${name}" PARENT_SCOPE)
             return()
         endif()
         get_filename_component(current_dir "${current_dir}" directory)
@@ -169,7 +169,7 @@ function(cmkabe_find_in_ancesters directory name result)
             break()
         endif()
     endwhile()
-    set(${result} "" PARENT_SCOPE)
+    set(${out_var} "" PARENT_SCOPE)
 endfunction()
 
 # ==============================================================================
@@ -220,9 +220,9 @@ endfunction()
 
 # On Windows MSVC, add a suffix ".dll.lib" to each item of the dll list.
 function(cmkabe_rust_dlls_for_linker)
-    list(POP_FRONT ARGN result)
-    if(NOT result)
-        message(fatal_error "<result> is missing.")
+    list(POP_FRONT ARGN out_var)
+    if(NOT out_var)
+        message(fatal_error "<out_var> is missing.")
     endif()
 
     set(dlls)
@@ -238,7 +238,7 @@ function(cmkabe_rust_dlls_for_linker)
             list(APPEND dlls "${lib_opt}${name}")
         endif()
     endforeach()
-    set(${result} ${dlls} PARENT_SCOPE)
+    set(${out_var} ${dlls} PARENT_SCOPE)
 endfunction()
 
 # Link the specified Rust DLLs to the <target>.
@@ -300,7 +300,7 @@ endfunction()
 # ==============================================================================
 
 # Returns the common options to pass to the `make` command.
-function(cmkabe_make_options result)
+function(cmkabe_make_options out_var)
     set(debug OFF)
     set(minsize OFF)
     set(dbginfo OFF)
@@ -312,7 +312,7 @@ function(cmkabe_make_options result)
     elseif(CMAKE_BUILD_TYPE_LOWER STREQUAL "relwithdebinfo")
         set(dbginfo ON)
     endif()
-    set(${result}
+    set(${out_var}
         TARGET=${CMKABE_TARGET}
         TARGET_DIR=${TARGET_DIR}
         TARGET_CMAKE_DIR=${TARGET_CMAKE_DIR}
@@ -331,9 +331,12 @@ endfunction()
 function(cmkabe_add_make_target)
     set(options ALL VERBATIM USES_TERMINAL COMMAND_EXPAND_LISTS)
     set(one_value_args WORKING_DIRECTORY COMMENT JOB_POOL JOB_SERVER_AWARE)
-    set(multi_value_args DEPENDS BYPRODUCTS SOURCES)
+    set(multi_value_args SOURCES DEPENDS)
     cmake_parse_arguments(PARSE_ARGV 0 args
-        "${options}" "${one_value_args}" "TARGETS;ENVIRONMENT;DEPENDENCIES;${multi_value_args}")
+        "${options}"
+        "${one_value_args}"
+        "TARGETS;ENVIRONMENT;DEPENDENCIES;BYPRODUCTS;RUST_EXECUTABLE_BYPRODUCTS;RUST_SHARED_BYPRODUCTS;RUST_STATIC_BYPRODUCTS;${multi_value_args}"
+    )
 
     set(argv)
     cmkabe_make_options(make_options)
@@ -364,6 +367,19 @@ function(cmkabe_add_make_target)
             list(APPEND argv "${arg}" ${args_${arg}})
         endif()
     endforeach()
+
+    set(byproducts ${args_BYPRODUCTS})
+    foreach(name IN LISTS args_RUST_EXECUTABLE_BYPRODUCTS)
+        list(APPEND byproducts ${args_RUST_EXECUTABLE_BYPRODUCTS})
+        list(APPEND byproducts "${CARGO_OUT_DIR}/${name}${CMAKE_EXECUTABLE_SUFFIX}")
+    endforeach()
+    foreach(name IN LISTS args_RUST_SHARED_BYPRODUCTS)
+        list(APPEND byproducts "${CARGO_OUT_DIR}/${CMAKE_SHARED_LIBRARY_PREFIX}${name}${CMAKE_SHARED_LIBRARY_SUFFIX}")
+    endforeach()
+    foreach(name IN LISTS args_RUST_STATIC_BYPRODUCTS)
+        list(APPEND byproducts "${CARGO_OUT_DIR}/${CMAKE_STATIC_LIBRARY_PREFIX}${name}${CMAKE_STATIC_LIBRARY_SUFFIX}")
+    endforeach()
+    list(APPEND argv BYPRODUCTS ${byproducts})
 
     list(APPEND argv "COMMAND")
     if(CMKABE_ENV_BLOCK OR args_ENVIRONMENT)

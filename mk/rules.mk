@@ -332,6 +332,7 @@ cmake-clean-all: $(CMAKE_PURGE_DEPS)
 .PHONY: cmake-clean
 cmake-clean: $(CMAKE_CLEAN_DEPS)
 	@$(call exists,"$(CMAKE_BUILD_DIR)") && $(call cmake_clean) || $(OK)
+	@$(call exists,"$(CMAKE_BUILD_DIR)/CMakeCache.txt") && $(TOUCH) "$(CMAKE_BUILD_DIR)/CMakeCache.txt" || $(OK)
 
 # Clean the target and erase the build directory.
 .PHONY: cmake-distclean
