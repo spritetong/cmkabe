@@ -30,8 +30,9 @@ endif
 
 # Set a sentinel goal to force CMake initialization when `cmake-init` is specified.
 _X_CMAKE_FORCE_INIT =
+CMKABE_IS_IN_CMAKE_INIT := $(if $(filter cmake-init compile-commands,$(MAKECMDGOALS)),ON,OFF)
 ifeq ($(MAKE_RESTARTS),)
-    ifneq ($(filter cmake-init compile-commands,$(MAKECMDGOALS)),)
+    ifeq ($(CMKABE_IS_IN_CMAKE_INIT),ON)
         _X_CMAKE_FORCE_INIT = _x_cmake_force_init_goal
         .PHONY: _x_cmake_force_init_goal
         _x_cmake_force_init_goal: ;
@@ -186,7 +187,10 @@ CMAKE_INIT_OPTS +=
 #! CMake additional options
 CMAKE_OPTS +=
 
-CMAKE_BUILD_DEPS += $(CMAKE_BUILD_DIR)/.dirstamp cmake-before-build
+ifneq ($(wildcard $(WORKSPACE_DIR)/CMakeLists.txt):$(CMKABE_IS_IN_CMAKE_INIT),:OFF)
+    CMAKE_BUILD_DEPS += $(CMAKE_BUILD_DIR)/.dirstamp
+endif
+CMAKE_BUILD_DEPS += cmake-before-build
 CMAKE_CLEAN_DEPS += cmake-clean-output
 CMAKE_PURGE_DEPS += cmake-purge-deps
 
@@ -312,7 +316,7 @@ cmake: cmake-build ;
 cmake-init: $(CMAKE_BUILD_DEPS)
 $(CMAKE_BUILD_DIR)/.dirstamp: $(_X_DOT_HOST_MK) $(_X_DOT_SETTINGS_MK) $(_X_DOT_ENVIRON_MK)
 	@$(call cmake_init)
-	@$(TOUCH) "$(CMAKE_BUILD_DIR)/.dirstamp"
+	@$(TOUCH) "$@"
 
 .PHONY: compile-commands
 compile-commands: cmake-init
