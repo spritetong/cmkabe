@@ -299,11 +299,6 @@ def modify_elf_file(
 
         print_info('ELF file successfully updated')
         return True
-
-    except Exception as e:
-        print_error(f'Failed to modify ELF file: {e}')
-        return False
-
     finally:
         if temp_dir:
             shutil.rmtree(temp_dir)

@@ -12,7 +12,7 @@ if(DEFINED _cmkabe_toolchain_inited)
 endif()
 set(_cmkabe_toolchain_inited ON)
 
-include("${CMAKE_CURRENT_LIST_DIR}/env.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/init.cmake")
 
 # Default value of `CARGO_TARGET_DIR`
 if(NOT DEFINED TARGET_DIR)

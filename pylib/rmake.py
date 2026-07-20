@@ -686,7 +686,7 @@ class RsyncMake:
             print('^C', file=sys.stderr)
             return 254
         except Exception as e:
-            if os.environ.get('CMKABE_DEBUG') == '1':
+            if os.environ.get('CMKABE_DEBUG') in ('1', 'ON'):
                 import traceback
 
                 traceback.print_exc(file=sys.stderr)

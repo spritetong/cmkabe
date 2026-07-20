@@ -102,7 +102,7 @@ pub const ZigArgFilter = struct {
                 .match("/MANIFEST:EMBED").eof()
                 .match("/version:0.0").eof()
                 // CMake
-                .next().match("--dependency-file=*").done();
+                .match("--dependency-file=*").done();
             // CC
             map.initFilter("-std").command(&.{.cc}).replaceWithSubString(0, "++", "").done();
             // GCC / Clang
@@ -468,8 +468,8 @@ pub const ZigArgFilterMap = struct {
 
         if (utils.strStartsWith(opt, "-")) {
             for (0..4) |loop| {
-                var opt_value: []const u8 = undefined;
-                var opt_value_valid = false;
+                var opt_value_init: []const u8 = undefined;
+                var opt_value_valid_init = false;
                 var opt_partial = false;
                 var allow_partial_opt = false;
 
@@ -482,24 +482,24 @@ pub const ZigArgFilterMap = struct {
                         1 => if (std.mem.indexOf(u8, opt, "=")) |i| {
                             // match [-|--]<key>=<value>
                             if (self.map.getPtr(opt[0..i])) |v| {
-                                opt_value = opt[i + 1 ..];
-                                opt_value_valid = true;
+                                opt_value_init = opt[i + 1 ..];
+                                opt_value_valid_init = true;
                                 break :blk v.items;
                             }
                         },
                         2 => if (std.mem.indexOf(u8, opt, ",")) |i| {
                             // match [-|--]<key>,<value>
                             if (self.map.getPtr(opt[0 .. i + 1])) |v| {
-                                opt_value = opt[i + 1 ..];
-                                opt_value_valid = true;
+                                opt_value_init = opt[i + 1 ..];
+                                opt_value_valid_init = true;
                                 break :blk v.items;
                             }
                         },
                         3 => if (opt.len > 2 and opt[1] != '-') {
                             // match -<letter><value>
                             if (self.map.getPtr(opt[0..2])) |v| {
-                                opt_value = opt[2..];
-                                opt_value_valid = true;
+                                opt_value_init = opt[2..];
+                                opt_value_valid_init = true;
                                 opt_partial = true;
                                 break :blk v.items;
                             }
@@ -511,6 +511,8 @@ pub const ZigArgFilterMap = struct {
 
                 filter: for (filters) |filter| {
                     var consumed: usize = 0;
+                    var opt_value = opt_value_init;
+                    var opt_value_valid = opt_value_valid_init;
 
                     const Matcher = struct {
                         fn call(pattern: []const u8, string: []const u8) bool {
@@ -719,4 +721,134 @@ test "regex replace and chained replace" {
         try std.testing.expectEqual(@as(usize, 1), output.items.len);
         try std.testing.expectEqualStrings("-march=defYdef", output.items[0]);
     }
+
+    // Test filtering -Xlinker /version:0.0
+    {
+        var map = ZigArgFilterMap.init(allocator);
+        defer map.deinit();
+
+        var ctx: ZigWrapper = undefined;
+        ctx.allocator = allocator;
+        ctx.command = .cc;
+
+        map.initFilter("-Xlinker")
+            .match("/MANIFEST:EMBED").eof()
+            .match("/version:0.0").eof()
+            .match("--dependency-file=*").done();
+
+        var output = StringArray.init(allocator);
+        defer utils.freeStringArray(allocator, &output);
+
+        var input = SimpleOptionParser{ .args = &.{ "-Xlinker", "/version:0.0" } };
+        _ = try map.next(&ctx, &input, &output);
+
+        try std.testing.expectEqual(@as(usize, 0), output.items.len);
+        try std.testing.expectEqual(@as(usize, 0), input.args.len);
+    }
+}
+
+test "comprehensive initFilterMap rules" {
+    const allocator = std.testing.allocator;
+
+    const Helper = struct {
+        fn check(
+            alloc: std.mem.Allocator,
+            cmd: ZigCommand,
+            is_lnk: bool,
+            is_prep: bool,
+            tgt: []const u8,
+            args: []const []const u8,
+            expected: []const []const u8,
+        ) !void {
+            var map = ZigArgFilterMap.init(alloc);
+            defer map.deinit();
+
+            var ctx: ZigWrapper = undefined;
+            ctx.allocator = alloc;
+            ctx.command = cmd;
+            ctx.is_linker = is_lnk;
+            ctx.is_preprocessor = is_prep;
+            ctx.zig_target = tgt;
+            ctx.clang_target = tgt;
+            ctx.target_is_windows = std.mem.indexOf(u8, tgt, "-windows") != null;
+
+            ZigArgFilter.initFilterMap(&ctx, &map);
+
+            var input = SimpleOptionParser{ .args = args };
+            var output = StringArray.init(alloc);
+            defer utils.freeStringArray(alloc, &output);
+
+            while (input.hasArgument()) {
+                _ = try map.next(&ctx, &input, &output);
+            }
+
+            try std.testing.expectEqual(expected.len, output.items.len);
+            for (expected, 0..) |exp_str, i| {
+                try std.testing.expectEqualStrings(exp_str, output.items[i]);
+            }
+        }
+    };
+
+    // 1. Linux include paths
+    try Helper.check(allocator, .cc, false, false, "x86_64-linux-gnu", &.{"-I/usr/include"}, &.{ "-idirafter", "/usr/include" });
+    try Helper.check(allocator, .cc, false, false, "x86_64-linux-gnu", &.{"-I/usr/local/include"}, &.{ "-idirafter", "/usr/local/include" });
+    try Helper.check(allocator, .cc, false, false, "x86_64-linux-gnu", &.{"-I/some/other/path"}, &.{"-I/some/other/path"});
+
+    // 2. MSVC Linker Flags
+    try Helper.check(allocator, .cc, false, false, "x86_64-windows-msvc", &.{ "-Xlinker", "/MANIFEST:EMBED" }, &.{});
+    try Helper.check(allocator, .cc, false, false, "x86_64-windows-msvc", &.{ "-Xlinker", "/version:0.0" }, &.{});
+    try Helper.check(allocator, .cc, false, false, "x86_64-windows-msvc", &.{ "-Xlinker", "--dependency-file=test.d" }, &.{});
+    try Helper.check(allocator, .cc, false, false, "x86_64-windows-msvc", &.{ "-Xlinker", "/some-flag" }, &.{ "-Xlinker", "/some-flag" });
+
+    // 3. Dialect Suffix
+    try Helper.check(allocator, .cc, false, false, "x86_64-linux-gnu", &.{"-std=c++17"}, &.{"-std=c17"});
+    try Helper.check(allocator, .cxx, false, false, "x86_64-linux-gnu", &.{"-std=c++17"}, &.{"-std=c++17"});
+
+    // 4. Diagnostic Warnings
+    try Helper.check(allocator, .cc, false, false, "x86_64-linux-gnu", &.{"-Werror"}, &.{ "-Werror", "-Wno-error=date-time" });
+
+    // 5. Unsupported Options
+    try Helper.check(allocator, .cc, false, false, "x86_64-linux-gnu", &.{"-m32"}, &.{"-m32"});
+    try Helper.check(allocator, .cc, false, false, "x86_64-linux-gnu", &.{ "-m", "32" }, &.{});
+    try Helper.check(allocator, .cc, false, false, "x86_64-linux-gnu", &.{"-municode"}, &.{"-municode"});
+
+    // 6. Linker Options
+    try Helper.check(allocator, .cc, false, false, "x86_64-linux-gnu", &.{"-Wl,-v"}, &.{});
+    try Helper.check(allocator, .cc, false, false, "x86_64-linux-gnu", &.{"-Wl,-x"}, &.{"-Wl,--strip-all"});
+    try Helper.check(allocator, .cc, false, false, "x86_64-linux-gnu", &.{"-Wl,-some-flag"}, &.{"-Wl,-some-flag"});
+
+    // 7. OpenMP Linker Option
+    try Helper.check(allocator, .cc, true, false, "x86_64-linux-gnu", &.{"-fopenmp=libomp"}, &.{ "-fopenmp=libomp", "-lomp" });
+    try Helper.check(allocator, .cc, false, false, "x86_64-linux-gnu", &.{"-fopenmp=libomp"}, &.{"-fopenmp=libomp"});
+
+    // 8. Autoconfig Options
+    try Helper.check(allocator, .cc, false, false, "x86_64-linux-gnu", &.{"-link"}, &.{});
+    try Helper.check(allocator, .cc, false, false, "x86_64-linux-gnu", &.{"-dll"}, &.{"-shared"});
+
+    // 9. Invalid CPU Types
+    try Helper.check(allocator, .cc, false, false, "x86_64-linux-gnu", &.{ "-march", "i386" }, &.{});
+    try Helper.check(allocator, .cc, false, false, "aarch64-linux-gnu", &.{ "-march", "i386" }, &.{ "-march", "i386" });
+
+    // 10. Aarch64 architecture overrides
+    try Helper.check(allocator, .cc, false, false, "aarch64-linux-gnu", &.{"-march=armv8.5-a"}, &.{"-march=apple-a14"});
+    try Helper.check(allocator, .cc, false, false, "aarch64-linux-gnu", &.{"-march=armv9.2-a+crc"}, &.{"-march=cortex-a725+crc"});
+    try Helper.check(allocator, .cc, false, false, "aarch64-linux-gnu", &.{"-march=armv9-a"}, &.{"-march=cortex-a710"});
+
+    // 11. Windows GNU specifics
+    try Helper.check(allocator, .cc, false, false, "x86_64-windows-gnu", &.{"-Wl,--disable-auto-image-base"}, &.{});
+    try Helper.check(allocator, .cc, false, false, "x86_64-windows-gnu", &.{"-lmingw32"}, &.{});
+    try Helper.check(allocator, .cc, false, false, "x86_64-windows-gnu", &.{"-lstdc++"}, &.{ "-lc++", "-lc++abi" });
+    try Helper.check(allocator, .cc, false, false, "x86_64-windows-gnu", &.{"-lfoo"}, &.{"-lfoo"});
+    try Helper.check(allocator, .cc, true, false, "x86_64-windows-gnu", &.{"-flto"}, &.{});
+    try Helper.check(allocator, .cc, false, false, "x86_64-windows-gnu", &.{"-flto"}, &.{"-flto"});
+
+    // 12. Preprocessor warnings/arguments
+    try Helper.check(allocator, .cc, false, true, "x86_64-linux-gnu", &.{"-fms-compatibility-version"}, &.{});
+    try Helper.check(allocator, .cc, false, true, "x86_64-linux-gnu", &.{"-fno-sanitize"}, &.{});
+    try Helper.check(allocator, .cc, false, true, "x86_64-linux-gnu", &.{"-fvisibility-ms-compat"}, &.{});
+    try Helper.check(allocator, .cc, false, false, "x86_64-linux-gnu", &.{"-fno-sanitize"}, &.{"-fno-sanitize"});
+
+    // 13. MSVC Linker wrapper
+    try Helper.check(allocator, .link, false, false, "x86_64-windows-msvc", &.{"--help"}, &.{"-help"});
+    try Helper.check(allocator, .link, false, false, "x86_64-windows-msvc", &.{"-v"}, &.{"--version"});
 }

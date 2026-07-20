@@ -11,6 +11,9 @@ import tarfile
 from typing import Callable, List, Optional, Tuple, Union
 
 
+from tarfile import USTAR_FORMAT, GNU_FORMAT, PAX_FORMAT  # noqa: F401
+
+
 def _ensure_xz_crc32():
     """Patch tarfile to support CRC32 checksum for xz."""
     if hasattr(tarfile.TarFile, 'xzopen_crc32'):
