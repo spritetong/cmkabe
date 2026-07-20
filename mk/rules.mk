@@ -31,7 +31,7 @@ endif
 # Set a sentinel goal to force CMake initialization when `cmake-init` is specified.
 _X_CMAKE_FORCE_INIT =
 ifeq ($(MAKE_RESTARTS),)
-    ifneq ($(filter cmake-init,$(MAKECMDGOALS)),)
+    ifneq ($(filter cmake-init compile-commands,$(MAKECMDGOALS)),)
         _X_CMAKE_FORCE_INIT = _x_cmake_force_init_goal
         .PHONY: _x_cmake_force_init_goal
         _x_cmake_force_init_goal: ;
@@ -190,8 +190,14 @@ CMAKE_BUILD_DEPS += $(CMAKE_BUILD_DIR)/.dirstamp cmake-before-build
 CMAKE_CLEAN_DEPS += cmake-clean-output
 CMAKE_PURGE_DEPS += cmake-purge-deps
 
+CMAKE_EXPORT_COMPILE_COMMANDS = OFF
+ifneq ($(filter compile-commands,$(MAKECMDGOALS)),)
+    CMAKE_EXPORT_COMPILE_COMMANDS = ON
+endif
+
 _X_CMAKE_INIT = cmake --toolchain "$(CMKABE_HOME)/cmake/toolchain.cmake" -B "$(CMAKE_BUILD_DIR)"
 _X_CMAKE_INIT += $(if $(CMAKE_GENERATOR),-G "$(CMAKE_GENERATOR)",)
+_X_CMAKE_INIT += -D "CMAKE_EXPORT_COMPILE_COMMANDS=$(CMAKE_EXPORT_COMPILE_COMMANDS)"
 _X_CMAKE_INIT += -D "WORKSPACE_DIR:FILEPATH=$(WORKSPACE_DIR)"
 _X_CMAKE_INIT += -D "TARGET:STRING=$(CMKABE_TARGET)"
 _X_CMAKE_INIT += -D "TARGET_DIR:FILEPATH=$(TARGET_DIR)"
@@ -308,6 +314,10 @@ $(CMAKE_BUILD_DIR)/.dirstamp: $(_X_DOT_HOST_MK) $(_X_DOT_SETTINGS_MK) $(_X_DOT_E
 	@$(call cmake_init)
 	@$(TOUCH) "$(CMAKE_BUILD_DIR)/.dirstamp"
 
+.PHONY: compile-commands
+compile-commands: cmake-init
+	@$(CP) -f "$(CMAKE_BUILD_DIR)/compile_commands.json" "$(WORKSPACE_DIR)/"
+
 # Build the target
 .PHONY: cmake-build
 cmake-build: $(CMAKE_BUILD_DEPS)
@@ -338,6 +348,7 @@ cmake-clean: $(CMAKE_CLEAN_DEPS)
 .PHONY: cmake-distclean
 cmake-distclean: $(CMAKE_CLEAN_DEPS)
 	@$(RM) -rf "$(CMAKE_BUILD_DIR)" || $(OK)
+	@$(RM) -rf "$(_X_DOT_TARGET_DIR)/.*.mk" "$(_X_DOT_TARGET_DIR)/.*.cmake" || $(OK)
 
 # Clean extra output files.
 .PHONY: cmake-clean-output

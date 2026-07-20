@@ -313,6 +313,10 @@ class TargetParser:
             'zig-cc',
         )
         zig = shutil.which(f'zig{EXE_EXT}') if self.zig else None
+        # If the target is native and we are using zig as the compiler, and zig is not found,
+        # try to use the host compiler instead.
+        if self.target_is_native and self.zig and zig is None:
+            self.zig = False
         if (
             not self.target_is_native
             and not self.android
@@ -902,7 +906,7 @@ class TargetParser:
             cc_exports.append(f'ZIG_WRAPPER_CLANG_TARGET = {self.cargo_target}')
             cc_options.append('--disable-dllexport')
             if (
-                (self.os == 'windows' and self.env == 'gnu')
+                self.os == 'windows'
                 or (self.os == 'linux' and self.env == 'musl')
                 or self.os.startswith('wasi')
             ):
