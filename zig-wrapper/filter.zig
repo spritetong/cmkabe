@@ -115,6 +115,7 @@ pub const ZigArgFilter = struct {
             // -Wl,[...]
             map.initFilter("-Wl,")
                 .match("-v").eof()
+                .match("-O1").eof()
                 .match("-x").replaceWith(&.{"-Wl,--strip-all"}).done();
             // OpenMP
             map.initFilter("-fopenmp=libomp").linker(true).replaceWithArg(0).replaceWith(&.{"-lomp"}).done();
