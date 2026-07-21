@@ -109,6 +109,9 @@ pub const ZigArgFilter = struct {
             map.initFilter("-Werror").replaceWithArg(0).replaceWith(&.{"-Wno-error=date-time"}).done();
             // -m <target>, unknown Clang option: '-m'
             map.initFilter("-m").match("*").done();
+            // -Wa,[...]
+            map.initFilter("-Wa,")
+                .match("--debug-prefix-map=*").done();
             // -Wl,[...]
             map.initFilter("-Wl,")
                 .match("-v").eof()
