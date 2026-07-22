@@ -155,14 +155,14 @@ def tar_create(
 
         is_executable = False
         if tarinfo.isdir() or tarinfo.name.lower().endswith(
-            ('.sh', '.exe', '.bat', '.cmd')
+            ('.exe', '.bat', '.cmd')
         ):
             is_executable = True
         elif tarinfo.issym():
             pass
         elif local_path and os.path.isfile(local_path):
             _, ext = os.path.splitext(local_path)
-            if ext in ('', '.py', '.pl', '.rb', '.php'):
+            if ext in ('.sh', '.py', '.pyw', '.pl', '.rb', '.php'):
                 try:
                     with open(local_path, 'r', encoding='utf-8') as f:
                         if f.readline(80).startswith('#!/'):
