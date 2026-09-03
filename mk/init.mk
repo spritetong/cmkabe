@@ -8,7 +8,7 @@ ifndef __INIT_MK__
 __INIT_MK__ = $(abspath $(lastword $(MAKEFILE_LIST)))
 override CMKABE_HOME := $(abspath $(dir $(__INIT_MK__))/..)
 
-override CMKABE_VERSION = 0.9.2
+override CMKABE_VERSION = 0.9.3
 
 # all clean goal names
 CMKABE_CLEAN_GOALS = clean distclean cargo-clean

@@ -705,7 +705,15 @@ class ShellCmd:
         """Simulate cargo build environment execution."""
         import subprocess
 
-        ws_dir = os.environ.get('CARGO_WORKSPACE_DIR', '.')
+        env_vars = set()
+        env = os.environ.copy()
+
+        # wsl_flag: `/p` path, '/lp' path list, `/u` only Windows to WSL.
+        def _set_env(name: str, value: str, wsl_flag: str = '') -> None:
+            env[name] = value
+            env_vars.add(name + wsl_flag)
+
+        ws_dir = env.get('CARGO_WORKSPACE_DIR', '.')
         cfg_file = (
             cargo_toml_path
             if cargo_toml_path.endswith('.toml')
@@ -733,14 +741,19 @@ class ShellCmd:
                     ),
                 )
         package = cargo['package']
-        os.environ['CARGO_CRATE_NAME'] = package['name']
-        os.environ['CARGO_PKG_NAME'] = package['name']
-        os.environ['CARGO_PKG_VERSION'] = package['version']
-        os.environ['CARGO_MAKE_TIMESTAMP'] = f'{time.time()}'
+
+        _set_env('CARGO_CRATE_NAME', package['name'])
+        _set_env('CARGO_PKG_NAME', package['name'])
+        _set_env('CARGO_PKG_VERSION', package['version'])
+        _set_env('CARGO_MAKE_TIMESTAMP', f'{time.time()}')
+
+        env_vars.update(item for item in env.get('WSLENV', '').split(':') if item)
+        env['WSLENV'] = ':'.join(env_vars)
+
         if self.cli_mode:
-            return subprocess.call(' '.join(command), shell=True)
+            return subprocess.call(' '.join(command), env=env, shell=True)
         else:
-            return subprocess.check_call(' '.join(command), shell=True)
+            return subprocess.check_call(' '.join(command), env=env, shell=True)
 
     def upload(self, ftp_path: str, files: List[str]) -> int:
         """Upload file via FTP or SFTP."""
