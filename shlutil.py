@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 # Copyright 2024-2026 Sprite Tong (<spritetong@gmail.com>)
 #
@@ -32,5 +31,5 @@ if __name__ == '__main__':
 
             traceback.print_exc(file=sys.stderr)
         else:
-            print('[ERROR] {}'.format(e), file=sys.stderr)
+            print(f'[ERROR] {e}', file=sys.stderr)
         sys.exit(1)

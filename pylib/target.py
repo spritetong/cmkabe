@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # Copyright 2024-2026 Sprite Tong (<spritetong@gmail.com>)
 #
 # This software is under the MIT License

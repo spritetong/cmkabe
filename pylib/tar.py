@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # Copyright 2024-2026 Sprite Tong (<spritetong@gmail.com>)
 #
 # This software is under the MIT License
@@ -8,10 +7,8 @@ import glob
 import os
 import re
 import tarfile
+from tarfile import GNU_FORMAT, PAX_FORMAT, USTAR_FORMAT  # noqa: F401
 from typing import Callable, List, Optional, Tuple, Union
-
-
-from tarfile import USTAR_FORMAT, GNU_FORMAT, PAX_FORMAT  # noqa: F401
 
 
 def _ensure_xz_crc32():
@@ -19,7 +16,7 @@ def _ensure_xz_crc32():
     if hasattr(tarfile.TarFile, 'xzopen_crc32'):
         return
 
-    from lzma import LZMAFile, LZMAError, CHECK_CRC32
+    from lzma import CHECK_CRC32, LZMAError, LZMAFile
 
     def xzopen_crc32(name, mode='r', fileobj=None, preset=None, **kwargs):
         if mode not in ('r', 'w', 'x'):
@@ -154,9 +151,7 @@ def tar_create(
         tarinfo.gname = group[1] if group else 'root'
 
         is_executable = False
-        if tarinfo.isdir() or tarinfo.name.lower().endswith(
-            ('.exe', '.bat', '.cmd')
-        ):
+        if tarinfo.isdir() or tarinfo.name.lower().endswith(('.exe', '.bat', '.cmd')):
             is_executable = True
         elif tarinfo.issym():
             pass

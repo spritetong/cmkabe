@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # Copyright 2024-2026 Sprite Tong (<spritetong@gmail.com>)
 #
 # This software is under the MIT License
@@ -725,21 +724,19 @@ class ShellCmd:
             else cfg_file
         )
         try:
-            import toml
-
-            cargo = toml.load(cargo_toml)
+            import tomllib
         except ImportError:
             try:
-                tomllib = __import__('tomllib')
-                with open(cargo_toml, mode='rb') as fp:
-                    cargo = tomllib.load(fp)
+                import tomli as tomllib  # pyright: ignore[reportMissingImports]
             except ImportError:
                 return self.check(
                     self.EFAIL,
                     ImportError(
-                        'toml is not installed. Please execute: pip install toml'
+                        'tomli is not installed. Please execute: pip install tomli'
                     ),
                 )
+        with open(cargo_toml, mode='rb') as fp:
+            cargo = tomllib.load(fp)
         package = cargo['package']
 
         _set_env('CARGO_CRATE_NAME', package['name'])

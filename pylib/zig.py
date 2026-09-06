@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # Copyright 2024-2026 Sprite Tong (<spritetong@gmail.com>)
 #
 # This software is under the MIT License
@@ -431,9 +430,8 @@ def patch_visibility(filename: str) -> bool:
                 op = m.group(1)
                 if op in (b'if', b'ifdef', b'ifndef'):
                     stack.append(idx)
-                elif op == b'endif':
-                    if stack:
-                        stack.pop()
+                elif op == b'endif' and stack:
+                    stack.pop()
 
         push_lines = set()
         pop_lines = set()
@@ -453,12 +451,11 @@ def patch_visibility(filename: str) -> bool:
                         op = m.group(1)
                         if op in (b'if', b'ifdef', b'ifndef'):
                             scan_stack.append(idx)
-                        elif op == b'endif':
-                            if scan_stack:
-                                popped = scan_stack.pop()
-                                if popped == target_block:
-                                    exit_line_idx = idx
-                                    break
+                        elif op == b'endif' and scan_stack:
+                            popped = scan_stack.pop()
+                            if popped == target_block:
+                                exit_line_idx = idx
+                                break
                 if exit_line_idx >= 0:
                     exited = True
 
@@ -487,9 +484,10 @@ def patch_visibility(filename: str) -> bool:
                                 if popped == target_block:
                                     pop_line_idx = idx
                                     break
-                        elif op in (b'elif', b'else'):
-                            if len(scan_stack) == len(stack_at_include):
-                                sibling_lines.append(idx)
+                        elif op in (b'elif', b'else') and len(scan_stack) == len(
+                            stack_at_include
+                        ):
+                            sibling_lines.append(idx)
 
                 for sib in sibling_lines:
                     pop_lines.add(sib)
@@ -546,7 +544,7 @@ def patch_visibility_mingw_S(filename: str) -> bool:
             if not sym.startswith(b'__MINGW_USYMBOL'):
                 symbols.add(sym)
 
-    sorted_symbols = list(sorted(symbols)) + [b'_' + x for x in sorted(symbols)]
+    sorted_symbols = sorted(symbols) + [b'_' + x for x in sorted(symbols)]
     if not sorted_symbols:
         return False
 
@@ -722,10 +720,9 @@ def zig_dll2lib(
     dll_name = os.path.splitext(os.path.basename(dll_file))[0]
     out_dir = out_path or '.'
     out_file = dll_name + '.lib'
-    if out_path:
-        if out_path.endswith('.lib') or out_path.endswith('.a'):
-            out_dir = os.path.dirname(out_path) or '.'
-            out_file = os.path.basename(out_path)
+    if out_path and out_path.endswith(('.lib', '.a')):
+        out_dir = os.path.dirname(out_path) or '.'
+        out_file = os.path.basename(out_path)
 
     def_file = os.path.splitext(out_file)[0] + '.def'
     if os.path.exists(os.path.join(out_dir, out_file)) and not force:
