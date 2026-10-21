@@ -727,7 +727,7 @@ class ShellCmd:
             import tomllib
         except ImportError:
             try:
-                import tomli as tomllib  # pyright: ignore[reportMissingImports]
+                import tomli as tomllib  # type: ignore
             except ImportError:
                 return self.check(
                     self.EFAIL,
@@ -777,7 +777,7 @@ class ShellCmd:
             ftp.connect(hostname, port or 21)
             ftp.login(username, password)
             if scheme == 'ftps':
-                ftp.prot_p()  # pyright: ignore[reportAttributeAccessIssue]
+                ftp.prot_p()  # type: ignore
             ftp.set_pasv(True)
         elif scheme == 'sftp':
             try:
@@ -1401,7 +1401,7 @@ class ShellCmd:
             else:
                 raise
 
-        shutil.rmtree(path, ignore_errors=ignore_errors, onerror=onerror)  # pyright: ignore[reportDeprecated]
+        shutil.rmtree(path, ignore_errors=ignore_errors, onerror=onerror)  # type: ignore
 
     @classmethod
     def main(cls, args: Optional[List[str]] = None) -> int:

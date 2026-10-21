@@ -27,7 +27,7 @@ Matchers restrict when a rule will match. Multiple matchers are applied sequenti
 | `partial` | Allows matching partial/combined options (e.g. `-I/usr/include` instead of just `-I`). | `partial` |
 | `command:<list>` | Matches if the command is in the comma-separated list of tool enums. | `command:cc,cxx` |
 | `linker:<bool>` | Matches if the wrapper is running in linker mode (`true` or `false`). | `linker:true` |
-| `target:<pattern>`| Matches the target triple against a wildcard pattern. | `target:x86_64*` |
+| `target:<pattern>` | Matches the target triple against a wildcard pattern. | `target:x86_64*` |
 | `match:<pattern>` | Matches the value of the argument against a wildcard pattern. | `match:/usr/*` |
 | `next` | Consumes and inspects the next argument in the argv stream. | `next` |
 

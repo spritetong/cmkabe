@@ -48,7 +48,7 @@ class RmakeUserBase:
 
 def _rsync_times_ok() -> bool:
     try:
-        return os.geteuid() == 0  # pyright: ignore[reportAttributeAccessIssue]
+        return os.geteuid() == 0  # type: ignore
     except AttributeError:
         return False
 
@@ -233,7 +233,8 @@ class RsyncMake:
             self.error(
                 f'Class {self.RMAKE_USER_CLASS} is not defined in "{script_path}".'
             )
-        self.user = user_cls(self)  # pyright: ignore[reportOptionalCall]
+        assert user_cls is not None
+        self.user = user_cls(self)
 
     def git_config_get(self, key: str) -> str:
         """Query git config value."""

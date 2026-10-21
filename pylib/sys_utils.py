@@ -442,10 +442,10 @@ def lock_file(path: Optional[str] = None, unlock: Optional[Any] = None) -> Any:
         import fcntl
 
         if unlock is None:
-            fcntl.lockf(f, fcntl.LOCK_EX)  # pyright: ignore[reportAttributeAccessIssue]
+            fcntl.lockf(f, fcntl.LOCK_EX)  # type: ignore
             return f
         else:
-            fcntl.lockf(f, fcntl.LOCK_UN)  # pyright: ignore[reportAttributeAccessIssue]
+            fcntl.lockf(f, fcntl.LOCK_UN)  # type: ignore
             f.close()
             return None
     except ModuleNotFoundError:

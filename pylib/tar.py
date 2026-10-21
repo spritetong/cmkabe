@@ -37,11 +37,11 @@ def _ensure_xz_crc32():
             raise
 
         if hasattr(t, '_extfileobj'):
-            setattr(t, '_extfileobj', False)
+            setattr(t, '_extfileobj', False)  # noqa: B010
         return t
 
-    setattr(tarfile.TarFile, 'xzopen_crc32', xzopen_crc32)
-    tarfile.TarFile.OPEN_METH['xz-crc32'] = 'xzopen_crc32'  # pyright: ignore[reportIndexIssue]
+    setattr(tarfile.TarFile, 'xzopen_crc32', xzopen_crc32)  # noqa: B010
+    tarfile.TarFile.OPEN_METH['xz-crc32'] = 'xzopen_crc32'  # type: ignore
 
 
 def _add_to_tar(
@@ -193,7 +193,7 @@ def tar_create(
         if mode in ('w', 'x', 'a') or mode[:2] in ('w:', 'x:', 'a:')
         else 'w:' + mode
     )
-    with tarfile.open(output_path, mode=open_mode, format=format) as tar:  # pyright: ignore[reportCallIssue,reportArgumentType]
+    with tarfile.open(output_path, mode=open_mode, format=format) as tar:  # type: ignore
         for src_pattern, dest in items:
             matched = glob.glob(src_pattern, recursive=True)
             if not matched:
@@ -275,7 +275,7 @@ def tar_extract(
         user_filter = lambda x: x  # noqa: E731
 
     open_mode = mode if mode == 'r' or mode.startswith('r:') else 'r:' + mode
-    with tarfile.open(archive_path, mode=open_mode) as tar:  # pyright: ignore[reportCallIssue,reportArgumentType]
+    with tarfile.open(archive_path, mode=open_mode) as tar:  # type: ignore
         members_to_extract = []
         for member in tar.getmembers():
             if user:

@@ -231,7 +231,7 @@ pub const ZigArgFilter = struct {
     }
 
     pub fn command(self: *Self, cmds: []const ZigCommand) *Self {
-        var arr = [_]?ZigCommand{null} ** MAX_COMMANDS;
+        var arr: [MAX_COMMANDS]?ZigCommand = @splat(null);
         for (cmds, 0..) |cmd, i| {
             if (i >= MAX_COMMANDS) break;
             arr[i] = cmd;

@@ -683,7 +683,7 @@ def zig_dll2lib(
 ) -> int:
     """Generate a MSVC-compatible import library (.lib) from a DLL using pefile and zig dlltool."""
     try:
-        import pefile  # pyright: ignore[reportMissingImports]
+        import pefile  # type: ignore
     except ImportError:
         print(
             '`pefile` is not installed. Try: pip install pefile',
@@ -701,10 +701,10 @@ def zig_dll2lib(
         0x01C4: 'arm',  # ARMv7
         0xAA64: 'arm64',  # ARM64
     }
-    machine = machine_types.get(pe.FILE_HEADER.Machine, None)
+    machine = machine_types.get(pe.FILE_HEADER.Machine, None) # type: ignore
     if machine is None:
         print(
-            f'Unsupported machine type {pe.FILE_HEADER.Machine} in {dll_file}',
+            f'Unsupported machine type {pe.FILE_HEADER.Machine} in {dll_file}', # type: ignore
             file=sys.stderr,
         )
         return EFAIL
@@ -735,7 +735,7 @@ def zig_dll2lib(
     with open(os.path.join(out_dir, def_file), 'wb') as f:
         f.write(f'LIBRARY {dll_name}\r\n'.encode())
         f.write(b'EXPORTS\r\n')
-        for symbol in pe.DIRECTORY_ENTRY_EXPORT.symbols:
+        for symbol in pe.DIRECTORY_ENTRY_EXPORT.symbols: # type: ignore
             name = symbol.name.decode() if symbol.name else None
             ordinal = symbol.ordinal if symbol.ordinal else None
             if name is not None:

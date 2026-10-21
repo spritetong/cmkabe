@@ -150,7 +150,7 @@ class TargetParser:
     def target_is_runnable(self) -> bool:
         if self.target_is_native or self.cargo_target == self.host.cargo_triple:
             return True
-        if (
+        return (
             not self.android
             and not self.ios
             and (self.host.os == self.os)
@@ -160,9 +160,7 @@ class TargetParser:
             )
             and (self.vendor in ['pc', 'apple', 'unknown'])
             and (self.env in ['msvc', 'gnu', 'musl', ''])
-        ):
-            return True
-        return False
+        )
 
     @property
     def is_cross_compiling(self) -> bool:
@@ -1007,12 +1005,15 @@ class TargetParser:
         bindgen_includes = (
             self.enum_prefix_subdirs_of('include', make=True) + self.cxx_includes
         )
+        assertion_semantic = (
+            '-D_LIBCPP_ASSERTION_SEMANTIC_DEFAULT=_LIBCPP_ASSERTION_SEMANTIC_IGNORE'
+        )
         hardening_mode = '-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_FAST' + (
             '' if self.apple else ' -D_LIBCPP_HAS_NO_VENDOR_AVAILABILITY_ANNOTATIONS=1'
         )
         includes_str = ' '.join(f'-I"{x}"' for x in bindgen_includes)
         lines.append(
-            f'override BINDGEN_EXTRA_CLANG_ARGS := $(TARGET_BINDGEN_CLANG_ARGS) {hardening_mode} {includes_str}',
+            f'override BINDGEN_EXTRA_CLANG_ARGS := $(TARGET_BINDGEN_CLANG_ARGS) {assertion_semantic} {hardening_mode} {includes_str}',
         )
         lines.append('export BINDGEN_EXTRA_CLANG_ARGS')
         lines.append('')
